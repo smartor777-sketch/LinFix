@@ -27,6 +27,9 @@ class SettingsScreen:
         self.port_entry = common.entry()
         self.host_entry = common.entry()
         self.log_max_entry = common.entry()
+        self.mode_combo = Gtk.ComboBoxText()
+        self.mode_combo.append(tgws.MODE_TRAY, _("Трей (нужен X11)"))
+        self.mode_combo.append(tgws.MODE_CLI, _("CLI (без графики)"))
         self.verbose_switch = common.switch(False)
         self.guard_switch = common.switch(False)
         self.autostart_switch = common.switch(False)
@@ -40,9 +43,10 @@ class SettingsScreen:
         attach(1, self.host_entry, _("Хост:"))
         attach(2, self.verbose_switch, _("Логирование verbose"))
         attach(3, self.log_max_entry, _("Размер лога, МБ:"))
-        attach(4, self.guard_switch, _("Guard"))
-        attach(5, self.autostart_switch, _("Автозапуск TgWsProxy"))
-        attach(6, self.zapret2_switch, _("Автозапуск Zapret2"))
+        attach(4, self.mode_combo, _("Режим TgWsProxy:"))
+        attach(5, self.guard_switch, _("Guard"))
+        attach(6, self.autostart_switch, _("Автозапуск TgWsProxy"))
+        attach(7, self.zapret2_switch, _("Автозапуск Zapret2"))
 
         self.box.pack_start(self.grid, False, False, 0)
 
@@ -151,6 +155,11 @@ class SettingsScreen:
         self.host_entry.set_text(str(data.get("host", "127.0.0.1")))
         self.verbose_switch.set_active(bool(data.get("verbose", False)))
         self.log_max_entry.set_text(str(data.get("log_max_mb", 5)))
+        mode = data.get("linfix_mode")
+        if mode not in tgws.MODES:
+            mode = tgws.MODE_TRAY
+        self.mode_combo.set_active_id(str(mode))
+        self._saved_mode = str(mode)
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
         completed = util.run(["systemctl", "--user", "is-enabled", tgws.UNIT_NAME], check=False, timeout=10)
         self.autostart_switch.set_active((completed.stdout or "").strip() == "enabled")
@@ -180,6 +189,15 @@ class SettingsScreen:
         if payload.get("ok") is False:
             common.message(self.app, str(payload.get("error", _("Ошибка"))))
             return
+
+        mode = self.mode_combo.get_active_id()
+        previous_mode = self._saved_mode
+        if mode in tgws.MODES and mode != previous_mode:
+            code, mode_payload = api.set_tgws_mode(self.app.cfg, str(mode))
+            if mode_payload.get("ok") is False:
+                common.message(self.app, str(mode_payload.get("error", _("Ошибка"))))
+                return
+            self._saved_mode = str(mode)
 
         api.toggle_guard(self.app.cfg, self.guard_switch.get_active())
         api.enable_autostart(self.app.cfg, start=False)

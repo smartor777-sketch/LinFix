@@ -538,12 +538,36 @@ def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
     unit_path = None
     unit_changed = False
     unit_result: dict[str, object] = {}
+    mode = tgws.MODE_TRAY
     if not args.no_unit:
-        unit_path, unit_changed = tgws.install_user_unit(cfg.tgws.binary)
+        mode_data: dict[str, object] = {}
+        requested_mode = getattr(args, "mode", None)
+        if config_path is not None:
+            mode_data = tgws.load_json_config(config_path)
+        if requested_mode:
+            mode = str(requested_mode)
+            if config_path is not None:
+                # Сохраняем выбор в конфиг, иначе автозапуск вернётся к tray.
+                mode_data, _backup, _changed = tgws.update_config(
+                    config_path, {"linfix_mode": mode}
+                )
+        elif config_path is not None:
+            mode = tgws.effective_mode(config_path)
+        if config_path is not None and mode_data.get("linfix_mode") != mode:
+            # Фиксируем фактический режим, чтобы автозапуск не вернулся к tray.
+            mode_data, _backup, _changed = tgws.update_config(
+                config_path, {"linfix_mode": mode}
+            )
+        if mode == tgws.MODE_CLI:
+            api.install_tgws_source(tgws.normalize_version(args.version) or "v1.11.4")
+        unit_path, unit_changed = tgws.install_user_unit(
+            cfg.tgws.binary, mode=mode, data=mode_data
+        )
         unit_result = tgws.enable_user_unit(start=not args.no_start)
 
     result = {
         **payload,
+        "mode": mode,
         "config": str(config_path) if config_path else None,
         "config_created": config_created,
         "unit": str(unit_path) if unit_path else None,
@@ -652,6 +676,19 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
                 print(f"  {key} = {data[key]}")
         print("Секрет не показывается; ссылка: linfix tgws link")
     return EXIT_OK
+
+
+def cmd_tgws_mode(cfg: Config, mode: str) -> int:
+    """Переключить режим TgWsProxy (tray/cli) и переустановить юнит."""
+
+    code, payload = api.set_tgws_mode(cfg, mode)
+    if code != api.EXIT_OK or payload.get("ok") is False:
+        print(f"ошибка: {payload.get('error')}", file=sys.stderr)
+        return code if code != api.EXIT_OK else api.EXIT_ERROR
+    print(f"режим TgWsProxy: {payload['mode']}")
+    print(f"user-юнит: {payload['unit']}")
+    print("перезапустите службу: linfix tgws restart")
+    return api.EXIT_OK
 
 
 def cmd_tgws_control(action: str) -> int:
@@ -1108,6 +1145,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--no-config", action="store_true", help="не создавать конфиг")
     p_install.add_argument("--no-unit", action="store_true", help="не ставить user-unit")
     p_install.add_argument("--no-start", action="store_true", help="не запускать службу")
+    p_install.add_argument(
+        "--mode", choices=list(tgws.MODES), help="tray (нужен X11) или cli (без графики)"
+    )
     p_install.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
     p_install.add_argument("--json", action="store_true", help="JSON для GUI")
 
@@ -1124,6 +1164,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--verbose", choices=["on", "off"])
     p_config.add_argument("--h2", choices=["on", "off"])
     p_config.add_argument("--cfproxy", choices=["on", "off"])
+    p_config.add_argument(
+        "--mode",
+        choices=list(tgws.MODES),
+        help="tray (нужен X11) или cli (без графики)",
+    )
     p_config.add_argument("--create", action="store_true", help="создать конфиг, если его нет")
     p_config.add_argument("--json", action="store_true", help="JSON для GUI")
 
@@ -1207,6 +1252,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.tgws_command == "install":
                 return cmd_tgws_install(cfg, args)
             if args.tgws_command == "config":
+                if getattr(args, "mode", None):
+                    return cmd_tgws_mode(cfg, args.mode)
                 return cmd_tgws_config(cfg, args)
         if args.command == "logs":
             return cmd_logs(cfg, args)

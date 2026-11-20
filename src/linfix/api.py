@@ -329,20 +329,106 @@ def install_tgws(
         }
 
     if code == 0 and not dry_run:
-        # Конфиг и user-юнит: без них автозапуск из мастера не сработает.
-        config_path, config_created = tgws.ensure_config(
-            create=True, port=cfg.tgws.port, host=cfg.tgws.host
-        )
-        unit_path, unit_changed = tgws.install_user_unit(cfg.tgws.binary)
-        payload.update(
-            {
-                "config": str(config_path) if config_path else None,
-                "config_created": config_created,
-                "unit": str(unit_path) if unit_path else None,
-                "unit_changed": unit_changed,
-            }
-        )
+        code, payload = _finalize_tgws_install(cfg, payload, version=release.tag)
     return code, payload
+
+
+def _finalize_tgws_install(
+    cfg: Config, payload: dict[str, object], *, version: str
+) -> tuple[int, dict[str, object]]:
+    """Конфиг, режим работы и user-юнит после установки TgWsProxy."""
+
+    config_path, config_created = tgws.ensure_config(
+        create=True, port=cfg.tgws.port, host=cfg.tgws.host
+    )
+    mode = tgws.effective_mode(config_path)
+    data = tgws.load_json_config(config_path) if config_path is not None else {}
+    if config_path is not None and data.get("linfix_mode") != mode:
+        # Фиксируем фактический режим (например, CLI на headless-сервере),
+        # чтобы автозапуск и панель не пытались вернуться к tray.
+        data, _backup, _changed = tgws.update_config(config_path, {"linfix_mode": mode})
+
+    if mode == tgws.MODE_CLI:
+        code, source_payload = install_tgws_source(version)
+        payload["source"] = source_payload
+        if code != 0:
+            payload["ok"] = False
+            payload["error"] = str(
+                source_payload.get("error")
+                or "не удалось скачать исходники TgWsProxy для CLI-режима"
+            )
+            return EXIT_ERROR, payload
+
+    unit_path, unit_changed = tgws.install_user_unit(
+        cfg.tgws.binary, mode=mode, data=data
+    )
+    payload.update(
+        {
+            "mode": mode,
+            "config": str(config_path) if config_path else None,
+            "config_created": config_created,
+            "unit": str(unit_path) if unit_path else None,
+            "unit_changed": unit_changed,
+        }
+    )
+    return EXIT_OK, payload
+
+
+def install_tgws_source(version: str) -> tuple[int, dict[str, object]]:
+    """Распаковать исходники TgWsProxy (нужны для CLI-режима без X11)."""
+
+    helper_args = ["--version", version, "--source-dest", str(tgws.SOURCE_DIR)]
+    try:
+        return util.run_helper("tgws.install_source", helper_args, timeout=600)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"скачивание исходников: {exc}"}
+
+
+def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
+    """Переключить режим TgWsProxy: tray (X11) или cli (без графики)."""
+
+    if mode not in tgws.MODES:
+        return EXIT_USAGE, {"ok": False, "error": f"неизвестный режим: {mode}"}
+    if mode == tgws.MODE_TRAY and not tgws.display_available():
+        return EXIT_USAGE, {
+            "ok": False,
+            "error": "режим tray требует X11/DISPLAY; на этом хосте доступен только cli",
+        }
+
+    config_path, _created = tgws.ensure_config(
+        create=True, port=cfg.tgws.port, host=cfg.tgws.host
+    )
+    if config_path is None:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "конфиг TgWsProxy не найден"}
+
+    if mode == tgws.MODE_CLI:
+        code, source_payload = install_tgws_source(_installed_version())
+        if code != 0:
+            return code, source_payload
+
+    try:
+        data, backup, changed = tgws.update_config(config_path, {"linfix_mode": mode})
+    except tgws.TgwsError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+
+    unit_path, unit_changed = tgws.install_user_unit(
+        cfg.tgws.binary, mode=mode, data=data
+    )
+    return EXIT_OK, {
+        "ok": True,
+        "mode": mode,
+        "changed": changed,
+        "backup": str(backup) if backup else None,
+        "unit": str(unit_path),
+        "unit_changed": unit_changed,
+    }
+
+
+def _installed_version() -> str:
+    info = state.load_state()
+    return info.tgws_version or "v1.11.4"
 
 
 def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str, object]]:
@@ -352,9 +438,15 @@ def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str,
     started: dict[str, bool] = {}
 
     # TgWsProxy — пользовательская служба: systemctl --user.
-    # Юнит переустанавливаем: старые версии писали его без DISPLAY и
-    # бинарник-трей падал при старте.
-    tgws.install_user_unit(cfg.tgws.binary, systemctl=False)
+    # Юнит переустанавливаем: режим мог измениться (tray ↔ cli), а старые
+    # версии писали его без DISPLAY и бинарник-трей падал при старте.
+    config_path = tgws.find_config_path() or tgws.config_candidates()[0]
+    mode = tgws.effective_mode(config_path if config_path.exists() else None)
+    data = tgws.load_json_config(config_path) if config_path.exists() else {}
+    if mode == tgws.MODE_CLI:
+        install_tgws_source(_installed_version())
+    tgws.install_user_unit(cfg.tgws.binary, systemctl=False, mode=mode, data=data)
+    util.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
     completed = util.run(["systemctl", "--user", "enable", tgws.UNIT_NAME], check=False, timeout=20)
     enabled[tgws.UNIT_NAME] = completed.returncode == 0
 

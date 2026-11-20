@@ -12,6 +12,8 @@ import json
 import os
 import re
 import secrets
+import shlex
+import sys
 import tempfile
 import time
 import urllib.error
@@ -35,6 +37,8 @@ Description=TgWsProxy (Telegram WS proxy)
 After=network-online.target graphical-session.target
 Wants=network-online.target
 PartOf=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -49,7 +53,41 @@ Environment=DISPLAY={display}
 WantedBy=default.target
 """
 
-ALLOWED_CONFIG_KEYS = {"host", "port", "cfproxy", "h2", "verbose", "pool_size", "log_max_mb"}
+#: CLI-режим: тот же прокси из исходников, без X11/трея.
+CLI_UNIT_TEMPLATE = """[Unit]
+Description=TgWsProxy (Telegram WS proxy, CLI)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory={source}
+Environment=PYTHONPATH={source}
+ExecStart={python} -m proxy.tg_ws_proxy {args}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+"""
+
+MODE_TRAY = "tray"
+MODE_CLI = "cli"
+MODES = (MODE_TRAY, MODE_CLI)
+SOURCE_DIR = INSTALL_DIR / "src"
+
+ALLOWED_CONFIG_KEYS = {
+    "host",
+    "port",
+    "cfproxy",
+    "h2",
+    "verbose",
+    "pool_size",
+    "log_max_mb",
+    "linfix_mode",
+}
 
 
 class TgwsError(util.NetfixError):
@@ -317,6 +355,7 @@ def default_config(port: int = 1080, host: str = "127.0.0.1") -> dict[str, objec
         "verbose": False,
         "log_max_mb": 5,
         "pool_size": 4,
+        "linfix_mode": MODE_TRAY,
         "secret": secrets.token_hex(16),
     }
 
@@ -379,6 +418,9 @@ def _validate_config_value(key: str, value: object) -> None:
     elif key == "log_max_mb":
         if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0.5 <= value <= 100:
             raise TgwsError(f"log_max_mb: ожидается число 0.5..100, получено {value!r}")
+    elif key == "linfix_mode":
+        if value not in MODES:
+            raise TgwsError(f"linfix_mode: ожидается {' | '.join(MODES)}, получено {value!r}")
     elif key == "host":
         if not isinstance(value, str) or not value.strip():
             raise TgwsError("host: ожидается непустая строка")
@@ -455,7 +497,86 @@ def _detect_display() -> str:
     return ":0"
 
 
-def render_unit(binary: str | Path, display: str | None = None) -> str:
+def display_available() -> bool:
+    """Есть ли доступный X11-дисплей (нужен tray-режиму бинарника)."""
+
+    display = _detect_display()
+    if not display:
+        return False
+    number = display.rsplit(":", 1)[-1].split(".")[0]
+    return Path(f"/tmp/.X11-unix/X{number}").exists()
+
+
+def detect_mode(config_path: str | Path | None = None) -> str:
+    """Режим работы: tray (по умолчанию) или cli, если X11 нет."""
+
+    if config_path is not None and Path(config_path).exists():
+        data = load_json_config(config_path)
+        mode = data.get("linfix_mode")
+        if mode in MODES:
+            return str(mode)
+    return MODE_TRAY if display_available() else MODE_CLI
+
+
+def effective_mode(config_path: str | Path | None = None) -> str:
+    """Фактический режим: сохранённое предпочтение, но tray невозможен без X11."""
+
+    mode = detect_mode(config_path)
+    if mode == MODE_TRAY and not display_available():
+        return MODE_CLI
+    return mode
+
+
+def cli_args(data: dict[str, object]) -> list[str]:
+    """Аргументы CLI-режима прокси из того же config.json."""
+
+    args = [
+        "--port",
+        str(data.get("port", 1080)),
+        "--host",
+        str(data.get("host", "127.0.0.1")),
+        "--log-file",
+        str(log_candidates()[0]),
+        "--log-max-mb",
+        str(data.get("log_max_mb", 5)),
+        "--pool-size",
+        str(data.get("pool_size", 4)),
+    ]
+    secret = data.get("secret")
+    if isinstance(secret, str) and secret:
+        args += ["--secret", secret]
+    if data.get("verbose"):
+        args.append("--verbose")
+    if data.get("cfproxy") is False:
+        args.append("--no-cfproxy")
+    if data.get("h2") is False:
+        args.append("--no-h2")
+    for key in ("cfproxy_user_domain", "cfproxy_worker_domain"):
+        values = data.get(key)
+        if isinstance(values, list):
+            flag = "--cfproxy-domain" if key == "cfproxy_user_domain" else "--cfproxy-worker-domain"
+            for value in values:
+                if isinstance(value, str) and value:
+                    args += [flag, value]
+    return args
+
+
+def render_unit(
+    binary: str | Path,
+    display: str | None = None,
+    *,
+    mode: str = MODE_TRAY,
+    data: dict[str, object] | None = None,
+    source: str | Path = SOURCE_DIR,
+    python: str | None = None,
+) -> str:
+    if mode == MODE_CLI:
+        args = " ".join(shlex.quote(part) for part in cli_args(data or {}))
+        return CLI_UNIT_TEMPLATE.format(
+            source=str(source),
+            python=python or sys.executable,
+            args=args,
+        )
     return UNIT_TEMPLATE.format(binary=str(binary), display=display or _detect_display())
 
 
@@ -469,9 +590,12 @@ def install_user_unit(
     *,
     home: str | Path | None = None,
     systemctl: bool = True,
+    mode: str = MODE_TRAY,
+    data: dict[str, object] | None = None,
+    source: str | Path = SOURCE_DIR,
 ) -> tuple[Path, bool]:
     target = user_unit_path(home)
-    text = render_unit(binary)
+    text = render_unit(binary, mode=mode, data=data, source=source)
     if target.exists() and target.read_text(encoding="utf-8", errors="replace") == text:
         return target, False
     if target.exists():
