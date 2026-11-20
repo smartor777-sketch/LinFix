@@ -440,8 +440,23 @@ def read_link(
 # ---------------------------------------------------------------------------
 
 
+def _detect_display() -> str:
+    """DISPLAY текущей сессии; при запуске из CLI — из user-manager'а."""
+
+    display = os.environ.get("DISPLAY", "").strip()
+    if display:
+        return display
+    completed = util.run(["systemctl", "--user", "show-environment"], check=False, timeout=5)
+    for line in (completed.stdout or "").splitlines():
+        if line.startswith("DISPLAY="):
+            value = line.split("=", 1)[1].strip()
+            if value:
+                return value
+    return ":0"
+
+
 def render_unit(binary: str | Path, display: str | None = None) -> str:
-    return UNIT_TEMPLATE.format(binary=str(binary), display=display or os.environ.get("DISPLAY", ":0"))
+    return UNIT_TEMPLATE.format(binary=str(binary), display=display or _detect_display())
 
 
 def user_unit_path(home: str | Path | None = None) -> Path:
