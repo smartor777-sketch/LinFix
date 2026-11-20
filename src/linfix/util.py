@@ -218,16 +218,20 @@ def helper_command() -> list[str]:
     """Команда запуска helper.
 
     ``LINFIX_HELPER`` — явное переопределение (dev/тесты). Иначе ищем
-    установленный ``linfix-helper``; в dev-режиме запускаем модуль текущим
-    интерпретатором.
+    установленный ``linfix-helper`` (в т.ч. /usr/libexec из deb-пакета);
+    в dev-режиме запускаем модуль текущим интерпретатором.
     """
 
     override = os.environ.get("LINFIX_HELPER")
     if override:
         return shlex.split(override)
-    installed = which("linfix-helper")
-    if installed:
-        return [installed]
+    for candidate in (
+        which("linfix-helper"),
+        "/usr/libexec/linfix-helper",
+        "/usr/local/libexec/linfix-helper",
+    ):
+        if candidate and Path(candidate).exists():
+            return [candidate]
     return [sys.executable, "-m", "linfix.helper"]
 
 
@@ -267,7 +271,11 @@ def run_helper(
     if is_root() or os.environ.get("LINFIX_HELPER"):
         cmd = helper_command() + [action, *[str(item) for item in args]]
     else:
-        installed = which("linfix-helper")
+        installed = None
+        for candidate in (which("linfix-helper"), "/usr/libexec/linfix-helper"):
+            if candidate and Path(candidate).exists():
+                installed = candidate
+                break
         if installed is None:
             if action.startswith("domains."):
                 example = "sudo linfix domains update"

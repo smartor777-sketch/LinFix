@@ -1,5 +1,30 @@
 # packaging/debian
 
-Каталог для M5: `debian/control`, `rules`, `install`, зависимости
-(`python3-gi`, `gir1.2-gtk-3.0`, `nftables`, `curl`, `ca-certificates`),
-polkit policy, desktop file и иконка. В M0 пакет не собирается.
+Сборка `.deb`-пакета LinFix.
+
+## Сборка
+
+```sh
+make deb
+# → dist/linfix_<version>_all.deb
+```
+
+Скрипт `build_deb.sh` собирает пакет через `dpkg-deb` (без debhelper):
+
+- Python-пакет → `/usr/lib/linfix` (обёртки добавляют его в `PYTHONPATH`);
+- `/usr/bin/linfix`, `/usr/bin/linfix-gui`;
+- `/usr/libexec/linfix-helper` + polkit policy;
+- `.desktop`-файл, иконка, systemd user-юниты.
+
+## Установка
+
+```sh
+sudo apt install ./dist/linfix_0.1.0_all.deb
+```
+
+Зависимости: `python3-gi`, `gir1.2-gtk-3.0`, `nftables`, `curl`,
+`ca-certificates`, `git`, `pkexec`, `systemd`.
+
+После установки: запустить **LinFix** из меню → вкладка **«Мастер настройки»** →
+«Далее» на каждом шаге. Пароль sudo/polkit запрашивается только на
+привилегированных шагах (установка zapret2/TgWsProxy, домены, автозапуск).

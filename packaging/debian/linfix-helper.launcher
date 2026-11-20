@@ -1,0 +1,3 @@
+#!/bin/sh
+# Привилегированный helper LinFix, вызывается через pkexec (polkit policy).
+exec env PYTHONPATH="/usr/lib/linfix${PYTHONPATH:+:$PYTHONPATH}" python3 -m linfix.helper "$@"

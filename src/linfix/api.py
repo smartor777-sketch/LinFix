@@ -20,6 +20,9 @@ EXIT_NOT_INSTALLED = 3
 EXIT_NO_RIGHTS = 4
 EXIT_CHECK_FAILED = 5
 
+#: Источник zapret2 для автоустановки (клон + install_easy.sh).
+ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
+
 
 @dataclass(frozen=True)
 class Status:
@@ -234,6 +237,47 @@ def connect_telegram(cfg: Config) -> str | None:
     return tgws.read_link(cfg.tgws.host, cfg.tgws.port)
 
 
+def install_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Установить zapret2 из репозитория (git clone + install_easy.sh через helper).
+
+    Идемпотентно: если zapret2 уже установлен и запущен — сразу ``ok``.
+    """
+
+    info = zapret.detect_zapret("zapret2")
+    if info.found and info.service:
+        return EXIT_OK, {
+            "ok": True,
+            "installed": True,
+            "service": info.service,
+            "install_dir": info.install_dir,
+        }
+
+    try:
+        code, payload = util.run_helper(
+            "zapret.install_easy",
+            ["--service", "zapret2", "--git-url", ZAPRET2_GIT_URL],
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+
+    if code != 0:
+        payload.setdefault("ok", False)
+        return code, payload
+
+    after = zapret.detect_zapret("zapret2")
+    if not after.found:
+        start_zapret(cfg)
+        after = zapret.detect_zapret("zapret2")
+    payload["installed"] = after.found
+    payload["service"] = after.service or "zapret2"
+    payload["install_dir"] = after.install_dir
+    if not after.found:
+        payload["ok"] = False
+        payload["error"] = "zapret2 установлен, но служба не запущена"
+        return EXIT_CHECK_FAILED, payload
+    return EXIT_OK, payload
+
+
 def install_tgws(
     cfg: Config,
     *,
@@ -265,26 +309,62 @@ def install_tgws(
     if dry_run:
         helper_args.append("--dry-run")
     try:
-        return util.run_helper("tgws.install", helper_args)
+        code, payload = util.run_helper("tgws.install", helper_args)
     except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
 
+    if code == 0 and not dry_run:
+        # Конфиг и user-юнит: без них автозапуск из мастера не сработает.
+        config_path, config_created = tgws.ensure_config(
+            create=True, port=cfg.tgws.port, host=cfg.tgws.host
+        )
+        unit_path, unit_changed = tgws.install_user_unit(cfg.tgws.binary)
+        payload.update(
+            {
+                "config": str(config_path) if config_path else None,
+                "config_created": config_created,
+                "unit": str(unit_path) if unit_path else None,
+                "unit_changed": unit_changed,
+            }
+        )
+    return code, payload
+
 
 def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str, object]]:
-    """Включить автозапуск zapret2 + tgwsproxy; при `start=True` — сразу запустить."""
+    """Включить автозапуск: tgwsproxy (user) + zapret (systemd, root через helper)."""
 
     enabled: dict[str, bool] = {}
-    for service in (cfg.zapret.service, tgws.UNIT_NAME):
-        completed = util.run(["systemctl", "--user", "enable", service], check=False, timeout=20)
-        enabled[service] = completed.returncode == 0
-
     started: dict[str, bool] = {}
-    if start:
-        for service in (cfg.zapret.service, tgws.UNIT_NAME):
-            completed = util.run(["systemctl", "--user", "start", service], check=False, timeout=30)
-            started[service] = completed.returncode == 0
 
-    return EXIT_OK, {"ok": all(enabled.values()) and all(started.values()), "enabled": enabled, "started": started}
+    # TgWsProxy — пользовательская служба: systemctl --user.
+    completed = util.run(["systemctl", "--user", "enable", tgws.UNIT_NAME], check=False, timeout=20)
+    enabled[tgws.UNIT_NAME] = completed.returncode == 0
+
+    # zapret/zapret2 — системная служба: только root, поэтому через helper.
+    info = zapret.detect_zapret(cfg.zapret.service)
+    service = info.service or cfg.zapret.service
+    try:
+        enabled_code, payload = util.run_helper(
+            "zapret.set_enabled", ["--service", service, "--enabled", "on"]
+        )
+        enabled[service] = enabled_code == 0 and bool(payload.get("enabled", payload.get("ok")))
+    except util.NetfixError:
+        enabled[service] = False
+
+    if start:
+        completed = util.run(
+            ["systemctl", "--user", "start", tgws.UNIT_NAME], check=False, timeout=30
+        )
+        started[tgws.UNIT_NAME] = completed.returncode == 0
+
+        started_code, _message = start_zapret(cfg)
+        started[service] = started_code == EXIT_OK
+
+    return EXIT_OK, {
+        "ok": all(enabled.values()) and all(started.values()),
+        "enabled": enabled,
+        "started": started,
+    }
 
 
 def set_zapret2_autostart(enabled: bool) -> tuple[int, dict[str, object]]:

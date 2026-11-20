@@ -55,6 +55,7 @@ class ActionValidationTests(unittest.TestCase):
     def test_known_actions(self) -> None:
         self.assertEqual(helper.validate_action("domains.merge"), "domains.merge")
         self.assertEqual(helper.validate_action("zapret.restart"), "zapret.restart")
+        self.assertEqual(helper.validate_action("zapret.install_easy"), "zapret.install_easy")
 
     def test_unknown_action(self) -> None:
         with self.assertRaises(helper.HelperError):
@@ -215,6 +216,37 @@ class TgwsInstallActionTests(unittest.TestCase):
     def test_bad_sha_rejected(self) -> None:
         with self.assertRaises(helper.HelperError):
             helper.action_tgws_install(self.args(sha256="abc"))
+
+
+class ZapretInstallEasyTests(unittest.TestCase):
+    def test_http_url_rejected(self) -> None:
+        args = SimpleNamespace(service="zapret2", git_url="http://example.com/zapret", timeout=5.0)
+        with self.assertRaises(helper.HelperError):
+            helper.action_zapret_install_easy(args)
+
+    def test_invalid_service_rejected(self) -> None:
+        args = SimpleNamespace(service="evil", git_url="https://example.com/z", timeout=5.0)
+        with self.assertRaises(helper.HelperError):
+            helper.action_zapret_install_easy(args)
+
+    def test_existing_install_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "install_easy.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+            args = SimpleNamespace(
+                service="zapret2", git_url="https://example.com/z", timeout=5.0
+            )
+            fake = mock.Mock(returncode=0, stdout="", stderr="")
+            with mock.patch.object(helper, "Path", return_value=target), mock.patch.object(
+                helper.util, "run", return_value=fake
+            ) as run:
+                code, payload = helper.action_zapret_install_easy(args)
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["already_installed"])
+        self.assertFalse(payload["cloned"])
+        run.assert_called_once_with(
+            ["systemctl", "cat", "zapret2"], check=False, timeout=10
+        )
 
 
 if __name__ == "__main__":

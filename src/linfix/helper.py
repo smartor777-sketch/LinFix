@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -30,6 +31,7 @@ ALLOWED_ROOTS: tuple[Path, ...] = tuple(
     )
 )
 ALLOWED_SERVICES = {"zapret", "zapret2"}
+DEFAULT_ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
 ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
@@ -38,6 +40,7 @@ ALLOWED_ACTIONS = {
     "profile.clear",
     "profile.set",
     "tgws.install",
+    "zapret.install_easy",
     "zapret.set_enabled",
     "zapret.stop",
     "zapret.restart",
@@ -429,6 +432,70 @@ def action_zapret_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]
     return (0 if payload["ok"] else 5), payload
 
 
+def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Установить zapret из git-репозитория: clone + install_easy.sh.
+
+    install_easy.sh интерактивен; мы подаём пустой stdin, чтобы он взял
+    значения по умолчанию (nftables, hostlist и т.п.).
+    """
+
+    service = validate_service(args.service or "zapret2")
+    url = validate_source_url(args.git_url or DEFAULT_ZAPRET2_GIT_URL)
+    target = Path("/opt/zapret2" if service == "zapret2" else "/opt/zapret")
+    installer = target / "install_easy.sh"
+
+    cloned = False
+    if not installer.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        clone = util.run(
+            ["git", "clone", "--depth", "1", url, str(target)],
+            check=False,
+            timeout=args.timeout,
+        )
+        cloned = clone.returncode == 0
+        if not cloned and not installer.is_file():
+            detail = (clone.stderr or clone.stdout or "").strip()[-2000:]
+            return 5, {"ok": False, "error": f"git clone не удался: {detail or clone.returncode}"}
+
+    # Повторный запуск мастер-установщика не нужен и опасен: если служба уже
+    # есть в systemd — считаем zapret установленным.
+    unit = util.run(["systemctl", "cat", service], check=False, timeout=10)
+    if unit.returncode == 0:
+        return 0, {
+            "ok": True,
+            "service": service,
+            "target": str(target),
+            "cloned": cloned,
+            "already_installed": True,
+        }
+
+    env = dict(os.environ)
+    env["ZAPRET_TARGET"] = str(target)
+    env["ZAPRET_TARGET_RW"] = str(target)
+    env["ZAPRET_BASE"] = str(target)
+    installed = util.run(
+        ["sh", str(installer)],
+        check=False,
+        timeout=args.timeout,
+        env=env,
+        input="",
+    )
+    output = ((installed.stdout or "") + (installed.stderr or "")).strip()
+    if installed.returncode != 0:
+        return 5, {
+            "ok": False,
+            "error": f"install_easy.sh завершился с кодом {installed.returncode}",
+            "output": output[-4000:],
+        }
+    return 0, {
+        "ok": True,
+        "service": service,
+        "target": str(target),
+        "cloned": cloned,
+        "output": output[-4000:],
+    }
+
+
 def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.set_enabled: требуется --service")
@@ -485,7 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hostlist", help="hostlist для domains.merge")
     parser.add_argument("--domain", action="append", default=[], help="домен (можно повторять)")
     parser.add_argument("--marker", default=DEFAULT_MARKER)
-    parser.add_argument("--service", help="служба zapret")
+    parser.add_argument("--service", help="служба zapret (zapret | zapret2)")
     parser.add_argument("--state", default=str(state.default_state_path()), help="путь к state.json")
     parser.add_argument("--source-label", default=None, help="github | state | fallback")
     parser.add_argument("--source-url", default="")
@@ -496,18 +563,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="перезапустить zapret, если hostlist изменился",
     )
     parser.add_argument("--url", default="", help="URL бинарника для tgws.install")
+    parser.add_argument("--git-url", default="", help="git-репозиторий zapret для zapret.install_easy")
     parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
     parser.add_argument("--version", default="", help="версия TgWsProxy")
     parser.add_argument("--dest", default=str(tgws.BINARY), help="куда установить бинарник")
     parser.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="путь к config.toml")
-    parser.add_argument("--enabled", choices=["on", "off"], help="для config.guard")
+    parser.add_argument("--enabled", choices=["on", "off"], help="для config.guard / zapret.set_enabled")
     parser.add_argument("--uuid", help="для profile.*")
     parser.add_argument("--name", help="для profile.set")
     parser.add_argument("--strategy", default=profiles.GENERAL, help="для profile.set")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--service", help="служба для zapret.set_enabled")
-    parser.add_argument("--enabled", choices=["on", "off"], help="для zapret.set_enabled")
     return parser
 
 
@@ -532,6 +598,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_guard(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
+        elif args.action == "zapret.install_easy":
+            code, payload = action_zapret_install_easy(args)
         elif args.action == "zapret.stop":
             code, payload = action_zapret_stop(args)
         elif args.action == "profile.set":

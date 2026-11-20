@@ -19,7 +19,8 @@ TgWsProxy, диагностирует поломки и защищает сет�
 - Реализованы **M0–M4** + переименование + ярлышки сервисов + **M6 (GTK3-панель)**,
   подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
   `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
-- **M5 (.deb)** — следующий этап.
+- **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
+  установка `sudo apt install ./dist/linfix_0.1.0_all.deb` (см. `packaging/debian/README.md`).
 
 M6 (GTK3-панель): `make gui` или `linfix-gui` (после установки пакета); панель использует `linfix.api`.
 
@@ -40,7 +41,19 @@ M6 (GTK3-панель): `make gui` или `linfix-gui` (после устано�
 - `linfix-helper` с белым списком действий и валидацией путей;
 - unit-тесты (stdlib `unittest`, совместимы с pytest).
 
-Профили сетей и пакет `.deb` — следующие этапы (M5).
+Профили сетей реализованы; пакет `.deb` собирается через `make deb` (M5).
+
+## Установка из .deb (для пользователя)
+
+```bash
+make deb                              # собрать пакет
+sudo apt install ./dist/linfix_0.1.0_all.deb
+linfix-gui                            # или запустить LinFix из меню
+```
+
+Далее — вкладка **«Мастер настройки»** и «Далее» по шагам:
+проверка → zapret2 из GitHub → TgWsProxy из GitHub → CF-домены → автозапуск.
+Пароль polkit/sudo запрашивается только на привилегированных шагах.
 
 ## Применение доменов
 

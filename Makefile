@@ -1,7 +1,10 @@
 PYTHON ?= python3
 export PYTHONPATH := src
 
-.PHONY: test status doctor help
+.PHONY: test status doctor help gui deb
+
+deb:
+	sh packaging/build_deb.sh
 
 test:
 	$(PYTHON) -m unittest discover -s tests -t . -v
