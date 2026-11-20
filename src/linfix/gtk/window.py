@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from .i18n import _
 from .screens import DoctorScreen, DomainsScreen, LogsScreen, SettingsScreen, SetupScreen, StatusScreen
@@ -38,6 +38,10 @@ class NetFixWindow(Gtk.ApplicationWindow):
         main_box.pack_start(self.notebook, True, True, 0)
         main_box.pack_start(self.statusbar, False, False, 0)
         self.add(main_box)
+        # Поведение «на верху»: просим WM поднять окно при активации.
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.set_keep_above(True)
+        self.set_focus_on_map(True)
         self.show_all()
 
     def set_page(self, key: str) -> None:
