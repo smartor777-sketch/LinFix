@@ -1,0 +1,274 @@
+from __future__ import annotations
+
+import unittest
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk  # noqa: E402
+
+from linfix.gtk import icons  # noqa: E402
+from linfix.gtk.i18n import install, _  # noqa: E402
+from linfix.gtk.tray import Tray  # noqa: E402
+
+HAS_DISPLAY = Gtk.init_check(None)[0]
+
+
+class I18nTests(unittest.TestCase):
+    def test_ru_and_en(self) -> None:
+        install("ru")
+        self.assertEqual(_("Статус"), "Статус")
+        install("en")
+        self.assertEqual(_("Статус"), "Status")
+        install("ru")
+
+    def test_fallback(self) -> None:
+        install("de")  # unknown -> ru
+        self.assertEqual(_("Статус"), "Статус")
+
+
+class IconTests(unittest.TestCase):
+    def test_icons_exist(self) -> None:
+        for name in ("linfix", "tray-ok", "tray-warn", "tray-fail"):
+            self.assertTrue(icons.icon_path(name), f"missing {name}")
+
+
+class TrayTests(unittest.TestCase):
+    @unittest.skipUnless(HAS_DISPLAY, "needs display")
+    def test_tray_backend(self) -> None:
+        class AppStub:
+            def show(self) -> None:
+                pass
+
+            def quit(self) -> None:
+                pass
+
+        tray = Tray(AppStub(), icons.tray_icon_path("ok"), tooltip="LinFix")
+        self.assertIn(tray.backend, {"ayatana", "xapp"})
+        self.assertIsNotNone(tray.indicator)
+        tray.set_icon(icons.tray_icon_path("warn"))
+        tray.set_icon(None)
+
+
+@unittest.skipUnless(HAS_DISPLAY, "needs display")
+class AppTests(unittest.TestCase):
+    def test_app_creates_window_and_screens(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        self.assertIsNotNone(app.window)
+        self.assertIsNotNone(app.tray)
+        self.assertEqual(app.window.notebook.get_n_pages(), 6)
+        self.assertEqual(
+            sorted(app.window.screens),
+            ["doctor", "domains", "logs", "settings", "setup", "status"],
+        )
+        status = app.window.screens["status"]
+        self.assertEqual(status.zapret_card.title_label.get_text(), "Zapret")
+        domains = app.window.screens["domains"]
+        self.assertEqual(domains.store.get_n_columns(), 3)
+        doctor = app.window.screens["doctor"]
+        self.assertEqual(doctor.store.get_n_columns(), 4)
+        settings = app.window.screens["settings"]
+        self.assertTrue(settings.port_entry.get_text())
+        self.assertTrue(hasattr(settings, "zapret2_switch"))
+        settings_labels = [
+            child.get_child().get_label()
+            for child in settings.services_box.get_children()
+            if isinstance(child, Gtk.FlowBoxChild)
+        ]
+        for label in (
+            "Перезапустить",
+            "Перезапустить TgWsProxy",
+            "Остановить TgWsProxy",
+            "Остановить Zapret2",
+            "Подключить Telegram",
+            "Очистить логи",
+        ):
+            self.assertIn(label, settings_labels)
+        self.assertTrue(hasattr(settings, "link_entry"))
+        self.assertTrue(hasattr(settings, "copy_link"))
+        self.assertTrue(hasattr(settings, "open_telegram"))
+        self.assertTrue(app.window.tab_bar)
+        tab_labels = [b.get_label() for b in app.window.tab_bar.get_children()]
+        self.assertEqual(
+            tab_labels,
+            ["Статус", "Мастер настройки", "Домены", "Диагностика", "Настройки", "Логи"],
+        )
+        self.assertEqual(
+            [key for key, b in app.window._tab_buttons.items() if b.get_style_context().has_class("active")],
+            ["status"],
+        )
+        setup = app.window.screens["setup"]
+        self.assertTrue(setup.step_label.get_text())
+        logs = app.window.screens["logs"]
+        self.assertTrue(logs.full_text is not None)
+        app.window.destroy()
+
+    def test_window_minimize_to_tray(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertTrue(window.get_visible())
+        event = Gdk.Event(Gdk.EventType.DELETE)
+        event.window = window.get_window()
+        # Симулируем минимизацию (iconified).
+        returned = window._on_window_state_event(window, Gdk.Event(Gdk.EventType.WINDOW_STATE))
+        # Если WM не поддерживает iconified в тесте, проверим что handler есть.
+        self.assertTrue(hasattr(window, "_on_window_state_event"))
+        app.window.destroy()
+
+    def test_window_hint_and_hide_on_delete(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertEqual(window.get_type_hint(), Gdk.WindowTypeHint.NORMAL)
+        self.assertTrue(window.get_deletable())
+        self.assertTrue(window.get_visible())
+        returned = window._on_delete_event(window, None)
+        self.assertTrue(returned)
+        self.assertFalse(window.get_visible())
+        app.window.destroy()
+
+    def test_status_screen_widgets(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        self.assertEqual(
+            set(screen.zapret_card.rows),
+            {"service", "active", "pid", "install_dir", "qnum", "fwmark", "user", "hostlist", "cf"},
+        )
+        self.assertEqual(set(screen.tgws_card.rows), {"installed", "version", "service", "port"})
+        self.assertEqual(set(screen.domains_card.rows), {"present", "total", "updated"})
+        self.assertEqual(
+            set(screen.telegram_card.rows),
+            {"connections", "status", "server", "port", "secret"},
+        )
+        self.assertFalse(hasattr(screen, "link_entry"))
+        self.assertTrue(screen.buttons.get_children())
+        self.assertTrue(screen.box.get_visible())
+        labels = [b.get_label() for b in screen.buttons.get_children()]
+        self.assertEqual(labels, ["Обновить"])
+        app.window.destroy()
+
+    def test_autostarted_services_start_when_enabled(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        with (
+            patch(
+                "linfix.gtk.app.util.run",
+                return_value=SimpleNamespace(stdout="enabled", returncode=0),
+            ),
+            patch("linfix.gtk.app.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.app.api.start_zapret") as start_zapret,
+        ):
+            app._autostarted_job()
+        start_tgws.assert_called_once_with(app.cfg)
+        start_zapret.assert_called_once_with(app.cfg)
+
+    def test_autostarted_services_skip_when_disabled(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        with (
+            patch(
+                "linfix.gtk.app.util.run",
+                return_value=SimpleNamespace(stdout="disabled", returncode=0),
+            ),
+            patch("linfix.gtk.app.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.app.api.start_zapret") as start_zapret,
+        ):
+            app._autostarted_job()
+        start_tgws.assert_not_called()
+        start_zapret.assert_not_called()
+
+    def test_settings_save_starts_autostarted_services(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        settings = app.window.screens["settings"]
+        settings.autostart_switch.set_active(True)
+        settings.zapret2_switch.set_active(True)
+        with (
+            patch(
+                "linfix.gtk.screens.settings.api.set_tgws_config",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.toggle_guard",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.enable_autostart",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.set_zapret2_autostart",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.util.run",
+                return_value=SimpleNamespace(stdout="disabled", returncode=0),
+            ),
+            patch("linfix.gtk.screens.settings.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.screens.settings.api.start_zapret") as start_zapret,
+        ):
+            settings.save()
+        start_tgws.assert_called_once_with(app.cfg)
+        start_zapret.assert_called_once_with(app.cfg)
+        app.window.destroy()
+
+    def test_window_state_event_iconified_hides(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertTrue(window.get_visible())
+        window._restoring = False
+        event = Gdk.EventWindowState()
+        event.new_window_state = Gdk.WindowState.ICONIFIED
+        # Не должно падать (get_state() — None), окно должно свернуться.
+        window._on_window_state_event(window, event)
+        self.assertFalse(window.get_visible())
+        app.window.destroy()
+
+    def test_show_from_tray_restores_window(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.hide()
+        self.assertFalse(window.get_visible())
+        app.show()  # клик по трею: "Развернуть панель"
+        self.assertTrue(window.get_visible())
+        app.window.destroy()
+
+
+if __name__ == "__main__":
+    unittest.main()

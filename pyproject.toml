@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linfix"
+version = "0.1.0"
+description = "LinFix for Linux: управление zapret + TgWsProxy"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "LinFix Linux" }]
+dependencies = [
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+linfix = "linfix.cli:main"
+linfix-helper = "linfix.helper:main"
+linfix-gui = "linfix.gtk.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+linfix = ["py.typed", "data/locale/**/*.mo", "data/icons/*.svg", "data/desktop/*.desktop"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

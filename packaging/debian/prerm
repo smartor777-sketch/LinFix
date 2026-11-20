@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Останавливаем пользовательские службы LinFix при удалении пакета.
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user stop linfix-guard.timer >/dev/null 2>&1 || true
+    systemctl --user disable linfix-guard.timer >/dev/null 2>&1 || true
+    systemctl --user stop tgwsproxy >/dev/null 2>&1 || true
+fi
+
+exit 0

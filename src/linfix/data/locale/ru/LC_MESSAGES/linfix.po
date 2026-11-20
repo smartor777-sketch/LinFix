@@ -1,0 +1,298 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "LinFix — статус"
+msgstr "LinFix — статус"
+
+msgid "LinFix — настройки"
+msgstr "LinFix — настройки"
+
+msgid "LinFix — домены"
+msgstr "LinFix — домены"
+
+msgid "LinFix — диагностика"
+msgstr "LinFix — диагностика"
+
+msgid "LinFix — логи"
+msgstr "LinFix — логи"
+
+msgid "LinFix — настройка"
+msgstr "LinFix — настройка"
+
+msgid "Статус"
+msgstr "Статус"
+
+msgid "Настройки"
+msgstr "Настройки"
+
+msgid "Домены"
+msgstr "Домены"
+
+msgid "Диагностика"
+msgstr "Диагностика"
+
+msgid "Логи"
+msgstr "Логи"
+
+msgid "Zapret"
+msgstr "Zapret"
+
+msgid "TgWsProxy"
+msgstr "TgWsProxy"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "Служба:"
+msgstr "Служба:"
+
+msgid "Состояние:"
+msgstr "Состояние:"
+
+msgid "PID:"
+msgstr "PID:"
+
+msgid "Путь hostlist:"
+msgstr "Путь hostlist:"
+
+msgid "CF-домены:"
+msgstr "CF-домены:"
+
+msgid "Порт:"
+msgstr "Порт:"
+
+msgid "Хост:"
+msgstr "Хост:"
+
+msgid "Версия:"
+msgstr "Версия:"
+
+msgid "Соединения:"
+msgstr "Соединения:"
+
+msgid "Перезапустить"
+msgstr "Перезапустить"
+
+msgid "Перезапустить TgWsProxy"
+msgstr "Перезапустить TgWsProxy"
+
+msgid "Перезапустить zapret2"
+msgstr "Перезапустить zapret2"
+
+msgid "Подключить Telegram"
+msgstr "Подключить Telegram"
+
+msgid "Обновить"
+msgstr "Обновить"
+
+msgid "Тест TLS"
+msgstr "Тест TLS"
+
+msgid "Не установлен"
+msgstr "Не установлен"
+
+msgid "Установлен:"
+msgstr "Установлен:"
+
+msgid "Активно"
+msgstr "Активно"
+
+msgid "Источник:"
+msgstr "Источник:"
+
+msgid "Доменов:"
+msgstr "Доменов:"
+
+msgid "Hostlist:"
+msgstr "Hostlist:"
+
+msgid "Обновлено:"
+msgstr "Обновлено:"
+
+msgid "Хост"
+msgstr "Хост"
+
+msgid "Детали"
+msgstr "Детали"
+
+msgid "Обновить и проверить"
+msgstr "Обновить и проверить"
+
+msgid "Служба zapret"
+msgstr "Служба zapret"
+
+msgid "Правила nftables"
+msgstr "Правила nftables"
+
+msgid "Домены в hostlist"
+msgstr "Домены в hostlist"
+
+msgid "CF-домены: TLS-тест"
+msgstr "CF-домены: TLS-тест"
+
+msgid "Telegram подключён"
+msgstr "Telegram подключён"
+
+msgid "Маршрут по умолчанию"
+msgstr "Маршрут по умолчанию"
+
+msgid "Guard"
+msgstr "Guard"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "FAIL"
+msgstr "FAIL"
+
+msgid "PASS"
+msgstr "PASS"
+
+msgid "WARN"
+msgstr "WARN"
+
+msgid "Проверка"
+msgstr "Проверка"
+
+msgid "Копировать отчёт"
+msgstr "Копировать отчёт"
+
+msgid "Включить"
+msgstr "Включить"
+
+msgid "Выключить"
+msgstr "Выключить"
+
+msgid "Автозапуск TgWsProxy"
+msgstr "Автозапуск TgWsProxy"
+
+msgid "Сохранить"
+msgstr "Сохранить"
+
+msgid "Выйти"
+msgstr "Выйти"
+
+msgid "Проверка системы"
+msgstr "Проверка системы"
+
+msgid "Установка TgWsProxy"
+msgstr "Установка TgWsProxy"
+
+msgid "Обновление доменов"
+msgstr "Обновление доменов"
+
+msgid "Автозапуск"
+msgstr "Автозапуск"
+
+msgid "Далее"
+msgstr "Далее"
+
+msgid "Назад"
+msgstr "Назад"
+
+msgid "Закрыть"
+msgstr "Закрыть"
+
+msgid "Готово"
+msgstr "Готово"
+
+msgid "Setup завершён"
+msgstr "Setup завершён"
+
+msgid "Описание шагов: 1 — система, 2 — TgWsProxy, 3 — домены, 4 — автозапуск"
+msgstr "Описание шагов: 1 — система, 2 — TgWsProxy, 3 — домены, 4 — автозапуск"
+
+msgid "Скачать бинарник, проверить SHA256, установить"
+msgstr "Скачать бинарник, проверить SHA256, установить"
+
+msgid "Скачать список CF-доменов и добавить в hostlist"
+msgstr "Скачать список CF-доменов и добавить в hostlist"
+
+msgid "Включить zapret2 и tgwsproxy, запустить сервисы"
+msgstr "Включить zapret2 и tgwsproxy, запустить сервисы"
+
+msgid "zapret2"
+msgstr "zapret2"
+
+msgid "tgwsproxy"
+msgstr "tgwsproxy"
+
+msgid "proxy.log"
+msgstr "proxy.log"
+
+msgid "Система"
+msgstr "Система"
+
+msgid "Модуль nfnetlink_queue"
+msgstr "Модуль nfnetlink_queue"
+
+msgid "TgWsProxy: служба"
+msgstr "TgWsProxy: служба"
+
+msgid "TgWsProxy: порт"
+msgstr "TgWsProxy: порт"
+
+msgid "Ошибка"
+msgstr "Ошибка"
+
+msgid "Ссылка скопирована"
+msgstr "Ссылка скопирована"
+
+msgid "Конфиг TgWsProxy не найден"
+msgstr "Конфиг TgWsProxy не найден"
+
+msgid "Некорректный порт"
+msgstr "Некорректный порт"
+
+msgid "В MVP разрешён только loopback: 127.0.0.1, localhost, ::1"
+msgstr "В MVP разрешён только loopback: 127.0.0.1, localhost, ::1"
+
+msgid "Настройки сохранены"
+msgstr "Настройки сохранены"
+
+msgid "Логирование verbose"
+msgstr "Логирование verbose"
+
+msgid "Поиск в логах"
+msgstr "Поиск в логах"
+
+msgid "Пусто"
+msgstr "Пусто"
+
+msgid "Нет совпадений"
+msgstr "Нет совпадений"
+
+msgid "Нет доменов для теста"
+msgstr "Нет доменов для теста"
+
+msgid "active"
+msgstr "active"
+
+msgid "inactive"
+msgstr "inactive"
+
+msgid "MISSING"
+msgstr "MISSING"
+
+msgid "да"
+msgstr "да"
+
+msgid "нет"
+msgstr "нет"
+
+msgid "не слушается"
+msgstr "не слушается"
+
+msgid "никогда"
+msgstr "никогда"
+
+msgid "Автозапуск Zapret2"
+msgstr "Автозапуск Zapret2"
+msgid "Остановить TgWsProxy"
+msgstr "Остановить TgWsProxy"
+msgid "Остановить Zapret2"
+msgstr "Остановить Zapret2"
+msgid "Развернуть панель"
+msgstr "Развернуть панель"

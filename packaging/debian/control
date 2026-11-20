@@ -1,0 +1,13 @@
+Package: linfix
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: all
+Maintainer: LinFix <linfix@localhost>
+Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-3.0, nftables, curl, ca-certificates, git, pkexec, systemd
+Recommends: gir1.2-ayatanaappindicator3-0.1
+Description: LinFix - управление zapret2 и TgWsProxy
+ Графическая панель и CLI для установки и управления zapret2
+ (обход блокировок через NFQUEUE) и TgWsProxy (Telegram WS proxy).
+ Мастер настройки ставит компоненты из GitHub-репозиториев,
+ применяет список CF-доменов и включает автозапуск служб.

@@ -1,0 +1,16 @@
+#!/bin/sh
+# LinFix: NetworkManager dispatcher (M4).
+# Работает в минимальном окружении: только абсолютные пути, лог в journald.
+set -eu
+
+[ "${2:-}" = "up" ] || exit 0
+
+logger -t linfix "network up: ${CONNECTION_UUID:-unknown} (${CONNECTION_ID:-unknown})"
+
+# При поднятом соединении применить профиль через helper (root).
+# MVP: только логирование UUID и активный профиль; смена стратегии — M4+/M5.
+if [ -n "${CONNECTION_UUID:-}" ]; then
+    /usr/libexec/linfix-helper profile.apply "${CONNECTION_UUID}" >/dev/null 2>&1 || true
+fi
+
+exit 0

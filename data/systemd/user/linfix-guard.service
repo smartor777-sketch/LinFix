@@ -1,0 +1,8 @@
+[Unit]
+Description=LinFix guard (проверка CF-пути)
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/linfix guard check
+Nice=10

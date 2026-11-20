@@ -1,0 +1,3 @@
+#!/bin/sh
+# Обёртка GUI LinFix (deb-пакет).
+exec env PYTHONPATH="/usr/lib/linfix${PYTHONPATH:+:$PYTHONPATH}" python3 -m linfix.gtk.main "$@"
