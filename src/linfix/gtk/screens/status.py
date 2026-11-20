@@ -59,7 +59,6 @@ class StatusScreen:
             ("server", _("Сервер:")),
             ("port", _("Порт:")),
             ("secret", _("Секрет:")),
-            ("link", _("Ссылка для Telegram")),
         ):
             self.telegram_card.add(key, text)
 
@@ -81,10 +80,8 @@ class StatusScreen:
             status = api.get_status(self.app.cfg)
             info = status.zapret
             connections = len(zapret.listening_addresses(self.app.cfg.tgws.port))
-            link = api.connect_telegram(self.app.cfg)
             telegram_settings = self._telegram_settings()
             return {
-                "link": link or "",
                 "server": telegram_settings["server"],
                 "port": telegram_settings["port"],
                 "secret": telegram_settings["secret"] or "—",
@@ -130,7 +127,6 @@ class StatusScreen:
             self.telegram_card.set("server", data["server"])
             self.telegram_card.set("port", data["port"])
             self.telegram_card.set("secret", data["secret"])
-            self.telegram_card.set("link", data["link"] or "—")
 
         run_in_thread(job, on_done=apply_data)
 

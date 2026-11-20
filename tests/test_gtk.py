@@ -143,7 +143,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(set(screen.domains_card.rows), {"present", "total", "updated"})
         self.assertEqual(
             set(screen.telegram_card.rows),
-            {"connections", "status", "server", "port", "secret", "link"},
+            {"connections", "status", "server", "port", "secret"},
         )
         self.assertFalse(hasattr(screen, "link_entry"))
         self.assertTrue(screen.buttons.get_children())
