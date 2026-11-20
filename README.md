@@ -8,11 +8,11 @@ TgWsProxy, диагностирует поломки и защищает сет�
 [docs/INVESTIGATION.md](docs/INVESTIGATION.md), принятые решения — в
 [docs/DECISIONS.md](docs/DECISIONS.md), отчёты по этапам — в
 `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
-`docs/M3-REPORT.md`.
+`docs/M3-REPORT.md`, `docs/M4-REPORT.md`.
 
 ## Статус
 
-Реализованы **M0–M3**:
+Реализованы **M0–M4**:
 
 - `netfix status` с реальным определением zapret/zapret2, hostlist и state;
 - `netfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
@@ -24,6 +24,7 @@ TgWsProxy, диагностирует поломки и защищает сет�
   HTTPS + SHA256, `/opt/tgwsproxy`, user-unit, безопасный конфиг;
 - `netfix guard check|status|on|off` — защита от шторма соединений;
 - `netfix setup` и `netfix update` — оркестрация настройки/обновлений;
+- `netfix profile list|set|clear` — профили сетей (матчинг по UUID, по умолчанию general);
 - идемпотентный merge hostlist с сохранением CRLF и бэкапом;
 - `netfix-helper` с белым списком действий и валидацией путей;
 - unit-тесты (stdlib `unittest`, совместимы с pytest).
@@ -61,7 +62,7 @@ make test
 PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 ```
 
-Сейчас: **144 теста**, все проходят.
+Сейчас: **163 теста**, все проходят.
 
 ## Безопасность
 

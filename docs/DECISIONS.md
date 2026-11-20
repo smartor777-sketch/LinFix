@@ -156,3 +156,14 @@ merge → state → restart → verify. Если после рестарта с�
 - `setup` не устанавливает zapret автоматически: если его нет — печатает
   инструкцию и возвращает код 3.
 
+## D17. Профили сетей
+
+- `netfix profile set <uuid> --name X` тоже пишет файл на root (`/etc/netfix/profiles.toml`);
+  через helper `profile.set` с бэкапом, валидацией TOML и атомарной записью 0644.
+- `netfix profile clear` работает по `nmcli --active` (первый активный UUID); если
+  `nmcli` нет или нет активных соединений — печатается понятное сообщение.
+- В MVP (`M4`) смена стратегии запрещена: `STRATEGIES = {"general"}`. Структура
+  `[profiles."<uuid>"]` готова для продвинутых `strategy = "cf" | "direct" | "auto"`.
+- Dispatcher `90-netfix` вызывает helper `profile.apply <uuid>` — агент там не
+  выполняется (минимальное окружение), всё решается через helper.
+

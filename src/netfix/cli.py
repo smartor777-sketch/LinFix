@@ -718,6 +718,64 @@ def cmd_logs(cfg: Config, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# profile (M4)
+# ---------------------------------------------------------------------------
+
+
+def cmd_profile_list(args: argparse.Namespace) -> int:
+    loaded = profiles.load_profiles(profiles.PROFILES_PATH)
+    current = profiles.current_uuid()
+    if not loaded:
+        print("профили не заданы, текущий профиль — general")
+        return EXIT_OK
+    rows = []
+    for uuid in sorted(loaded):
+        profile = loaded[uuid]
+        marker = "✓" if uuid == current else ""
+        rows.append([uuid, f"{profile.name}{marker}", profile.strategy])
+    _table(["UUID", "Профиль", "Стратегия"], rows)
+    if current and current not in loaded:
+        print(f"текущее соединение: {current} (профиль не задан, general)")
+    return EXIT_OK
+
+
+def cmd_profile_set(cfg: Config, args: argparse.Namespace) -> int:
+    name = args.name or args.uuid
+    try:
+        code, payload = util.run_helper(
+            "profile.set",
+            ["--uuid", args.uuid, "--name", name, "--strategy", args.strategy],
+        )
+    except (util.NetfixError, util.CommandError) as exc:
+        print(f"ошибка: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+    print(f"profile {payload.get('uuid')}: {'изменено' if payload.get('changed') else 'без изменений'}")
+    return EXIT_OK if code == 0 else EXIT_ERROR
+
+
+def cmd_profile_clear(cfg: Config, args: argparse.Namespace) -> int:
+    current = profiles.current_uuid()
+    if not current:
+        print("активного соединения нет — сначала выберите сеть")
+        return EXIT_OK
+    try:
+        code, payload = util.run_helper("profile.clear", ["--uuid", current])
+    except (util.NetfixError, util.CommandError) as exc:
+        print(f"ошибка: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+    print(
+        f"profile {current}: "
+        + ("удалён, используется general" if payload.get("changed") else "уже отсутствует")
+    )
+    return EXIT_OK if code == 0 else EXIT_ERROR
+
+
+# ---------------------------------------------------------------------------
+# guard
+# ---------------------------------------------------------------------------
+
+
 def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
     if args.state == "check":
         report = guard.check_guard(
@@ -1088,13 +1146,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_guard.add_argument("--json", action="store_true", help="JSON для GUI")
     p_guard.add_argument("--no-stop", action="store_true", help="не останавливать прокси")
 
-    p_profile = sub.add_parser("profile", help="профили сетей (M4)")
+    p_profile = sub.add_parser("profile", help="профили сетей")
     profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
     profile_sub.add_parser("list", help="список профилей")
-    p_set = profile_sub.add_parser("set", help="назначить профиль")
-    p_set.add_argument("uuid")
-    p_set.add_argument("name")
-    profile_sub.add_parser("clear", help="сбросить профиль")
+    p_profile_set = profile_sub.add_parser("set", help="задать/обновить профиль")
+    p_profile_set.add_argument("uuid", help="UUID соединения (или UUID профиля)")
+    p_profile_set.add_argument("--name", help="имя профиля (по умолчанию — uuid)")
+    p_profile_set.add_argument(
+        "--strategy", default=profiles.GENERAL, choices=sorted(profiles.STRATEGIES)
+    )
+    profile_sub.add_parser("clear", help="сбросить профиль текущего соединения")
 
     p_uninstall = sub.add_parser("uninstall", help="удалить NetFix (M5)")
     p_uninstall.add_argument("--keep-config", action="store_true")
@@ -1154,13 +1215,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_guard(cfg, args)
         if args.command == "profile":
             if args.profile_command == "list":
-                loaded = profiles.load_profiles("/etc/netfix/profiles.toml")
-                if not loaded:
-                    print("профили не настроены (используется general)")
-                for uuid, profile in loaded.items():
-                    print(f"{uuid}: {profile.name} (strategy={profile.strategy})")
-                return EXIT_OK
-            return _not_implemented("netfix profile set/clear", "M4")
+                return cmd_profile_list(args)
+            if args.profile_command == "set":
+                return cmd_profile_set(cfg, args)
+            if args.profile_command == "clear":
+                return cmd_profile_clear(cfg, args)
         if args.command == "uninstall":
             return _not_implemented("netfix uninstall", "M5")
     except util.CommandError as exc:

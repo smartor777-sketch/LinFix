@@ -107,6 +107,62 @@ class ConfigGuardActionTests(unittest.TestCase):
             self.assertIn("enabled = false", path.read_text(encoding="utf-8"))
 
 
+class ProfileActionsTests(unittest.TestCase):
+    UUID = "11111111-2222-3333-4444-555555555555"
+
+    def args(self, **overrides):
+        values = {"uuid": self.UUID, "name": "Дом", "strategy": "general"}
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_profile_set(self) -> None:
+        with mock.patch.object(
+            helper.profiles,
+            "set_profile",
+            return_value={
+                "profiles": {self.UUID: helper.profiles.Profile(name="Дом", strategy="general")},
+                "changed": True,
+                "uuid": self.UUID,
+            },
+        ):
+            code, payload = helper.action_profile_set(self.args())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["name"], "Дом")
+        self.assertIn(self.UUID, payload["profiles"])
+
+    def test_profile_set_validates_uuid(self) -> None:
+        with self.assertRaises(helper.HelperError):
+            helper.action_profile_set(self.args(uuid="bad"))
+
+    def test_profile_clear(self) -> None:
+        with mock.patch.object(
+            helper.profiles,
+            "clear_profile",
+            return_value={"profiles": {}, "changed": True, "uuid": self.UUID},
+        ):
+            code, payload = helper.action_profile_clear(self.args(name=None))
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["changed"])
+
+    def test_profile_apply(self) -> None:
+        with mock.patch.object(
+            helper.profiles,
+            "load_profiles",
+            return_value={self.UUID: helper.profiles.Profile(name="Дом", strategy="general")},
+        ):
+            code, payload = helper.action_profile_apply(self.args(name=None))
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["name"], "Дом")
+        self.assertEqual(payload["strategy"], "general")
+
+    def test_profile_apply_missing(self) -> None:
+        with mock.patch.object(helper.profiles, "load_profiles", return_value={}):
+            code, payload = helper.action_profile_apply(self.args(name=None))
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["name"], "general")
+
+
 class TgwsInstallActionTests(unittest.TestCase):
     def args(self, **overrides):
         values = {

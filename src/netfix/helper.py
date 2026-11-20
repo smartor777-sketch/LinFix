@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import state, tgws, util, zapret
+from . import profiles, state, tgws, util, zapret
 from .cfdomains import is_valid_domain, merge_hostlist_file, normalize_domain
 from .config import DEFAULT_CONFIG_PATH, DEFAULT_MARKER, ConfigError, load_config, set_guard_enabled
 
@@ -34,6 +34,9 @@ ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
     "domains.merge",
+    "profile.apply",
+    "profile.clear",
+    "profile.set",
     "tgws.install",
     "zapret.restart",
 }
@@ -297,6 +300,77 @@ def action_config_guard(args: argparse.Namespace) -> tuple[int, dict[str, object
     }
 
 
+def _profile_uuid(value: str) -> str:
+    try:
+        return profiles.validate_uuid(value)
+    except ValueError as exc:
+        raise HelperError(str(exc)) from exc
+
+
+def _profile_name(value: str) -> str:
+    try:
+        return profiles.validate_name(value)
+    except ValueError as exc:
+        raise HelperError(str(exc)) from exc
+
+
+def _profile_strategy(value: str) -> str:
+    try:
+        return profiles.validate_strategy(value)
+    except ValueError as exc:
+        raise HelperError(str(exc)) from exc
+
+
+def action_profile_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.uuid:
+        raise HelperError("profile.set: требуется --uuid")
+    if not args.name:
+        raise HelperError("profile.set: требуется --name")
+
+    uuid = _profile_uuid(args.uuid)
+    name = _profile_name(args.name)
+    strategy = _profile_strategy(args.strategy or profiles.GENERAL)
+
+    result = profiles.set_profile(uuid, name, strategy)
+    return 0, {
+        "ok": True,
+        "uuid": uuid,
+        "name": name,
+        "strategy": strategy,
+        "changed": result["changed"],
+        "profiles": {key: {"name": value.name, "strategy": value.strategy} for key, value in result["profiles"].items()},
+    }
+
+
+def action_profile_clear(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.uuid:
+        raise HelperError("profile.clear: требуется --uuid")
+
+    uuid = _profile_uuid(args.uuid)
+    result = profiles.clear_profile(uuid)
+    return 0, {
+        "ok": True,
+        "uuid": uuid,
+        "changed": result["changed"],
+        "profiles": {key: {"name": value.name, "strategy": value.strategy} for key, value in result["profiles"].items()},
+    }
+
+
+def action_profile_apply(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.uuid:
+        raise HelperError("profile.apply: требуется --uuid")
+
+    uuid = _profile_uuid(args.uuid)
+    loaded = profiles.load_profiles(profiles.PROFILES_PATH)
+    profile = profiles.resolve_profile(loaded, uuid)
+    return 0, {
+        "ok": True,
+        "uuid": uuid,
+        "name": profile.name,
+        "strategy": profile.strategy,
+    }
+
+
 def action_tgws_install(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.url:
         raise HelperError("tgws.install: требуется --url")
@@ -375,6 +449,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="путь к config.toml")
     parser.add_argument("--enabled", choices=["on", "off"], help="для config.guard")
+    parser.add_argument("--uuid", help="для profile.*")
+    parser.add_argument("--name", help="для profile.set")
+    parser.add_argument("--strategy", default=profiles.GENERAL, help="для profile.set")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -398,6 +475,12 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":
             code, payload = action_config_guard(args)
+        elif args.action == "profile.set":
+            code, payload = action_profile_set(args)
+        elif args.action == "profile.clear":
+            code, payload = action_profile_clear(args)
+        elif args.action == "profile.apply":
+            code, payload = action_profile_apply(args)
         else:
             code, payload = action_zapret_restart(args)
     except HelperError as exc:
@@ -431,6 +514,12 @@ def main(argv: list[str] | None = None) -> int:
             f"guard {state_label}: {payload['path']}"
             + (f" (бэкап: {payload['backup']})" if payload.get("backup") else "")
         )
+    elif args.action in {"profile.set", "profile.clear", "profile.apply"}:
+        if args.action == "profile.apply":
+            print(f"profile {payload['uuid']}: {payload['name']} ({payload['strategy']})")
+        else:
+            changed = "изменено" if payload.get("changed") else "без изменений"
+            print(f"profile {payload['uuid']}: {changed}")
     else:
         print(f"{payload['service']}: {payload['state']}")
         if payload.get("journal"):
