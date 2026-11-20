@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from . import cfdomains, doctor, helper, state, tgws, util, zapret
+from . import cfdomains, doctor, guard, helper, state, tgws, util, zapret
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load_config
 
 # Exit codes, идентичные cli (SPEC 6).
@@ -222,12 +222,19 @@ def set_tgws_config(changes: dict[str, object]) -> tuple[int, dict[str, object]]
 
 
 def toggle_guard(cfg: Config, enabled: bool) -> tuple[int, dict[str, object]]:
-    """Включить/выключить guard через helper."""
+    """Включить/выключить guard: флаг в конфиге + user-таймер проверок."""
 
     code, payload = util.run_helper(
         "config.guard",
         ["--enabled", "on" if enabled else "off", "--config", str(DEFAULT_CONFIG_PATH)],
     )
+    timer = guard.ensure_timer(enabled)
+    payload.update(timer)
+    if code == 0 and not timer["timer_ok"]:
+        # Конфиг записан, но таймер не переключился — это не успех.
+        payload["ok"] = False
+        payload.setdefault("error", "не удалось переключить таймер guard")
+        return EXIT_ERROR, payload
     return code, payload
 
 
@@ -470,10 +477,14 @@ def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str,
         started_code, _message = start_zapret(cfg)
         started[service] = started_code == EXIT_OK
 
+    # Guard: флаг в конфиге без запущенного таймера ничего не делает.
+    timer = guard.ensure_timer(cfg.guard.enabled)
+
     return EXIT_OK, {
         "ok": all(enabled.values()) and all(started.values()),
         "enabled": enabled,
         "started": started,
+        **timer,
     }
 
 

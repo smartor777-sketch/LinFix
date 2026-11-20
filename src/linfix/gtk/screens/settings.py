@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, Gtk
 
-from ... import api, tgws, util
+from ... import api, guard, tgws, util
 from ..i18n import _
 from . import common
 
@@ -161,6 +161,8 @@ class SettingsScreen:
         self.mode_combo.set_active_id(str(mode))
         self._saved_mode = str(mode)
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
+        timer = util.run(["systemctl", "--user", "is-enabled", guard.timer_unit()], check=False, timeout=10)
+        self._guard_timer_state = (timer.stdout or "").strip() or "disabled"
         completed = util.run(["systemctl", "--user", "is-enabled", tgws.UNIT_NAME], check=False, timeout=10)
         self.autostart_switch.set_active((completed.stdout or "").strip() == "enabled")
         completed_zapret2 = util.run(["systemctl", "is-enabled", "zapret2"], check=False, timeout=10)
