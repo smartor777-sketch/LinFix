@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from linfix import config, guard
 from linfix.config import GuardConfig
@@ -163,3 +164,33 @@ class SetGuardEnabledTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TimerTests(unittest.TestCase):
+    def test_ensure_timer_enables_and_starts(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            return type("CP", (), {"returncode": 0, "stdout": "enabled", "stderr": ""})()
+
+        with mock.patch.object(guard.util, "run", side_effect=fake_run):
+            result = guard.ensure_timer(True)
+
+        self.assertTrue(result["timer_ok"])
+        self.assertEqual(result["timer_state"], "enabled")
+        self.assertIn(["systemctl", "--user", "start", "linfix-guard.timer"], calls)
+        self.assertIn(["systemctl", "--user", "enable", "linfix-guard.timer"], calls)
+
+    def test_ensure_timer_disables_and_stops(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            return type("CP", (), {"returncode": 0, "stdout": "disabled", "stderr": ""})()
+
+        with mock.patch.object(guard.util, "run", side_effect=fake_run):
+            guard.ensure_timer(False)
+
+        self.assertIn(["systemctl", "--user", "stop", "linfix-guard.timer"], calls)
+        self.assertIn(["systemctl", "--user", "disable", "linfix-guard.timer"], calls)

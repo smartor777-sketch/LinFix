@@ -36,6 +36,25 @@
 - **Логи** — journalctl обеих служб + хвост `proxy.log`, с поиском.
 - **Трей** — цвет иконки отражает состояние, меню управляет службами.
 
+## Guard: защита от шторма соединений
+
+Если CF-путь Telegram отваливается, клиент в цикле переподключается, и
+TgWsProxy забивает канал соединениями — в итоге тормозит весь трафик, а не
+только Telegram. **Guard** останавливает прокси в этом сценарии.
+
+Раз в минуту он читает только новые строки `proxy.log`, считает
+`CF proxy failed` за окно (по умолчанию 20 за 60 с) и, если порог превышен,
+проверяет TLS до CF-доменов. Прокси останавливается **только если ошибки и
+TLS-тест провален** — одного всплеска ошибок недостаточно.
+
+```bash
+linfix guard status   # включён ли и когда срабатывал
+linfix guard check    # проверить сейчас
+linfix guard on|off   # переключить
+```
+
+В панели — **Настройки → Guard**. Подробности: [docs/GUARD.md](docs/GUARD.md).
+
 ## Установка
 
 ### Из .deb
@@ -55,7 +74,7 @@ sudo apt install ./linfix_0.1.3_all.deb
 ```bash
 git clone https://github.com/smartor777-sketch/LinFix.git
 cd LinFix
-make test     # 202 теста
+make test     # 204 теста
 make gui      # запуск панели без установки
 make deb      # → dist/linfix_<version>_all.deb
 ```
@@ -122,7 +141,7 @@ src/linfix/            api.py, cli.py, helper.py, tgws.py, zapret.py, …
 src/linfix/gtk/        GTK3-панель: окно, экраны, трей
 packaging/debian/      control, обёртки, postinst/prerm, сборка .deb
 data/                  polkit policy, systemd user-юниты, иконки
-tests/                 202 unit-теста (stdlib unittest)
+tests/                 204 unit-теста (stdlib unittest)
 ```
 
 ## Лицензия

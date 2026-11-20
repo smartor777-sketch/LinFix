@@ -86,6 +86,34 @@ def evaluate(
     )
 
 
+def timer_unit() -> str:
+    return "linfix-guard.timer"
+
+
+def ensure_timer(enabled: bool) -> dict[str, object]:
+    """Включить/выключить user-таймер Guard.
+
+    Флага в конфиге недостаточно: без `linfix-guard.timer` проверки
+    никогда не запускаются.
+    """
+
+    action = "start" if enabled else "stop"
+    util.run(["systemctl", "--user", action, timer_unit()], check=False, timeout=20)
+    switch = "enable" if enabled else "disable"
+    completed = util.run(
+        ["systemctl", "--user", switch, timer_unit()], check=False, timeout=20
+    )
+    active = util.run(
+        ["systemctl", "--user", "is-enabled", timer_unit()], check=False, timeout=10
+    )
+    return {
+        "timer": timer_unit(),
+        "timer_ok": completed.returncode == 0,
+        "timer_state": (active.stdout or "").strip() or "unknown",
+        "timer_error": (completed.stderr or "").strip(),
+    }
+
+
 def state_dir(home: str | Path | None = None) -> Path:
     base = Path(home) if home is not None else Path.home()
     return base / ".local" / "state" / "linfix"

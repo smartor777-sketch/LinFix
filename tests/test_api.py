@@ -150,6 +150,8 @@ class EnableAutostartTests(unittest.TestCase):
             "zapret.set_enabled", ["--service", "zapret2", "--enabled", "on"]
         )
         start_zapret.assert_called_once()
+        self.assertIn(["systemctl", "--user", "enable", "linfix-guard.timer"], calls)
+        self.assertIn(["systemctl", "--user", "start", "linfix-guard.timer"], calls)
 
     def test_zapret_error_is_reported(self) -> None:
         info = SimpleNamespace(service="zapret2")
