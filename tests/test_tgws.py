@@ -289,3 +289,27 @@ class UnitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunningModeTests(unittest.TestCase):
+    def _cp(self, stdout: str, code: int = 0):
+        import subprocess
+
+        return subprocess.CompletedProcess(args=[], returncode=code, stdout=stdout, stderr="")
+
+    def test_cli_process_detected(self) -> None:
+        out = (
+            "123 /usr/bin/python3 -m proxy.tg_ws_proxy --port 1080 "
+            "--secret abc\n"
+        )
+        with mock.patch.object(tgws.util, "run", return_value=self._cp(out)):
+            self.assertEqual(tgws.running_mode(), tgws.MODE_CLI)
+
+    def test_tray_process_detected(self) -> None:
+        out = "456 /opt/tgwsproxy/TgWsProxy\n"
+        with mock.patch.object(tgws.util, "run", return_value=self._cp(out)):
+            self.assertEqual(tgws.running_mode(), tgws.MODE_TRAY)
+
+    def test_no_process(self) -> None:
+        with mock.patch.object(tgws.util, "run", return_value=self._cp("", 1)):
+            self.assertIsNone(tgws.running_mode())

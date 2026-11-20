@@ -626,3 +626,19 @@ def enable_user_unit(*, start: bool = True) -> dict[str, object]:
 def service_state() -> str:
     completed = util.run(["systemctl", "--user", "is-active", UNIT_NAME], check=False, timeout=10)
     return (completed.stdout or "").strip() or "inactive"
+
+
+def running_mode() -> str | None:
+    """Фактический режим запущенного процесса — независимо от config.json."""
+
+    completed = util.run(["pgrep", "-af", UNIT_NAME], check=False, timeout=10)
+    lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        completed = util.run(["pgrep", "-af", "tg_ws_proxy"], check=False, timeout=10)
+        lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    for line in lines:
+        if "proxy.tg_ws_proxy" in line or "tg_ws_proxy" in line:
+            return MODE_CLI
+    return MODE_TRAY

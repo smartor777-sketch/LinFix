@@ -423,6 +423,13 @@ def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
     unit_path, unit_changed = tgws.install_user_unit(
         cfg.tgws.binary, mode=mode, data=data
     )
+    # Перезапускаем службу: без этого продолжает работать старый процесс
+    # (например, tray-бинарник при переключении на cli) — режим меняется
+    # в конфиге, но не в жизни.
+    util.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
+    restarted = util.run(
+        ["systemctl", "--user", "restart", tgws.UNIT_NAME], check=False, timeout=60
+    )
     return EXIT_OK, {
         "ok": True,
         "mode": mode,
@@ -430,6 +437,8 @@ def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
         "backup": str(backup) if backup else None,
         "unit": str(unit_path),
         "unit_changed": unit_changed,
+        "restarted": restarted.returncode == 0,
+        "restart_error": (restarted.stderr or "").strip(),
     }
 
 

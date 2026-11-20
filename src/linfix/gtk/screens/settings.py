@@ -160,6 +160,8 @@ class SettingsScreen:
             mode = tgws.MODE_TRAY
         self.mode_combo.set_active_id(str(mode))
         self._saved_mode = str(mode)
+        # Конфиг может говорить одно, а работать — другое (старый процесс).
+        self._running_mode = tgws.running_mode()
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
         timer = util.run(["systemctl", "--user", "is-enabled", guard.timer_unit()], check=False, timeout=10)
         self._guard_timer_state = (timer.stdout or "").strip() or "disabled"
@@ -200,6 +202,12 @@ class SettingsScreen:
                 common.message(self.app, str(mode_payload.get("error", _("Ошибка"))))
                 return
             self._saved_mode = str(mode)
+            self._running_mode = tgws.running_mode()
+            if not mode_payload.get("restarted"):
+                common.toast(
+                    self.app,
+                    _("Режим сохранён, но служба не перезапустилась — нажмите «Перезапустить TgWsProxy»"),
+                )
 
         api.toggle_guard(self.app.cfg, self.guard_switch.get_active())
         api.enable_autostart(self.app.cfg, start=False)
