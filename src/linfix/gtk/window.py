@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gi.repository import Gdk, Gtk
+from gi.repository import GLib, Gdk, Gtk
 
 from .i18n import _
 from .screens import DoctorScreen, DomainsScreen, LogsScreen, SettingsScreen, SetupScreen, StatusScreen
@@ -21,6 +21,7 @@ class NetFixWindow(Gtk.ApplicationWindow):
     def __init__(self, app) -> None:
         super().__init__(application=app, title=_("LinFix — статус"), default_width=800, default_height=560)
         self.app = app
+        self._restoring = False
         self.notebook = Gtk.Notebook()
         self.screens: dict[str, object] = {}
 
@@ -63,14 +64,40 @@ class NetFixWindow(Gtk.ApplicationWindow):
     def _on_window_state_event(self, _widget, event) -> bool:
         # Минимизация — скрываем окно в трей.
         state = event.get_state()
+        if state is None:
+            # GTK3: у EventWindowState get_state() — None; флаги в new_window_state.
+            state = getattr(event, "new_window_state", None)
         if isinstance(state, tuple):
             state_mask = state[0] if state else 0
         else:
             state_mask = state
+        if state_mask is None:
+            return False
         if state_mask & Gdk.WindowState.ICONIFIED:
+            # Не скрываем, если сейчас восстанавливаем окно из трея.
+            if self._restoring:
+                return True
             self.hide()
             return True
         return False
+
+    def _end_restoring(self) -> bool:
+        self._restoring = False
+        return False
+
+    def restore_from_tray(self) -> None:
+        """Восстановить окно из трея: принудительно показать + снять ICONIFIED.
+
+        Гоночные ICONIFIED события, приходящие после восстановления (~2 сек),
+        игнорируются — иначе окно перестаёт разворачиваться повторно.
+        """
+
+        self._restoring = True
+        GLib.timeout_add(2000, self._end_restoring)
+        self.present()
+        self.set_visible(True)
+        self.deiconify()
+        self.show_all()
 
     def set_page(self, key: str) -> None:
         for index, (name, _label) in enumerate(PAGES):

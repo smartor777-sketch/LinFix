@@ -228,6 +228,23 @@ class AppTests(unittest.TestCase):
         start_zapret.assert_called_once_with(app.cfg)
         app.window.destroy()
 
+    def test_window_state_event_iconified_hides(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertTrue(window.get_visible())
+        window._restoring = False
+        event = Gdk.EventWindowState()
+        event.new_window_state = Gdk.WindowState.ICONIFIED
+        # Не должно падать (get_state() — None), окно должно свернуться.
+        window._on_window_state_event(window, event)
+        self.assertFalse(window.get_visible())
+        app.window.destroy()
+
     def test_show_from_tray_restores_window(self) -> None:
         from linfix.gtk.app import NetFixApp
 
