@@ -94,6 +94,11 @@ class SettingsScreen:
     def _run_op(self, fn) -> None:
         self.app.run_op(fn, on_done=lambda _: self._refresh_link())
 
+    def on_shown(self) -> None:
+        """При входе на вкладку подтянуть актуальный конфиг (мог измениться из CLI)."""
+        self.load()
+        self._refresh_link()
+
     def _refresh_link(self) -> None:
         self.link_entry.set_text(api.connect_telegram(self.app.cfg) or "")
 

@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -31,15 +32,18 @@ VERSION_RE = re.compile(r"^v[0-9A-Za-z._-]+$")
 
 UNIT_TEMPLATE = """[Unit]
 Description=TgWsProxy (Telegram WS proxy)
-After=network-online.target
+After=network-online.target graphical-session.target
 Wants=network-online.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
 ExecStart={binary}
 Restart=on-failure
 RestartSec=3
-# если приложение пишет в stdout — journald подхватит автоматически
+# Бинарник TgWsProxy — tray-приложение: без X11/AppIndicator он падает,
+# поэтому юнит привязан к графической сессии, а не к default.target.
+Environment=DISPLAY={display}
 
 [Install]
 WantedBy=default.target
@@ -169,42 +173,69 @@ def download_to_temp(
     url: str,
     directory: str | Path,
     *,
-    timeout: float = 600.0,
+    timeout: float = 30.0,
     max_bytes: int = MAX_BINARY_BYTES,
+    attempts: int = 3,
 ) -> Path:
-    """Скачать по HTTPS во временный файл в той же директории."""
+    """Скачать по HTTPS во временный файл в той же директории.
+
+    ``timeout`` — таймаут простоя сокета (не всей загрузки): большие файлы
+    качаются сколько нужно, но зависшее соединение обрывается. Неудачные
+    попытки повторяются: GitHub release CDN периодически зависает на 302.
+    """
 
     if not url.lower().startswith("https://"):
         raise TgwsError("скачивание разрешено только по HTTPS")
     target_dir = Path(directory)
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    fd, tmp_name = tempfile.mkstemp(prefix=".TgWsProxy.", suffix=".download", dir=str(target_dir))
-    tmp_path = Path(tmp_name)
-    total = 0
-    request = urllib.request.Request(url, headers={"User-Agent": "linfix/0.1"})
-    try:
-        with os.fdopen(fd, "wb") as out_handle:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-                if not response.geturl().lower().startswith("https://"):
-                    raise TgwsError("редирект на не-HTTPS запрещён")
-                while True:
-                    chunk = response.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise TgwsError(f"файл больше лимита {max_bytes} байт")
-                    out_handle.write(chunk)
-            out_handle.flush()
-            os.fsync(out_handle.fileno())
-    except BaseException:
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        fd, tmp_name = tempfile.mkstemp(prefix=".TgWsProxy.", suffix=".download", dir=str(target_dir))
+        tmp_path = Path(tmp_name)
+        total = 0
+        request = urllib.request.Request(url, headers={"User-Agent": "linfix/0.1"})
         try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-        raise
-    return tmp_path
+            with os.fdopen(fd, "wb") as out_handle:
+                with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+                    if not response.geturl().lower().startswith("https://"):
+                        raise TgwsError("редирект на не-HTTPS запрещён")
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise TgwsError(f"файл больше лимита {max_bytes} байт")
+                        out_handle.write(chunk)
+                out_handle.flush()
+                os.fsync(out_handle.fileno())
+        except TgwsError:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            last_error = exc
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            if attempt < attempts:
+                time.sleep(min(2 * attempt, 5))
+            continue
+        except BaseException:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
+        return tmp_path
+
+    raise TgwsError(
+        f"не удалось скачать {url} за {attempts} попыток: {last_error or 'нет соединения'}"
+    )
 
 
 def install_binary(source: str | Path, dest: str | Path, expected_sha256: str) -> dict[str, object]:
@@ -223,7 +254,7 @@ def install_from_url(
     dest: str | Path,
     expected_sha256: str,
     *,
-    timeout: float = 600.0,
+    timeout: float = 30.0,
 ) -> dict[str, object]:
     target = Path(dest)
     temp = download_to_temp(url, target.parent, timeout=timeout)
@@ -409,8 +440,8 @@ def read_link(
 # ---------------------------------------------------------------------------
 
 
-def render_unit(binary: str | Path) -> str:
-    return UNIT_TEMPLATE.format(binary=str(binary))
+def render_unit(binary: str | Path, display: str | None = None) -> str:
+    return UNIT_TEMPLATE.format(binary=str(binary), display=display or os.environ.get("DISPLAY", ":0"))
 
 
 def user_unit_path(home: str | Path | None = None) -> Path:

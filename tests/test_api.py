@@ -108,7 +108,9 @@ class InstallZapret2Tests(unittest.TestCase):
         self.assertTrue(payload["installed"])
         self.assertEqual(payload["service"], "zapret2")
         run_helper.assert_called_once_with(
-            "zapret.install_easy", ["--service", "zapret2", "--git-url", api.ZAPRET2_GIT_URL]
+            "zapret.install_easy",
+            ["--service", "zapret2", "--git-url", api.ZAPRET2_GIT_URL],
+            timeout=1800,
         )
 
     def test_install_without_rights(self) -> None:
