@@ -12,5 +12,8 @@ status:
 doctor:
 	$(PYTHON) -m linfix.cli doctor
 
+gui:
+	$(PYTHON) -m linfix.gtk.main
+
 help:
 	$(PYTHON) -m linfix.cli --help

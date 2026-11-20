@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=LinFix
+Comment=NetFix for Linux: управление zapret + TgWsProxy
+Exec=netfix-gui
+Icon=linfix
+Terminal=false
+Categories=Network;System;

@@ -1,0 +1,289 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "NetFix — статус"
+msgstr "NetFix — status"
+
+msgid "NetFix — настройки"
+msgstr "NetFix — settings"
+
+msgid "NetFix — домены"
+msgstr "NetFix — domains"
+
+msgid "NetFix — диагностика"
+msgstr "NetFix — doctor"
+
+msgid "NetFix — логи"
+msgstr "NetFix — logs"
+
+msgid "NetFix — настройка"
+msgstr "NetFix — setup"
+
+msgid "Статус"
+msgstr "Status"
+
+msgid "Настройки"
+msgstr "Settings"
+
+msgid "Домены"
+msgstr "Domains"
+
+msgid "Диагностика"
+msgstr "Doctor"
+
+msgid "Логи"
+msgstr "Logs"
+
+msgid "Zapret"
+msgstr "Zapret"
+
+msgid "TgWsProxy"
+msgstr "TgWsProxy"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "Служба:"
+msgstr "Service:"
+
+msgid "Состояние:"
+msgstr "State:"
+
+msgid "PID:"
+msgstr "PID:"
+
+msgid "Путь hostlist:"
+msgstr "Hostlist path:"
+
+msgid "CF-домены:"
+msgstr "CF domains:"
+
+msgid "Порт:"
+msgstr "Port:"
+
+msgid "Хост:"
+msgstr "Host:"
+
+msgid "Версия:"
+msgstr "Version:"
+
+msgid "Соединения:"
+msgstr "Connections:"
+
+msgid "Перезапустить"
+msgstr "Restart"
+
+msgid "Перезапустить TgWsProxy"
+msgstr "Restart TgWsProxy"
+
+msgid "Перезапустить zapret2"
+msgstr "Restart zapret2"
+
+msgid "Подключить Telegram"
+msgstr "Connect Telegram"
+
+msgid "Обновить"
+msgstr "Refresh"
+
+msgid "Тест TLS"
+msgstr "TLS test"
+
+msgid "Не установлен"
+msgstr "Not installed"
+
+msgid "Установлен:"
+msgstr "Installed:"
+
+msgid "Активно"
+msgstr "Active"
+
+msgid "Источник:"
+msgstr "Source:"
+
+msgid "Доменов:"
+msgstr "Domains:"
+
+msgid "Hostlist:"
+msgstr "Hostlist:"
+
+msgid "Обновлено:"
+msgstr "Updated:"
+
+msgid "Хост"
+msgstr "Host"
+
+msgid "Детали"
+msgstr "Details"
+
+msgid "Обновить и проверить"
+msgstr "Update & test"
+
+msgid "Служба zapret"
+msgstr "zapret service"
+
+msgid "Правила nftables"
+msgstr "nftables rules"
+
+msgid "Домены в hostlist"
+msgstr "CF domains in hostlist"
+
+msgid "CF-домены: TLS-тест"
+msgstr "CF domains: TLS test"
+
+msgid "Telegram подключён"
+msgstr "Telegram connected"
+
+msgid "Маршрут по умолчанию"
+msgstr "Default route"
+
+msgid "Guard"
+msgstr "Guard"
+
+msgid "OK"
+msgstr "OK"
+
+msgid "FAIL"
+msgstr "FAIL"
+
+msgid "PASS"
+msgstr "PASS"
+
+msgid "WARN"
+msgstr "WARN"
+
+msgid "Проверка"
+msgstr "Check"
+
+msgid "Копировать отчёт"
+msgstr "Copy report"
+
+msgid "Включить"
+msgstr "Enable"
+
+msgid "Выключить"
+msgstr "Disable"
+
+msgid "Автозапуск TgWsProxy"
+msgstr "TgWsProxy autostart"
+
+msgid "Сохранить"
+msgstr "Save"
+
+msgid "Выйти"
+msgstr "Quit"
+
+msgid "Проверка системы"
+msgstr "System check"
+
+msgid "Установка TgWsProxy"
+msgstr "Install TgWsProxy"
+
+msgid "Обновление доменов"
+msgstr "Update domains"
+
+msgid "Автозапуск"
+msgstr "Autostart"
+
+msgid "Далее"
+msgstr "Next"
+
+msgid "Назад"
+msgstr "Back"
+
+msgid "Закрыть"
+msgstr "Close"
+
+msgid "Готово"
+msgstr "Done"
+
+msgid "Setup завершён"
+msgstr "Setup completed"
+
+msgid "Описание шагов: 1 — система, 2 — TgWsProxy, 3 — домены, 4 — автозапуск"
+msgstr "Steps: 1 — system, 2 — TgWsProxy, 3 — domains, 4 — autostart"
+
+msgid "Скачать бинарник, проверить SHA256, установить"
+msgstr "Download binary, verify SHA256, install"
+
+msgid "Скачать список CF-доменов и добавить в hostlist"
+msgstr "Download CF-domain list and add to hostlist"
+
+msgid "Включить zapret2 и tgwsproxy, запустить сервисы"
+msgstr "Enable zapret2 and tgwsproxy, start services"
+
+msgid "zapret2"
+msgstr "zapret2"
+
+msgid "tgwsproxy"
+msgstr "tgwsproxy"
+
+msgid "proxy.log"
+msgstr "proxy.log"
+
+msgid "Система"
+msgstr "System"
+
+msgid "Модуль nfnetlink_queue"
+msgstr "Module nfnetlink_queue"
+
+msgid "TgWsProxy: служба"
+msgstr "TgWsProxy: service"
+
+msgid "TgWsProxy: порт"
+msgstr "TgWsProxy: port"
+
+msgid "Ошибка"
+msgstr "Error"
+
+msgid "Ссылка скопирована"
+msgstr "Link copied"
+
+msgid "Конфиг TgWsProxy не найден"
+msgstr "TgWsProxy config not found"
+
+msgid "Некорректный порт"
+msgstr "Invalid port"
+
+msgid "В MVP разрешён только loopback: 127.0.0.1, localhost, ::1"
+msgstr "MVP only allows loopback: 127.0.0.1, localhost, ::1"
+
+msgid "Настройки сохранены"
+msgstr "Settings saved"
+
+msgid "Логирование verbose"
+msgstr "Verbose logging"
+
+msgid "Поиск в логах"
+msgstr "Search in logs"
+
+msgid "Пусто"
+msgstr "Empty"
+
+msgid "Нет совпадений"
+msgstr "No matches"
+
+msgid "Нет доменов для теста"
+msgstr "No domains for test"
+
+msgid "active"
+msgstr "active"
+
+msgid "inactive"
+msgstr "inactive"
+
+msgid "MISSING"
+msgstr "MISSING"
+
+msgid "да"
+msgstr "yes"
+
+msgid "нет"
+msgstr "no"
+
+msgid "не слушается"
+msgstr "not listening"
+
+msgid "никогда"
+msgstr "never"

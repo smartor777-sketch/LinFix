@@ -16,6 +16,13 @@ TgWsProxy, диагностирует поломки и защищает сет�
 
 ## Статус
 
+- Реализованы **M0–M4** + переименование + ярлышки сервисов + **M6 (GTK3-панель)**,
+  подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
+  `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
+- **M5 (.deb)** — следующий этап.
+
+M6 (GTK3-панель): `make gui` или `netfix-gui` (после установки пакета); панель использует `netfix.api`.
+
 Реализованы **M0–M4**:
 
 - `linfix status` с реальным определением zapret/zapret2, hostlist и state;
@@ -33,7 +40,7 @@ TgWsProxy, диагностирует поломки и защищает сет�
 - `linfix-helper` с белым списком действий и валидацией путей;
 - unit-тесты (stdlib `unittest`, совместимы с pytest).
 
-Профили сетей, пакет `.deb` и GTK — следующие этапы (M4–M6).
+Профили сетей и пакет `.deb` — следующие этапы (M5).
 
 ## Применение доменов
 
@@ -55,6 +62,18 @@ PYTHONPATH=src python3 -m linfix.cli status
 PYTHONPATH=src python3 -m linfix.cli doctor
 ```
 
+## GTK3-панель (M6, через PyGObject)
+
+```bash
+make gui        # PYTHONPATH=src python3 -m linfix.gtk.main
+```
+
+Панель: `netfix-gui` (при установке пакета), или из меню «LinFix»
+(`~/.local/share/applications/linfix.desktop`). Панель строится только поверх
+`netfix.api`; привилегированные действия — через `pkexec /usr/libexec/linfix-helper`.
+
+Тесты на панель: `tests/test_gtk.py` (установленGTK3 + трей).
+
 ## Тесты
 
 В этой системе нет `pip`/`pytest`, поэтому тесты написаны на stdlib `unittest`
@@ -66,7 +85,7 @@ make test
 PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 ```
 
-Сейчас: **163 теста**, все проходят.
+Сейчас: **169 тестов**, все проходят.
 
 ## Безопасность
 
