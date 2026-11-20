@@ -21,12 +21,12 @@ from .config import DEFAULT_CONFIG_PATH, DEFAULT_MARKER, ConfigError, load_confi
 ALLOWED_ROOTS: tuple[Path, ...] = tuple(
     Path(path)
     for path in (
-        "/opt/netfix",
+        "/opt/linfix",
         "/opt/zapret",
         "/opt/zapret2",
         "/opt/tgwsproxy",
-        "/etc/netfix",
-        "/var/lib/netfix",
+        "/etc/linfix",
+        "/var/lib/linfix",
     )
 )
 ALLOWED_SERVICES = {"zapret", "zapret2"}
@@ -425,8 +425,8 @@ def action_zapret_restart(args: argparse.Namespace) -> tuple[int, dict[str, obje
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="netfix-helper",
-        description="Привилегированные действия NetFix (только белый список)",
+        prog="linfix-helper",
+        description="Привилегированные действия LinFix (только белый список)",
     )
     parser.add_argument("action", choices=sorted(ALLOWED_ACTIONS))
     parser.add_argument("--hostlist", help="hostlist для domains.merge")
@@ -462,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if not util.is_root():
-        print("netfix-helper: требуются права root (запускайте через pkexec/sudo)", file=sys.stderr)
+        print("linfix-helper: требуются права root (запускайте через pkexec/sudo)", file=sys.stderr)
         return 4
 
     try:

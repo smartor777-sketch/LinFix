@@ -1,11 +1,11 @@
 [Unit]
-Description=NetFix guard timer (раз в 60 секунд)
+Description=LinFix guard timer (раз в 60 секунд)
 
 [Timer]
 OnBootSec=1min
 OnUnitActiveSec=60s
 AccuracySec=5s
-Unit=netfix-guard.service
+Unit=linfix-guard.service
 
 [Install]
 WantedBy=timers.target

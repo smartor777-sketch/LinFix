@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netfix import tgws
+from linfix import tgws
 
 DIGEST = "sha256:" + "a" * 64
 RAW_RELEASE = {
@@ -155,7 +155,7 @@ class ConfigTests(unittest.TestCase):
         _, backup, changed = tgws.update_config(path, {"port": 1080})
         self.assertFalse(changed)
         self.assertIsNone(backup)
-        self.assertEqual(list(self.root.glob("**/*.bak-netfix-*")), [])
+        self.assertEqual(list(self.root.glob("**/*.bak-linfix-*")), [])
 
     def test_invalid_values(self) -> None:
         path, _ = tgws.ensure_config(create=True, home=self.root)

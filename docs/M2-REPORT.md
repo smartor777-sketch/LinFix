@@ -4,7 +4,7 @@
 
 ## Что сделано
 
-1. **GitHub release** (`src/netfix/tgws.py`):
+1. **GitHub release** (`src/linfix/tgws.py`):
    - `releases/latest` или пиннинг `--version vX.Y.Z`;
    - выбор только `TgWsProxy_linux_amd64` (`.deb`/`.rpm` не используются);
    - обязательный `asset.digest` вида `sha256:...`.
@@ -40,7 +40,7 @@
 Живой dry-run релиза:
 
 ```text
-$ netfix tgws install --dry-run
+$ linfix tgws install --dry-run
 Версия:  v1.11.4
 Asset:   TgWsProxy_linux_amd64 (57377032 байт)
 SHA256:  60df0ce2fab434a57ed8c72912e4570642bce74d1a456ebd8aca911a73fd4a5d
@@ -51,7 +51,7 @@ SHA256:  60df0ce2fab434a57ed8c72912e4570642bce74d1a456ebd8aca911a73fd4a5d
 Конфиг в изолированном `HOME`:
 
 ```text
-$ netfix tgws config --port 1081 --verbose on
+$ linfix tgws config --port 1081 --verbose on
 Конфиг: .../TgWsProxy/config.json
   host = 127.0.0.1
   port = 1081
@@ -72,7 +72,7 @@ $ netfix tgws config --port 1081 --verbose on
   - точный путь конфига, который создаёт сам TgWsProxy;
   - наличие headless-режима и поведение без DISPLAY;
   - имя лог-файла.
-  Это надо проверить сразу после первого `sudo netfix tgws install`
+  Это надо проверить сразу после первого `sudo linfix tgws install`
   (`--help`, `lsof -p`, `ls` вокруг конфига). При расхождении — поправить
   `CONFIG_CANDIDATES`/`LOG_CANDIDATES` и unit.
 
@@ -80,10 +80,10 @@ $ netfix tgws config --port 1081 --verbose on
 
 ```bash
 scripts/backup-zapret.sh
-netfix tgws install --dry-run
-sudo netfix tgws install          # или через установленный helper/pkexec
-netfix tgws status
-netfix tgws link
+linfix tgws install --dry-run
+sudo linfix tgws install          # или через установленный helper/pkexec
+linfix tgws status
+linfix tgws link
 ```
 
 Если служба не стартует в headless-сессии — повторить с `--no-start`, затем

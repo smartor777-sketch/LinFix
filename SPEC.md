@@ -1,4 +1,4 @@
-# NetFix Linux — ТЗ и план реализации
+# LinFix Linux — ТЗ и план реализации
 
 > **Для AI-агента на Linux-машине.** Этот документ самодостаточен: в нём есть контекст,
 > архитектура, контракты команд, алгоритмы, подводные камни и критерии приёмки.
@@ -15,13 +15,13 @@
 
 ## 0. TL;DR для агента
 
-Нужно сделать `netfix` — CLI-утилиту, которая превращает связку **zapret + TgWsProxy**
+Нужно сделать `linfix` — CLI-утилиту, которая превращает связку **zapret + TgWsProxy**
 в управляемый продукт:
 
 1. Находит уже установленный zapret (`nfqws` + nftables), проверяет, что он жив.
 2. Ставит и настраивает TgWsProxy (Linux-бинарник с GitHub), поднимает user-службу systemd.
 3. Держит в hostlist'е zapret актуальные CF-домены TgWsProxy — без них прокси не работает.
-4. Диагностирует: `netfix doctor` показывает, что сломано и как чинить.
+4. Диагностирует: `linfix doctor` показывает, что сломано и как чинить.
 5. Защищает от «шторма соединений», если CF-путь умер.
 6. Позже: профили под сети и GTK3-панель.
 
@@ -45,13 +45,13 @@ cat /opt/zapret/config 2>/dev/null | head -50
 
 ## 1. Задача
 
-Сделать аналог NetFix для Linux Mint: пользователь ставит пакет, запускает
-`netfix setup`, отвечает на пару вопросов — и у него работает Telegram через
+Сделать аналог LinFix для Linux Mint: пользователь ставит пакет, запускает
+`linfix setup`, отвечает на пару вопросов — и у него работает Telegram через
 локальный прокси, а zapret обходит SNI-блокировку. После перезагрузки всё
-поднимается само. Если что-то отвалилось — `netfix doctor` объясняет причину
+поднимается само. Если что-то отвалилось — `linfix doctor` объясняет причину
 человеческим языком.
 
-**Что важно:** NetFix — это не один движок, а UX-обвязка. На Windows он управляет
+**Что важно:** LinFix — это не один движок, а UX-обвязка. На Windows он управляет
 WinDivert/zapret и TgWsProxy, на Android — VpnService. На Linux движки другие:
 `nfqws` + NFQUEUE/nftables и Linux-сборка TgWsProxy. Поэтому это не порт, а
 реализация той же идеи на других кирпичах.
@@ -91,7 +91,7 @@ Telegram DC
   накопил 2 531 established-сокет и ~30 ошибок в секунду; NAT роутера
   насытился, и перестали открываться все сайты. После остановки прокси сеть
   восстановилась.
-- **Обновление zapret затирает списки.** NetFix переустановил zapret и удалил
+- **Обновление zapret затирает списки.** LinFix переустановил zapret и удалил
   `C:\Zapret\lists\*-user.txt`; служба упала с ошибкой 1067. Вывод для Linux:
   наш слой должен хранить свой источник правды и уметь повторно применять
   домены после обновления.
@@ -123,9 +123,9 @@ Telegram DC
 
 ---
 
-## 4. Функциональная карта NetFix → Linux
+## 4. Функциональная карта LinFix → Linux
 
-| Возможность NetFix | Linux MVP | Как |
+| Возможность LinFix | Linux MVP | Как |
 |---|---|---|
 | Установка zapret | интегрироваться с установленным; автоустановка — M2 | detect `/opt/zapret`, `zapret.service` |
 | Запуск/остановка | да | `systemctl start/stop/restart zapret` |
@@ -134,8 +134,8 @@ Telegram DC
 | Установка TgWsProxy | да | GitHub release, бинарник в `/opt/tgwsproxy` |
 | Автозапуск | да | `systemctl enable zapret`; `systemctl --user enable tgwsproxy` |
 | Подключение Telegram | да | печать `tg://`-ссылки из конфига |
-| Диагностика | да | `netfix doctor` |
-| Обновления | да, базовая | `netfix update` с проверкой версии и откатом |
+| Диагностика | да | `linfix doctor` |
+| Обновления | да, базовая | `linfix update` с проверкой версии и откатом |
 | Профили под сети | фаза 2 | NetworkManager dispatcher |
 | Автостратегия desync | фаза 3 | тест-харнесс, перебор пресетов |
 | GUI | фаза 2 | GTK3 + PyGObject |
@@ -149,7 +149,7 @@ Telegram DC
 
 ```
 ┌──────────────────────────────┐
-│ netfix (CLI, пользователь)   │
+│ linfix (CLI, пользователь)   │
 │  status / doctor / domains   │
 │  tgws / logs / profiles      │
 └──────────────┬───────────────┘
@@ -157,7 +157,7 @@ Telegram DC
                │  pkexec / sudo
                ▼
 ┌──────────────────────────────┐
-│ netfix-helper (root, one-shot)│
+│ linfix-helper (root, one-shot)│
 │  whitelisted actions only     │
 │  install / edit / restart     │
 └──────────────┬───────────────┘
@@ -172,7 +172,7 @@ Telegram DC
 ```
 
 **Решение: без постоянно живущего демона в MVP.** Привилегированные операции —
-одноразовый `netfix-helper`, запускаемый через `pkexec` (в CLI можно и через
+одноразовый `linfix-helper`, запускаемый через `pkexec` (в CLI можно и через
 `sudo`). Это проще, безопаснее и достаточно для GUI: панель вызывает те же
 действия через polkit. Если позже понадобится live-статус — добавим D-Bus,
 но не начинай с демона.
@@ -183,26 +183,26 @@ Telegram DC
 |---|---|
 | чтение статуса, логов, конфигов | пользователь |
 | `systemctl --user ... tgwsproxy` | пользователь |
-| правка hostlist, `/opt`, nftables, `systemctl ... zapret` | `netfix-helper` (root) |
+| правка hostlist, `/opt`, nftables, `systemctl ... zapret` | `linfix-helper` (root) |
 | NetworkManager dispatcher | root, вызывает helper напрямую |
 
-`netfix-helper` принимает **только** фиксированный набор действий и
+`linfix-helper` принимает **только** фиксированный набор действий и
 валидированные аргументы. Никакого `shell=True`, никаких путей от пользователя
-без проверки, что они находятся под `/opt/netfix`, `/opt/zapret`,
+без проверки, что они находятся под `/opt/linfix`, `/opt/zapret`,
 `/opt/tgwsproxy`.
 
 ### 5.3. Структура репозитория
 
 ```
-netfix-linux/
+linfix/
 ├── SPEC.md                     # этот файл
 ├── README.md
 ├── pyproject.toml
-├── src/netfix/
+├── src/linfix/
 │   ├── __init__.py
 │   ├── cli.py                  # argparse/typer, только пользовательские команды
 │   ├── api.py                  # высокоуровневые операции, общие для CLI и GUI
-│   ├── helper.py               # root-действия, entry point netfix-helper
+│   ├── helper.py               # root-действия, entry point linfix-helper
 │   ├── config.py               # чтение/валидация TOML
 │   ├── zapret.py               # detect, hostlist, restart
 │   ├── tgws.py                 # установка, конфиг, user unit, ссылка
@@ -214,8 +214,8 @@ netfix-linux/
 ├── data/
 │   ├── strategies/             # пресеты NFQWS_OPT (фаза 3)
 │   ├── systemd/user/tgwsproxy.service
-│   ├── networkmanager/90-netfix
-│   └── polkit/org.netfix.policy
+│   ├── networkmanager/90-linfix
+│   └── polkit/org.linfix.policy
 ├── packaging/debian/
 ├── tests/
 │   ├── test_cfdomains.py
@@ -229,57 +229,57 @@ netfix-linux/
 
 ## 6. Контракт CLI
 
-Команда называется `netfix`. Коды возврата: `0` — успех, `1` — ошибка,
+Команда называется `linfix`. Коды возврата: `0` — успех, `1` — ошибка,
 `2` — неверные аргументы, `3` — компонент не установлен, `4` — нет прав,
 `5` — проверка не пройдена.
 
 ```
-netfix status
+linfix status
     Краткая сводка: zapret active/enabled, nfqws pid, tgws active,
     порт 1080, число CF-доменов в hostlist, последнее обновление.
 
-netfix setup [--yes] [--no-zapret-install]
+linfix setup [--yes] [--no-zapret-install]
     Мастер первой настройки. Проверяет систему, ставит TgWsProxy,
     добавляет CF-домены, включает автозапуск, запускает doctor.
     --yes — без вопросов (для скриптов).
 
-netfix doctor [--json]
+linfix doctor [--json]
     Полная диагностика. Человеческий отчёт или JSON для GUI.
     Ненулевой код, если есть FAIL.
 
-netfix domains list
+linfix domains list
     Показать CF-домены: источник, версия, какие есть в hostlist.
 
-netfix domains update [--force]
+linfix domains update [--force]
     Скачать актуальный список с GitHub, декодировать, идемпотентно
     дописать отсутствующие, перезапустить zapret при изменениях.
 
-netfix domains test [--all] [--json]
+linfix domains test [--all] [--json]
     Проверить SNI-доступность доменов (TLS-хендшейк).
     По умолчанию — выборка 3–5 доменов, --all — все 20.
 
-netfix tgws install [--version X]
+linfix tgws install [--version X]
     Скачать Linux-бинарник, проверить SHA256, поставить в /opt/tgwsproxy.
 
-netfix tgws start|stop|restart|status
+linfix tgws start|stop|restart|status
     Управление user-службой systemd.
 
-netfix tgws link [--qr]
+linfix tgws link [--qr]
     Напечатать tg://-ссылку с секретом из конфига.
     --qr — QR в терминале (опционально, зависимость qrcode).
 
-netfix tgws config [--port 1080] [--verbose on|off] ...
+linfix tgws config [--port 1080] [--verbose on|off] ...
     Безопасно менять ключи конфига TgWsProxy (бэкап + валидация).
 
-netfix logs [--follow] [--lines 50]
+linfix logs [--follow] [--lines 50]
     journalctl для zapret и tgwsproxy, плюс хвост proxy.log.
 
-netfix update [--check]
+linfix update [--check]
     Проверить и обновить TgWsProxy и CF-домены.
     --check — только показать доступные версии.
 
-netfix profile list|set|clear   # фаза 2
-netfix uninstall [--keep-config]
+linfix profile list|set|clear   # фаза 2
+linfix uninstall [--keep-config]
 ```
 
 Все команды с `--json` (где указано) должны возвращать стабильную схему —
@@ -289,7 +289,7 @@ netfix uninstall [--keep-config]
 
 ## 7. Конфигурация
 
-Системный конфиг: `/etc/netfix/config.toml` (root, 0644, секретов нет).
+Системный конфиг: `/etc/linfix/config.toml` (root, 0644, секретов нет).
 
 ```toml
 [general]
@@ -312,7 +312,7 @@ autostart   = true
 [lists]
 cf_domains_url = "https://raw.githubusercontent.com/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt"
 update_days    = 7
-marker         = "# netfix: tgws cf domains"
+marker         = "# linfix: tgws cf domains"
 
 [guard]
 enabled          = true
@@ -328,7 +328,7 @@ enabled = false             # фаза 2
 `~/.config/TgWsProxy/config.json` или `~/.local/share/TgWsProxy/config.json`.
 Не хардкодь, пока не проверил.
 
-Состояние: `/var/lib/netfix/state.json` — установленные версии, дата последнего
+Состояние: `/var/lib/linfix/state.json` — установленные версии, дата последнего
 обновления доменов, последний профиль. Пишет только helper.
 
 ---
@@ -373,7 +373,7 @@ enabled = false             # фаза 2
 
 1. Прочитать файл, собрать set существующих доменов в нижнем регистре.
 2. Вычислить отсутствующие.
-3. Сделать бэкап: `<file>.bak-netfix-YYYYMMDD-HHMMSS` (один раз за операцию).
+3. Сделать бэкап: `<file>.bak-linfix-YYYYMMDD-HHMMSS` (один раз за операцию).
 4. Атомарно записать: temp в той же директории → `os.replace`.
 5. Сохранить владельца/права (root:root, 0644).
 6. Если что-то изменилось и `restart_on_change` — `systemctl restart zapret`.
@@ -389,7 +389,7 @@ MVP: **не устанавливать автоматически**. Если za
 Zapret не найден. Установите его официальным установщиком:
   git clone https://github.com/bol-van/zapret
   cd zapret && sudo ./install_easy.sh
-Выберите nfqws + systemd. После установки повторите: netfix setup
+Выберите nfqws + systemd. После установки повторите: linfix setup
 ```
 
 Автоустановка (M2) должна использовать официальный установщик или его
@@ -498,7 +498,7 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd<secret>
 ```
 
 Префикс `dd` — часть формата (на Windows в логе было именно `dd...`).
-Команда `netfix tgws link` печатает ссылку; в GUI — кнопка «Подключить
+Команда `linfix tgws link` печатает ссылку; в GUI — кнопка «Подключить
 Telegram» и QR.
 
 После рестарта прокси Telegram может остаться без соединения — в инструкции
@@ -595,7 +595,7 @@ nothingthere.co.uk
 
 ### 10.4. Merge
 
-Идемпотентно, как в 8.4. Маркер `# netfix: tgws cf domains` + дата.
+Идемпотентно, как в 8.4. Маркер `# linfix: tgws cf domains` + дата.
 Повторный запуск не должен менять файл и не должен рестартовать zapret.
 
 ### 10.5. Проверка доменов (SNI)
@@ -625,7 +625,7 @@ IP-блок или нет маршрута.
 
 ### 10.6. Обновление
 
-- Раз в 7 дней (настраивается) при `netfix update` или `netfix domains update`.
+- Раз в 7 дней (настраивается) при `linfix update` или `linfix domains update`.
 - Если список изменился — merge + рестарт zapret + отчёт.
 - Если домены пропали из источника — **не удаляй** старые автоматически:
   они могут быть ещё рабочими. Только добавь новые и покажи diff.
@@ -633,7 +633,7 @@ IP-блок или нет маршрута.
 
 ---
 
-## 11. Диагностика (`netfix doctor`)
+## 11. Диагностика (`linfix doctor`)
 
 Отчёт — таблица проверок с PASS/WARN/FAIL и подсказкой. Пример:
 
@@ -679,7 +679,7 @@ Guard                            PASS    ошибок нет
   "ok": false,
   "checks": [
     {"id": "zapret.service", "status": "pass", "details": "active (enabled), pid 1234"},
-    {"id": "domains.tls", "status": "fail", "details": "1/5 timeout", "hint": "netfix domains update && sudo systemctl restart zapret"}
+    {"id": "domains.tls", "status": "fail", "details": "1/5 timeout", "hint": "linfix domains update && sudo systemctl restart zapret"}
   ]
 }
 ```
@@ -701,13 +701,13 @@ Guard                            PASS    ошибок нет
   1. записать WARN в журнал;
   2. остановить `tgwsproxy` (или перевести в degraded, если есть режим);
   3. показать пользователю: «CF-путь недоступен, прокси остановлен, чтобы не
-     перегрузить сеть. Запустите `netfix domains update` и проверьте
-     `netfix domains test`».
+     перегрузить сеть. Запустите `linfix domains update` и проверьте
+     `linfix domains test`».
 - Не останавливать прокси, если ошибки есть, но TLS-тест проходит: возможны
   единичные сбои.
-- В `netfix status` показывать состояние guard.
+- В `linfix status` показывать состояние guard.
 
-Опционально: `netfix guard on|off`. По умолчанию on.
+Опционально: `linfix guard on|off`. По умолчанию on.
 
 ---
 
@@ -715,7 +715,7 @@ Guard                            PASS    ошибок нет
 
 ### 13.1. Автозапуск
 
-- `zapret.service` — системная, `enable` делает установщик. `netfix setup`
+- `zapret.service` — системная, `enable` делает установщик. `linfix setup`
   проверяет и включает, если выключено.
 - `tgwsproxy.service` — user-юнит, `systemctl --user enable`.
 - После перезагрузки: zapret стартует до логина, TgWsProxy — при входе
@@ -729,9 +729,9 @@ Guard                            PASS    ошибок нет
 
 - `nmcli -t -f UUID,NAME,TYPE connection show --active` — определить текущее
   соединение.
-- `/etc/NetworkManager/dispatcher.d/90-netfix` (root, 0755) вызывает
-  `/usr/libexec/netfix-helper profile.apply "$CONNECTION_UUID"`.
-- Профили в `/etc/netfix/profiles.toml`:
+- `/etc/NetworkManager/dispatcher.d/90-linfix` (root, 0755) вызывает
+  `/usr/libexec/linfix-helper profile.apply "$CONNECTION_UUID"`.
+- Профили в `/etc/linfix/profiles.toml`:
 
 ```toml
 [profiles."<uuid>"]
@@ -742,7 +742,7 @@ strategy = "general"
 
 - Если профиль не задан — использовать `general`.
 - Dispatcher работает в минимальном окружении: не полагайся на `PATH`,
-  используй абсолютные пути, логируй в journald с тегом `netfix`.
+  используй абсолютные пути, логируй в journald с тегом `linfix`.
 - Смена профиля = смена стратегии/списка + рестарт zapret, только если
   реально что-то изменилось.
 
@@ -754,8 +754,8 @@ MVP: можно только логировать UUID и активный пр�
 ## 14. GTK3-панель (фаза 2)
 
 - Python 3 + PyGObject, **GTK3** (Mint 22 поставляет GTK3; GTK4 не тащить).
-- Не дублировать логику: панель импортирует `netfix.api`, а привилегированные
-  действия вызывает через `pkexec /usr/libexec/netfix-helper ...`.
+- Не дублировать логику: панель импортирует `linfix.api`, а привилегированные
+  действия вызывает через `pkexec /usr/libexec/linfix-helper ...`.
 - Экраны:
   1. **Статус** — карточки zapret / TgWsProxy / домены / Telegram, кнопки
      «Перезапустить», «Подключить Telegram».
@@ -773,8 +773,8 @@ MVP: можно только логировать UUID и активный пр�
 - Локализация: gettext, `ru` по умолчанию, `en` как fallback.
 - Пакет `.deb`: `python3-gi`, `gir1.2-gtk-3.0`, `python3-xapp` (recommends),
   `nftables`, `curl`, `ca-certificates`, `network-manager` (recommends).
-- Desktop file, иконка, polkit policy `org.netfix.policy` с action
-  `org.netfix.helper` (auth_admin_keep).
+- Desktop file, иконка, polkit policy `org.linfix.policy` с action
+  `org.linfix.helper` (auth_admin_keep).
 
 ---
 
@@ -814,18 +814,18 @@ MVP: можно только логировать UUID и активный пр�
 Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 
 1. Чистая система, zapret установлен вручную.
-2. `netfix setup --yes` → код 0, `netfix doctor` без FAIL.
-3. `netfix domains test --all` → все домены OK (при работающем zapret).
-4. `netfix tgws link` → ссылка открывается в Telegram, медиа грузится.
+2. `linfix setup --yes` → код 0, `linfix doctor` без FAIL.
+3. `linfix domains test --all` → все домены OK (при работающем zapret).
+4. `linfix tgws link` → ссылка открывается в Telegram, медиа грузится.
 5. Перезагрузка → оба юнита active, Telegram работает после переподключения.
-6. `netfix domains update` повторно → «изменений нет», zapret не рестартует.
+6. `linfix domains update` повторно → «изменений нет», zapret не рестартует.
 7. Убрать домены из hostlist → `doctor` FAIL с подсказкой; `domains update`
    возвращает всё назад.
 8. Остановить zapret → `doctor` FAIL, `domains test` таймауты; запуск
    zapret лечит.
 9. Guard: искусственно заполнить лог `CF proxy failed` + заблокировать
    домены → прокси останавливается, в статусе понятное сообщение.
-10. `netfix uninstall --keep-config` → юниты удалены, `/opt/tgwsproxy` удалён,
+10. `linfix uninstall --keep-config` → юниты удалены, `/opt/tgwsproxy` удалён,
     конфиг остался.
 
 ### 16.3. Критерии приёмки MVP
@@ -833,7 +833,7 @@ Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 - Установка и настройка на свежей Mint 22 — не более 10 минут, без ручного
   редактирования файлов.
 - После ребута всё поднимается само.
-- `netfix doctor` объясняет любую поломку человеческим языком и даёт команду
+- `linfix doctor` объясняет любую поломку человеческим языком и даёт команду
   для исправления.
 - Ни одного случая «шторма», при котором падает вся сеть: guard срабатывает.
 - Повторные запуски идемпотентны: ничего не дублируется, лишних рестартов нет.
@@ -879,8 +879,8 @@ Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 
 ### M0. Каркас — 0.5 дня
 
-- Репозиторий, `pyproject.toml`, пакет `netfix`, логирование, `util.run()`.
-- `netfix --help`, `netfix status` (заглушка), конфиг с дефолтами.
+- Репозиторий, `pyproject.toml`, пакет `linfix`, логирование, `util.run()`.
+- `linfix --help`, `linfix status` (заглушка), конфиг с дефолтами.
 - `docs/INVESTIGATION.md` с фактами о целевой машине.
 - Unit-тесты на декодер и merge (можно до реализации UI).
 
@@ -913,14 +913,14 @@ Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 ### M5. Пакет .deb — 1–2 дня
 
 - `debian/`, зависимости, polkit policy, desktop file, иконка.
-- `netfix uninstall`.
+- `linfix uninstall`.
 - Проверка установки на чистой VM.
 
 ### M6. GTK3-панель — 1–2 недели
 
 - экраны из раздела 14, трей, потоки, polkit.
 - локализация ru/en.
-- интеграция с `netfix.api`, без дублирования логики.
+- интеграция с `linfix.api`, без дублирования логики.
 
 **Итого MVP (M0–M5): ~1 неделя** при аккуратной работе. GTK — отдельно.
 
@@ -929,7 +929,7 @@ Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 ## 19. Открытые вопросы (решить с человеком)
 
 1. Какая версия Mint: 21.3 или 22? (влияет на Python и GTK)
-2. Zapret уже установлен на целевой машине или `netfix` должен его ставить?
+2. Zapret уже установлен на целевой машине или `linfix` должен его ставить?
    MVP рассчитан на «уже установлен».
 3. Telegram используется через прокси вручную (кнопка) или нужно
    авто-подключение при старте? Авто-подключение — вне MVP.
@@ -968,10 +968,10 @@ Ubuntu 24.04 / Mint 22, обычный пользователь + sudo:
 Пользователь на Mint:
 
 1. Ставит пакет.
-2. Запускает `netfix setup`, отвечает «да».
-3. Открывает ссылку из `netfix tgws link`.
+2. Запускает `linfix setup`, отвечает «да».
+3. Открывает ссылку из `linfix tgws link`.
 4. Видит, что фото и видео в Telegram грузятся.
 5. После ребута ничего не делает — всё работает.
-6. Если сломалось — `netfix doctor` говорит, что именно, и что нажать.
+6. Если сломалось — `linfix doctor` говорит, что именно, и что нажать.
 
 Вот и весь продукт. Всё остальное — удобство вокруг этих шести пунктов.

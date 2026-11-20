@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from netfix.config import ConfigError, DEFAULT_MARKER, load_config
+from linfix.config import ConfigError, DEFAULT_MARKER, load_config
 
 
 class ConfigTests(unittest.TestCase):
@@ -103,7 +103,7 @@ enabled = false
 
     def test_env_override(self) -> None:
         path = self.write('[general]\nlanguage = "en"\n')
-        with mock.patch.dict(os.environ, {"NETFIX_CONFIG": str(path)}):
+        with mock.patch.dict(os.environ, {"LINFIX_CONFIG": str(path)}):
             cfg = load_config()
         self.assertEqual(cfg.general.language, "en")
         self.assertEqual(cfg.source, path)

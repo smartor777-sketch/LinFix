@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netfix import cfdomains
+from linfix import cfdomains
 
 DOMAINS = ["pclead.co.uk", "offshor.co.uk", "cakeisalie.co.uk"]
 
@@ -15,7 +15,7 @@ class MergeTextTests(unittest.TestCase):
         result = cfdomains.merge_hostlist("", DOMAINS, today="2026-11-20")
         self.assertTrue(result.changed)
         self.assertEqual(result.added, tuple(DOMAINS))
-        self.assertIn("# netfix: tgws cf domains (updated 2026-11-20)", result.text)
+        self.assertIn("# linfix: tgws cf domains (updated 2026-11-20)", result.text)
         self.assertEqual(result.newline, "\n")
 
     def test_idempotent(self) -> None:
@@ -61,12 +61,12 @@ class MergeTextTests(unittest.TestCase):
         self.assertEqual(result.present, ("pclead.co.uk",))
 
     def test_marker_is_not_duplicated(self) -> None:
-        text = "# netfix: tgws cf domains (updated 2026-01-01)\nold.example\n"
+        text = "# linfix: tgws cf domains (updated 2026-01-01)\nold.example\n"
         result = cfdomains.merge_hostlist(text, ["pclead.co.uk"], today="2026-11-20")
-        self.assertEqual(result.text.count("# netfix: tgws cf domains"), 1)
+        self.assertEqual(result.text.count("# linfix: tgws cf domains"), 1)
         lines = result.text.splitlines()
         marker_index = next(
-            index for index, line in enumerate(lines) if line.startswith("# netfix: tgws cf domains")
+            index for index, line in enumerate(lines) if line.startswith("# linfix: tgws cf domains")
         )
         self.assertEqual(lines[marker_index + 1], "pclead.co.uk")
 
@@ -120,7 +120,7 @@ class MergeFileTests(unittest.TestCase):
         second, second_backup = cfdomains.merge_hostlist_file(path, DOMAINS)
         self.assertFalse(second.changed)
         self.assertIsNone(second_backup)
-        backups = list(self.root.glob("zapret-hosts-user.txt.bak-netfix-*"))
+        backups = list(self.root.glob("zapret-hosts-user.txt.bak-linfix-*"))
         self.assertEqual(len(backups), 1)
 
     def test_preserves_crlf_and_mode(self) -> None:

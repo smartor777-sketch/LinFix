@@ -117,7 +117,7 @@ def fetch_https_text(url: str, *, timeout: float = 20.0) -> str:
     request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "netfix-linux/0.1",
+            "User-Agent": "linfix/0.1",
             "Accept": "application/vnd.github+json",
         },
     )
@@ -182,7 +182,7 @@ def download_to_temp(
     fd, tmp_name = tempfile.mkstemp(prefix=".TgWsProxy.", suffix=".download", dir=str(target_dir))
     tmp_path = Path(tmp_name)
     total = 0
-    request = urllib.request.Request(url, headers={"User-Agent": "netfix-linux/0.1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "linfix/0.1"})
     try:
         with os.fdopen(fd, "wb") as out_handle:
             with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
@@ -353,7 +353,7 @@ def _validate_config_value(key: str, value: object) -> None:
         if not isinstance(value, bool):
             raise TgwsError(f"{key}: ожидается bool, получено {type(value).__name__}")
     else:
-        raise TgwsError(f"ключ {key} нельзя менять через netfix")
+        raise TgwsError(f"ключ {key} нельзя менять через linfix")
 
 
 def update_config(
@@ -365,7 +365,7 @@ def update_config(
     before = json.dumps(data, sort_keys=True)
     for key, value in changes.items():
         if key not in ALLOWED_CONFIG_KEYS:
-            raise TgwsError(f"ключ {key} нельзя менять через netfix")
+            raise TgwsError(f"ключ {key} нельзя менять через linfix")
         _validate_config_value(key, value)
         data[key] = value
     after = json.dumps(data, sort_keys=True)

@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from netfix import config, guard
-from netfix.config import GuardConfig
+from linfix import config, guard
+from linfix.config import GuardConfig
 
 FAIL_LINE = "2026-11-20 10:00:00 CF proxy failed for DC2"
 

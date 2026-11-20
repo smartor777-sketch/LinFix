@@ -15,11 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-LOG = logging.getLogger("netfix")
+LOG = logging.getLogger("linfix")
 
 
 class NetfixError(Exception):
-    """Базовая ошибка NetFix."""
+    """Базовая ошибка LinFix."""
 
 
 class CommandError(NetfixError):
@@ -102,7 +102,7 @@ def timestamp() -> str:
 def backup_file(
     path: str | Path,
     *,
-    tag: str = "netfix",
+    tag: str = "linfix",
     backup_dir: str | Path | None = None,
 ) -> Path:
     """Сделать копию файла: ``<name>.bak-<tag>-YYYYMMDD-HHMMSS``.
@@ -217,18 +217,18 @@ def restore_file(backup: str | Path, target: str | Path) -> None:
 def helper_command() -> list[str]:
     """Команда запуска helper.
 
-    ``NETFIX_HELPER`` — явное переопределение (dev/тесты). Иначе ищем
-    установленный ``netfix-helper``; в dev-режиме запускаем модуль текущим
+    ``LINFIX_HELPER`` — явное переопределение (dev/тесты). Иначе ищем
+    установленный ``linfix-helper``; в dev-режиме запускаем модуль текущим
     интерпретатором.
     """
 
-    override = os.environ.get("NETFIX_HELPER")
+    override = os.environ.get("LINFIX_HELPER")
     if override:
         return shlex.split(override)
-    installed = which("netfix-helper")
+    installed = which("linfix-helper")
     if installed:
         return [installed]
-    return [sys.executable, "-m", "netfix.helper"]
+    return [sys.executable, "-m", "linfix.helper"]
 
 
 def _parse_helper_payload(stdout: str, stderr: str) -> dict[str, object]:
@@ -264,19 +264,19 @@ def run_helper(
     не установлен и эскалация невозможна.
     """
 
-    if is_root() or os.environ.get("NETFIX_HELPER"):
+    if is_root() or os.environ.get("LINFIX_HELPER"):
         cmd = helper_command() + [action, *[str(item) for item in args]]
     else:
-        installed = which("netfix-helper")
+        installed = which("linfix-helper")
         if installed is None:
             if action.startswith("domains."):
-                example = "sudo netfix domains update"
+                example = "sudo linfix domains update"
             elif action.startswith("tgws."):
-                example = "sudo netfix tgws install"
+                example = "sudo linfix tgws install"
             else:
-                example = "sudo netfix"
+                example = "sudo linfix"
             raise NetfixError(
-                f"netfix-helper не установлен. Запустите через sudo: {example}"
+                f"linfix-helper не установлен. Запустите через sudo: {example}"
             )
         if which("pkexec"):
             cmd = ["pkexec", installed, action, *[str(item) for item in args]]

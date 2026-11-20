@@ -7,10 +7,10 @@ test:
 	$(PYTHON) -m unittest discover -s tests -t . -v
 
 status:
-	$(PYTHON) -m netfix.cli status
+	$(PYTHON) -m linfix.cli status
 
 doctor:
-	$(PYTHON) -m netfix.cli doctor
+	$(PYTHON) -m linfix.cli doctor
 
 help:
-	$(PYTHON) -m netfix.cli --help
+	$(PYTHON) -m linfix.cli --help

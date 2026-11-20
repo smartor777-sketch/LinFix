@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from netfix import helper
+from linfix import helper
 
 
 class PathValidationTests(unittest.TestCase):
@@ -169,7 +169,7 @@ class TgwsInstallActionTests(unittest.TestCase):
             "url": "https://example.com/TgWsProxy_linux_amd64",
             "sha256": "a" * 64,
             "dest": "/opt/tgwsproxy/TgWsProxy",
-            "state": "/var/lib/netfix/state.json",
+            "state": "/var/lib/linfix/state.json",
             "version": "v1.11.4",
             "timeout": 1.0,
         }
@@ -184,7 +184,7 @@ class TgwsInstallActionTests(unittest.TestCase):
                 return_value={"sha256": "a" * 64, "size": 123},
             ) as install,
             mock.patch.object(helper.state, "load_state", return_value=helper.state.State()) as load,
-            mock.patch.object(helper.state.State, "save", return_value=Path("/var/lib/netfix/state.json")) as save,
+            mock.patch.object(helper.state.State, "save", return_value=Path("/var/lib/linfix/state.json")) as save,
         ):
             code, payload = helper.action_tgws_install(self.args())
 

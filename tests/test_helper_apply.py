@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netfix import helper, state
+from linfix import helper, state
 
 DOMAINS = ["pclead.co.uk", "offshor.co.uk", "cakeisalie.co.uk"]
 
@@ -22,7 +22,7 @@ class ApplyDomainsTests(unittest.TestCase):
         return helper.apply_domains(
             self.hostlist,
             DOMAINS,
-            marker="# netfix: tgws cf domains",
+            marker="# linfix: tgws cf domains",
             service="zapret2",
             restart_on_change=restart_on_change,
             state_path=self.state_path,

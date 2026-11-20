@@ -4,17 +4,17 @@
 
 ## Что сделано
 
-1. **`/var/lib/netfix/state.json`** (`src/netfix/state.py`):
+1. **`/var/lib/linfix/state.json`** (`src/linfix/state.py`):
    - дата обновления, sha256, количество и **сам список** CF-доменов;
    - hostlist и служба, последняя ошибка;
    - атомарная запись 0644 (пишет только helper).
-2. **`netfix domains update`**:
+2. **`linfix domains update`**:
    - GitHub → decode → сравнение с hostlist;
    - `--dry-run` — показать план без правок;
    - `--offline` — использовать state/fallback;
    - `--force` — применить/обновить state, даже если доменов не добавилось;
    - `--json` — стабильный ответ для GUI.
-3. **Транзакция `netfix-helper domains.apply`**:
+3. **Транзакция `linfix-helper domains.apply`**:
    - валидация hostlist/state/service/доменов/sha256/HTTPS;
    - merge с бэкапом;
    - запись state;
@@ -33,7 +33,7 @@
 Безопасный прогон на живой машине:
 
 ```text
-$ netfix domains update --dry-run
+$ linfix domains update --dry-run
 Источник: github, доменов: 20
 Hostlist: /opt/zapret2/ipset/zapret-hosts-user.txt
 Добавить: 20, уже есть: 0
@@ -56,19 +56,19 @@ SHA256 hostlist до и после — одинаковый: `/opt/zapret2` не
 
 - Реальный apply на этой машине: в песочнице агента нет root, а helper
   принципиально требует root. Нужен запуск пользователем:
-  `sudo netfix domains update` (или установленный helper через pkexec).
+  `sudo linfix domains update` (или установленный helper через pkexec).
 - Живой дамп nftables — по-прежнему требует root.
 
 ## Как применить на целевой машине
 
 ```bash
 scripts/backup-zapret.sh
-netfix domains update --dry-run
-sudo netfix domains update
+linfix domains update --dry-run
+sudo linfix domains update
 systemctl is-active zapret2
 pgrep -a nfqws2
-netfix domains list
-netfix doctor
+linfix domains list
+linfix doctor
 ```
 
 Если рестарт упал, helper сам вернёт hostlist из бэкапа; дополнительно

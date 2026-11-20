@@ -1,8 +1,0 @@
-[Unit]
-Description=NetFix guard (проверка CF-пути)
-After=default.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/netfix guard check
-Nice=10

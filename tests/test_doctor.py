@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from netfix import config, doctor
+from linfix import config, doctor
 
 
 class TlsCheckTests(unittest.TestCase):

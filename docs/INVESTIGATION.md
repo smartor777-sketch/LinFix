@@ -158,7 +158,7 @@ Inserting nftables ipv4 rule for nfqws prerouting  (qnum 300) : udp sport {443} 
   `common/fwtype.sh`).
 - Таблица: `inet zapret2` (`ZAPRET_NFT_TABLE=zapret2` в `common/nft.sh`).
 - Очередь: `300` (`QNUM=${QNUM:-300}` в `init.d/sysv/functions`).
-- Правила создаёт сам zapret2 при старте; **NetFix не должен добавлять свои**.
+- Правила создаёт сам zapret2 при старте; **LinFix не должен добавлять свои**.
 
 ---
 
@@ -383,7 +383,7 @@ sudo journalctl -u zapret2 -n 50 --no-pager
 
 # 4. Чек-лист перед первой правкой hostlist
 scripts/backup-zapret.sh
-# → затем merge через netfix-helper domains.merge (M1)
+# → затем merge через linfix-helper domains.merge (M1)
 ```
 
 Откат при неудачном рестарте: вернуть файл из
@@ -403,5 +403,5 @@ scripts/backup-zapret.sh
 5. **nft:** проверять таблицу `inet zapret2`; без root — WARN, не FAIL.
 6. **VPN:** WARN в doctor; TLS-тест трактовать осторожно.
 7. **Таймер списков:** hostlist не перезаписывает, но state.json всё равно нужен.
-8. **Права:** все правки — только через `netfix-helper` (root), с бэкапом и
+8. **Права:** все правки — только через `linfix-helper` (root), с бэкапом и
    откатом.

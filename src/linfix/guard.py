@@ -88,7 +88,7 @@ def evaluate(
 
 def state_dir(home: str | Path | None = None) -> Path:
     base = Path(home) if home is not None else Path.home()
-    return base / ".local" / "state" / "netfix"
+    return base / ".local" / "state" / "linfix"
 
 
 def cursor_path(home: str | Path | None = None) -> Path:
@@ -227,7 +227,7 @@ def check_guard(
     detail = (
         f"CF-путь недоступен: {failures} ошибок за окно, TLS-тест провален. "
         "Прокси остановлен, чтобы не перегрузить сеть. "
-        "Запустите `netfix domains update` и проверьте `netfix domains test`."
+        "Запустите `linfix domains update` и проверьте `linfix domains test`."
     )
     if not stopped:
         detail += " (не удалось остановить службу — проверьте вручную)"

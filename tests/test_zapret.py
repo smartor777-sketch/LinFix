@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netfix import zapret
+from linfix import zapret
 
 # Реальная строка процесса nfqws2 с целевой машины (см. docs/INVESTIGATION.md).
 CMDLINE = (

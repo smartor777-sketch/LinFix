@@ -1,4 +1,4 @@
-"""CLI NetFix: пользовательские команды и коды возврата (SPEC 6)."""
+"""CLI LinFix: пользовательские команды и коды возврата (SPEC 6)."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def cmd_status(cfg: Config, *, verbose: bool = False) -> int:
     status = api.get_status(cfg)
     info = status.zapret
 
-    print(f"NetFix Linux {__version__}")
+    print(f"LinFix Linux {__version__}")
     print(f"Система:      {util.os_pretty_name()}, Python {platform.python_version()}")
 
     if info.found:
@@ -86,7 +86,7 @@ def cmd_status(cfg: Config, *, verbose: bool = False) -> int:
                 f"({info_state.domains_count} доменов, sha {short_sha or '—'})"
             )
         else:
-            print("Обновлено:    никогда (netfix domains update)")
+            print("Обновлено:    никогда (linfix domains update)")
         if info_state.last_error:
             print(f"Посл. ошибка: {info_state.last_error.splitlines()[0]}")
     else:
@@ -206,7 +206,7 @@ def cmd_domains_list(cfg: Config, *, offline: bool, as_json: bool = False) -> in
             f"доменов {state_info.domains_count}, sha {(state_info.domains_sha256 or '')[:12]}"
         )
     else:
-        print("State:    ещё не обновлялся (netfix domains update)")
+        print("State:    ещё не обновлялся (linfix domains update)")
 
     rows = [
         ["OK" if domain in present else "MISSING", domain] for domain in source.domains
@@ -569,7 +569,7 @@ def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
                 print("Служба запущена")
             elif unit_result.get("started_ok") is False:
                 print(f"Не удалось запустить: {unit_result.get('started_error')}", file=sys.stderr)
-        print("Дальше: netfix tgws link")
+        print("Дальше: linfix tgws link")
 
     if unit_result.get("enabled_ok") is False or unit_result.get("started_ok") is False:
         return EXIT_CHECK_FAILED
@@ -648,7 +648,7 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
         for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size"):
             if key in data:
                 print(f"  {key} = {data[key]}")
-        print("Секрет не показывается; ссылка: netfix tgws link")
+        print("Секрет не показывается; ссылка: linfix tgws link")
     return EXIT_OK
 
 
@@ -822,7 +822,7 @@ def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
     try:
         code, payload = util.run_helper(
             "config.guard",
-            ["--enabled", args.state, "--config", "/etc/netfix/config.toml"],
+            ["--enabled", args.state, "--config", "/etc/linfix/config.toml"],
         )
     except (util.NetfixError, util.CommandError) as exc:
         print(f"ошибка: {exc}", file=sys.stderr)
@@ -941,7 +941,7 @@ def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
         actions.append(
             (
                 "CF-домены",
-                "netfix domains update",
+                "linfix domains update",
                 lambda: cmd_domains_update(cfg, _domains_update_args(dry_run=args.dry_run)),
             )
         )
@@ -949,7 +949,7 @@ def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
         actions.append(
             (
                 "TgWsProxy",
-                f"netfix tgws install --version {latest}",
+                f"linfix tgws install --version {latest}",
                 lambda: cmd_tgws_install(
                     cfg,
                     _tgws_install_args(version=latest, dry_run=args.dry_run),
@@ -994,7 +994,7 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
             "Zapret не найден. Установите его официальным установщиком:\n"
             "  git clone https://github.com/bol-van/zapret\n"
             "  cd zapret && sudo ./install_easy.sh\n"
-            "Выберите nfqws + systemd, затем повторите: netfix setup",
+            "Выберите nfqws + systemd, затем повторите: linfix setup",
             file=sys.stderr,
         )
         return EXIT_NOT_INSTALLED
@@ -1010,7 +1010,7 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         steps.append(
             (
                 "CF-домены",
-                "netfix domains update",
+                "linfix domains update",
                 lambda: cmd_domains_update(cfg, _domains_update_args()),
             )
         )
@@ -1018,7 +1018,7 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         steps.append(
             (
                 "TgWsProxy",
-                "netfix tgws install",
+                "linfix tgws install",
                 lambda: cmd_tgws_install(cfg, _tgws_install_args()),
             )
         )
@@ -1026,7 +1026,7 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
         steps.append(
             (
                 "TgWsProxy (запуск)",
-                "netfix tgws start",
+                "linfix tgws start",
                 lambda: cmd_tgws_control("start"),
             )
         )
@@ -1041,7 +1041,7 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
     if args.dry_run:
         return EXIT_OK
     if not args.yes:
-        print("Для выполнения повторите: netfix setup --yes")
+        print("Для выполнения повторите: linfix setup --yes")
         return EXIT_OK
 
     for title, _, action in steps:
@@ -1062,10 +1062,10 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="netfix",
-        description="NetFix Linux: zapret + TgWsProxy под контролем",
+        prog="linfix",
+        description="LinFix Linux: zapret + TgWsProxy под контролем",
     )
-    parser.add_argument("--config", help="путь к config.toml (по умолчанию /etc/netfix/config.toml)")
+    parser.add_argument("--config", help="путь к config.toml (по умолчанию /etc/linfix/config.toml)")
     parser.add_argument("--verbose", action="store_true", help="показывать предупреждения конфига")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
@@ -1157,7 +1157,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     profile_sub.add_parser("clear", help="сбросить профиль текущего соединения")
 
-    p_uninstall = sub.add_parser("uninstall", help="удалить NetFix (M5)")
+    p_uninstall = sub.add_parser("uninstall", help="удалить LinFix (M5)")
     p_uninstall.add_argument("--keep-config", action="store_true")
 
     return parser
@@ -1193,7 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_domains_test(cfg, args)
             if args.domains_command == "update":
                 return cmd_domains_update(cfg, args)
-            return _not_implemented("netfix domains update", "M1")
+            return _not_implemented("linfix domains update", "M1")
         if args.command == "tgws":
             if args.tgws_command == "status":
                 return cmd_tgws_status(cfg)
@@ -1221,7 +1221,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.profile_command == "clear":
                 return cmd_profile_clear(cfg, args)
         if args.command == "uninstall":
-            return _not_implemented("netfix uninstall", "M5")
+            return _not_implemented("linfix uninstall", "M5")
     except util.CommandError as exc:
         print(f"ошибка команды: {exc}", file=sys.stderr)
         return EXIT_ERROR

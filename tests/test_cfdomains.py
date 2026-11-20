@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from netfix import cfdomains
+from linfix import cfdomains
 
 
 class DecodeVectorTests(unittest.TestCase):

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from netfix import state
+from linfix import state
 
 DOMAINS = ["pclead.co.uk", "offshor.co.uk"]
 

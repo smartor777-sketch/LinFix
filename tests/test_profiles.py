@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from netfix import profiles
+from linfix import profiles
 
 TOML = """
 [profiles."11111111-1111-1111-1111-111111111111"]

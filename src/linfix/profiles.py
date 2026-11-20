@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 GENERAL = "general"
-PROFILES_PATH = Path("/etc/netfix/profiles.toml")
+PROFILES_PATH = Path("/etc/linfix/profiles.toml")
 STRATEGIES = {"general"}
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 

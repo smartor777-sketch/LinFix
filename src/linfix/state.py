@@ -1,4 +1,4 @@
-"""Состояние NetFix: /var/lib/netfix/state.json.
+"""Состояние LinFix: /var/lib/linfix/state.json.
 
 Пишет только helper (root). CLI читает как обычный пользователь.
 Храним не только дату/хэш, но и сам список CF-доменов — это наш источник
@@ -17,9 +17,9 @@ from pathlib import Path
 
 from . import util
 
-LOG = logging.getLogger("netfix.state")
+LOG = logging.getLogger("linfix.state")
 
-DEFAULT_STATE_PATH = Path("/var/lib/netfix/state.json")
+DEFAULT_STATE_PATH = Path("/var/lib/linfix/state.json")
 STATE_VERSION = 1
 
 
@@ -28,7 +28,7 @@ def now_iso() -> str:
 
 
 def default_state_path() -> Path:
-    return Path(os.environ.get("NETFIX_STATE", str(DEFAULT_STATE_PATH)))
+    return Path(os.environ.get("LINFIX_STATE", str(DEFAULT_STATE_PATH)))
 
 
 def domains_digest(domains: list[str] | tuple[str, ...]) -> str:

@@ -1,4 +1,4 @@
-# NetFix Linux
+# LinFix Linux
 
 CLI-утилита, которая превращает связку **zapret + TgWsProxy** в управляемый продукт:
 находит установленный zapret, держит CF-домены в его hostlist, ставит и запускает
@@ -8,25 +8,29 @@ TgWsProxy, диагностирует поломки и защищает сет�
 [docs/INVESTIGATION.md](docs/INVESTIGATION.md), принятые решения — в
 [docs/DECISIONS.md](docs/DECISIONS.md), отчёты по этапам — в
 `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
-`docs/M3-REPORT.md`, `docs/M4-REPORT.md`.
+`docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/DESKTOP-ICONS.md`.
+
+Проект переименован в **LinFix** (пакет `linfix`, команда `linfix`);
+[docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлышки сервисов.
+В SPEC слово «NetFix» — основное название продукта (Linux-реализация — LinFix).
 
 ## Статус
 
 Реализованы **M0–M4**:
 
-- `netfix status` с реальным определением zapret/zapret2, hostlist и state;
-- `netfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
-- `netfix domains list|test|update`;
+- `linfix status` с реальным определением zapret/zapret2, hostlist и state;
+- `linfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
+- `linfix domains list|test|update`;
 - `domains update`: GitHub → декодер → merge → state → рестарт → проверка →
   откат при падении; есть `--dry-run`, `--offline`, `--force`, `--json`;
-- `/var/lib/netfix/state.json` хранит список доменов, хэш и версию TgWsProxy;
-- `netfix tgws install|config|link|start|stop|restart|status`:
+- `/var/lib/linfix/state.json` хранит список доменов, хэш и версию TgWsProxy;
+- `linfix tgws install|config|link|start|stop|restart|status`:
   HTTPS + SHA256, `/opt/tgwsproxy`, user-unit, безопасный конфиг;
-- `netfix guard check|status|on|off` — защита от шторма соединений;
-- `netfix setup` и `netfix update` — оркестрация настройки/обновлений;
-- `netfix profile list|set|clear` — профили сетей (матчинг по UUID, по умолчанию general);
+- `linfix guard check|status|on|off` — защита от шторма соединений;
+- `linfix setup` и `linfix update` — оркестрация настройки/обновлений;
+- `linfix profile list|set|clear` — профили сетей (матчинг по UUID, по умолчанию general);
 - идемпотентный merge hostlist с сохранением CRLF и бэкапом;
-- `netfix-helper` с белым списком действий и валидацией путей;
+- `linfix-helper` с белым списком действий и валидацией путей;
 - unit-тесты (stdlib `unittest`, совместимы с pytest).
 
 Профили сетей, пакет `.deb` и GTK — следующие этапы (M4–M6).
@@ -34,9 +38,9 @@ TgWsProxy, диагностирует поломки и защищает сет�
 ## Применение доменов
 
 ```bash
-netfix domains update --dry-run   # показать план, ничего не менять
-netfix domains update             # нужен root: helper через pkexec/sudo
-netfix domains update --offline   # использовать state/fallback без GitHub
+linfix domains update --dry-run   # показать план, ничего не менять
+linfix domains update             # нужен root: helper через pkexec/sudo
+linfix domains update --offline   # использовать state/fallback без GitHub
 ```
 
 При изменении hostlist helper делает бэкап, перезапускает zapret, проверяет
@@ -46,9 +50,9 @@ netfix domains update --offline   # использовать state/fallback бе
 ## Запуск без установки
 
 ```bash
-PYTHONPATH=src python3 -m netfix.cli --help
-PYTHONPATH=src python3 -m netfix.cli status
-PYTHONPATH=src python3 -m netfix.cli doctor
+PYTHONPATH=src python3 -m linfix.cli --help
+PYTHONPATH=src python3 -m linfix.cli status
+PYTHONPATH=src python3 -m linfix.cli doctor
 ```
 
 ## Тесты
@@ -67,8 +71,8 @@ PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 ## Безопасность
 
 - Перед любой правкой `/opt/zapret2/config` и hostlist — снимок с меткой времени
-  (`scripts/backup-zapret.sh`, либо `netfix.util.backup_file`).
-- Привилегированные действия — только через `netfix-helper` с белым списком
+  (`scripts/backup-zapret.sh`, либо `linfix.util.backup_file`).
+- Привилегированные действия — только через `linfix-helper` с белым списком
   действий и канонизацией путей (никакого `shell=True`).
-- `netfix` не создаёт собственных nftables-правил: он управляет только тем,
+- `linfix` не создаёт собственных nftables-правил: он управляет только тем,
   что создал установщик zapret.

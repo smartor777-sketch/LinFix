@@ -177,7 +177,7 @@ def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
             "CF-домены в hostlist",
             FAIL,
             "hostlist не определён",
-            "netfix domains list",
+            "linfix domains list",
         )
     if not Path(target).exists():
         return Check(
@@ -185,7 +185,7 @@ def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
             "CF-домены в hostlist",
             FAIL,
             f"файл не найден: {target}",
-            "netfix domains update",
+            "linfix domains update",
         )
 
     state_info = state.load_state()
@@ -206,7 +206,7 @@ def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
         "CF-домены в hostlist",
         status,
         f"{count}/{len(domains)}; нет: {', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}",
-        "netfix domains update",
+        "linfix domains update",
     )
 
 
@@ -218,7 +218,7 @@ def _state_check(cfg: Config) -> Check:
             "Состояние доменов",
             WARN,
             "state.json ещё не создан",
-            "netfix domains update",
+            "linfix domains update",
         )
     if state_info.last_error:
         first_line = state_info.last_error.splitlines()[0]
@@ -227,7 +227,7 @@ def _state_check(cfg: Config) -> Check:
             "Состояние доменов",
             WARN,
             f"последняя ошибка: {first_line}",
-            "netfix domains update && sudo systemctl restart zapret2",
+            "linfix domains update && sudo systemctl restart zapret2",
         )
     try:
         updated = datetime.fromisoformat(state_info.domains_updated_at)
@@ -237,7 +237,7 @@ def _state_check(cfg: Config) -> Check:
             "Состояние доменов",
             WARN,
             f"некорректная дата: {state_info.domains_updated_at}",
-            "netfix domains update",
+            "linfix domains update",
         )
     now = datetime.now(updated.tzinfo) if updated.tzinfo else datetime.now()
     days = (now - updated).days
@@ -247,7 +247,7 @@ def _state_check(cfg: Config) -> Check:
             "Состояние доменов",
             WARN,
             f"обновлено {days} дн. назад (порог {cfg.lists.update_days})",
-            "netfix update",
+            "linfix update",
         )
     return Check(
         "domains.state",
@@ -267,7 +267,7 @@ def _tls_check(cfg: Config, timeout: float = 3.0) -> Check:
             "CF-домены: TLS-тест",
             FAIL,
             "нет результатов",
-            "netfix domains update",
+            "linfix domains update",
         )
     ok_count = sum(1 for _, ok, _ in results if ok)
     total = len(results)
@@ -282,14 +282,14 @@ def _tls_check(cfg: Config, timeout: float = 3.0) -> Check:
             "CF-домены: TLS-тест",
             FAIL,
             details,
-            "netfix domains update && sudo systemctl restart zapret2",
+            "linfix domains update && sudo systemctl restart zapret2",
         )
     return Check(
         "domains.tls",
         "CF-домены: TLS-тест",
         WARN,
         details,
-        "Проверьте netfix domains test --all",
+        "Проверьте linfix domains test --all",
     )
 
 
@@ -319,7 +319,7 @@ def _telegram_check(cfg: Config) -> Check:
         "Telegram подключён",
         WARN,
         f"нет соединений на 127.0.0.1:{cfg.tgws.port}",
-        "Откройте tg://-ссылку: netfix tgws link",
+        "Откройте tg://-ссылку: linfix tgws link",
     )
 
 
@@ -347,7 +347,7 @@ def _tgws_checks(cfg: Config) -> list[Check]:
                 "TgWsProxy: служба",
                 FAIL,
                 f"не установлен ({binary})",
-                "netfix tgws install (M2)",
+                "linfix tgws install (M2)",
             )
         )
 
@@ -359,7 +359,7 @@ def _tgws_checks(cfg: Config) -> list[Check]:
                 f"TgWsProxy: порт {cfg.tgws.port}",
                 FAIL,
                 "никто не слушает",
-                "netfix tgws start",
+                "linfix tgws start",
             )
         )
     elif all(address.startswith("127.") or address.startswith("[::1]") for address in addresses):
@@ -423,7 +423,7 @@ def _route_check() -> Check:
 
 def _guard_check(cfg: Config) -> Check:
     if not cfg.guard.enabled:
-        return Check("guard", "Guard", WARN, "выключен", "netfix guard on")
+        return Check("guard", "Guard", WARN, "выключен", "linfix guard on")
 
     event = guard.load_event()
     if event.get("last_trip"):
@@ -433,7 +433,7 @@ def _guard_check(cfg: Config) -> Check:
             "Guard",
             WARN,
             f"последнее срабатывание {event.get('last_trip')}: {detail}",
-            "netfix domains test && netfix tgws restart",
+            "linfix domains test && linfix tgws restart",
         )
     return Check(
         "guard",

@@ -1,7 +1,7 @@
-"""Высокоуровневый API NetFix, общий для CLI и будущей GTK-панели.
+"""Высокоуровневый API LinFix, общий для CLI и будущей GTK-панели.
 
 Панель не должна дублировать логику: она импортирует этот модуль, а
-привилегированные действия вызывает через ``pkexec /usr/libexec/netfix-helper``.
+привилегированные действия вызывает через ``pkexec /usr/libexec/linfix-helper``.
 """
 
 from __future__ import annotations

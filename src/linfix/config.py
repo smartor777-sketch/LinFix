@@ -1,4 +1,4 @@
-"""Чтение и валидация конфигурации NetFix (TOML)."""
+"""Чтение и валидация конфигурации LinFix (TOML)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ try:  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
-DEFAULT_CONFIG_PATH = Path("/etc/netfix/config.toml")
-STATE_PATH = Path("/var/lib/netfix/state.json")
+DEFAULT_CONFIG_PATH = Path("/etc/linfix/config.toml")
+STATE_PATH = Path("/var/lib/linfix/state.json")
 DEFAULT_CF_DOMAINS_URL = (
     "https://raw.githubusercontent.com/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt"
 )
-DEFAULT_MARKER = "# netfix: tgws cf domains"
+DEFAULT_MARKER = "# linfix: tgws cf domains"
 
 
 class ConfigError(Exception):
@@ -120,7 +120,7 @@ def set_guard_enabled(text: str, enabled: bool) -> str:
     """Вернуть текст конфига с изменённым ``[guard] enabled``.
 
     Сохраняет комментарии и остальные ключи; при отсутствии секции добавляет
-    её в конец. Используется helper'ом для ``netfix guard on|off``.
+    её в конец. Используется helper'ом для ``linfix guard on|off``.
     """
 
     value = "true" if enabled else "false"
@@ -160,12 +160,12 @@ def set_guard_enabled(text: str, enabled: bool) -> str:
 def load_config(path: str | Path | None = None) -> Config:
     """Загрузить конфиг или вернуть значения по умолчанию.
 
-    Явный аргумент важнее переменной окружения ``NETFIX_CONFIG``.
+    Явный аргумент важнее переменной окружения ``LINFIX_CONFIG``.
     Отсутствие файла — не ошибка: используются дефолты из SPEC.
     """
 
     if path is None:
-        env_path = os.environ.get("NETFIX_CONFIG")
+        env_path = os.environ.get("LINFIX_CONFIG")
         path = Path(env_path) if env_path else DEFAULT_CONFIG_PATH
     config_path = Path(path)
 

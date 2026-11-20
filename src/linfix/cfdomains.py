@@ -46,7 +46,7 @@ FALLBACK_DOMAINS: tuple[str, ...] = (
 )
 
 DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$")
-USER_AGENT = "netfix-linux/0.1 (+https://github.com/)"
+USER_AGENT = "linfix/0.1 (+https://github.com/)"
 
 
 def decode_cf_domain(value: str) -> str:
@@ -326,7 +326,7 @@ def merge_hostlist_file(
     domains: list[str] | tuple[str, ...],
     *,
     marker: str = DEFAULT_MARKER,
-    backup_tag: str = "netfix",
+    backup_tag: str = "linfix",
 ) -> tuple[MergeResult, Path | None]:
     """Прочитать hostlist, идемпотентно дополнить, сделать бэкап и записать.
 

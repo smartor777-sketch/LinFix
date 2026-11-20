@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from netfix import guard
+from linfix import guard
 
 
 class GuardTests(unittest.TestCase):

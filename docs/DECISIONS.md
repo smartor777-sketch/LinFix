@@ -3,6 +3,17 @@
 Дата: 20.11.2026. Основано на SPEC 19 («если ответов нет — использовать дефолты»)
 и фактах из [INVESTIGATION.md](INVESTIGATION.md).
 
+## D18. Название: NetFix vs LinFix
+
+- Репозиторий/проект переименован в **LinFix** (пакет `linfix`, команда `linfix`),
+  чтобы не путать с существующим продуктом **NetFix**.
+- SPEC.md — документ с ТЗ и планом реализации; в нём название **NetFix**
+  (основное название продукта). Для Linux-реализации имя репозитория/пакета —
+  LinFix. SPEC не переписываем.
+- Пути/идентификаторы обновлены: `/var/lib/linfix/state.json`, `/etc/linfix/config.toml`,
+  `/etc/linfix/profiles.toml`, `/usr/libexec/linfix-helper`, `linfix-guard.*`.
+- Ярлышки сервисов — имитация стиля Zapret2, см. [docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md).
+
 ## D1. Поддерживаем zapret2 и классический zapret
 
 На целевой машине установлен **zapret2** (`/opt/zapret2`, `nfqws2`,
@@ -27,7 +38,7 @@
 ## D4. Идемпотентность merge без « churn» даты
 
 Если все домены уже есть, файл не меняется и бэкап не создаётся — даже если
-изменилась дата. Маркер `# netfix: tgws cf domains (updated YYYY-MM-DD)`
+изменилась дата. Маркер `# linfix: tgws cf domains (updated YYYY-MM-DD)`
 добавляется только при первом добавлении. Новые домены вставляются после
 последнего маркера, старые домены никогда не удаляются (SPEC 10.6).
 
@@ -43,16 +54,16 @@ PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 
 ## D6. Конфиг и дефолты
 
-`/etc/netfix/config.toml`; при отсутствии файла используются дефолты SPEC 7
-(это не ошибка). Переопределение пути — `--config` или `NETFIX_CONFIG`.
+`/etc/linfix/config.toml`; при отсутствии файла используются дефолты SPEC 7
+(это не ошибка). Переопределение пути — `--config` или `LINFIX_CONFIG`.
 Секретов в системном конфиге нет.
 
 ## D7. Границы helper
 
-`netfix-helper` принимает только `domains.merge` и `zapret.restart`.
+`linfix-helper` принимает только `domains.merge` и `zapret.restart`.
 Пути обязаны быть абсолютными, канонизируются через `Path.resolve()` и должны
-лежать под `/opt/netfix`, `/opt/zapret`, `/opt/zapret2`, `/opt/tgwsproxy`,
-`/etc/netfix`, `/var/lib/netfix`. Запись в `*.gz` запрещена. Никакого
+лежать под `/opt/linfix`, `/opt/zapret`, `/opt/zapret2`, `/opt/tgwsproxy`,
+`/etc/linfix`, `/var/lib/linfix`. Запись в `*.gz` запрещена. Никакого
 `shell=True`.
 
 ## D8. VPN/TUN — WARN, а не FAIL
@@ -82,11 +93,11 @@ PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 `/opt` невозможны. Поэтому M0–M1 выполняют только чтение и безопасные прогоны
 (`--dry-run`, фейковый helper), а baseline-снимок лежит в `backups/`. Все
 реальные правки zapret должны выполняться пользователем через
-`sudo`/`pkexec` и `netfix-helper`.
+`sudo`/`pkexec` и `linfix-helper`.
 
 ## D11. State — источник правды по доменам
 
-`/var/lib/netfix/state.json` хранит не только дату и sha256, но и сам список
+`/var/lib/linfix/state.json` хранит не только дату и sha256, но и сам список
 CF-доменов. Это позволяет:
 
 - повторно применить домены после обновления/переустановки zapret;
@@ -114,9 +125,9 @@ merge → state → restart → verify. Если после рестарта с�
 
 - CLI никогда не пишет в `/opt` и не вызывает systemctl для системных служб
   напрямую (кроме user-службы TgWsProxy).
-- Для `domains update` вызывается `netfix-helper`:
+- Для `domains update` вызывается `linfix-helper`:
   root — напрямую; иначе `pkexec`, затем `sudo`.
-- `NETFIX_HELPER` — явное переопределение команды helper для dev/тестов;
+- `LINFIX_HELPER` — явное переопределение команды helper для dev/тестов;
   в этом режиме эскалация не выполняется.
 - Если helper не установлен, CLI честно просит запустить команду через sudo.
 
@@ -137,14 +148,14 @@ merge → state → restart → verify. Если после рестарта с�
 
 - Один запуск guard = одно окно (таймер раз в 60 с). Читаются только новые
   строки лога по offset; offset и inode хранятся в
-  `~/.local/state/netfix/guard.json`, при truncate/ротации чтение с нуля.
+  `~/.local/state/linfix/guard.json`, при truncate/ротации чтение с нуля.
 - Прокси останавливается только при `failures >= error_threshold` **и**
   провале TLS-теста всех выбранных CF-доменов. Если TLS проходит — только WARN:
   единичные сбои не должны рвать рабочий прокси.
 - Факт срабатывания и причина пишутся в
-  `~/.local/state/netfix/guard-state.json`; doctor показывает последнее
+  `~/.local/state/linfix/guard-state.json`; doctor показывает последнее
   срабатывание.
-- `netfix guard on|off` меняет только `[guard] enabled` в системном конфиге
+- `linfix guard on|off` меняет только `[guard] enabled` в системном конфиге
   через helper (бэкап + валидация TOML), не переписывая остальные ключи.
 
 ## D16. update/setup без неожиданных изменений
@@ -158,12 +169,12 @@ merge → state → restart → verify. Если после рестарта с�
 
 ## D17. Профили сетей
 
-- `netfix profile set <uuid> --name X` тоже пишет файл на root (`/etc/netfix/profiles.toml`);
+- `linfix profile set <uuid> --name X` тоже пишет файл на root (`/etc/linfix/profiles.toml`);
   через helper `profile.set` с бэкапом, валидацией TOML и атомарной записью 0644.
-- `netfix profile clear` работает по `nmcli --active` (первый активный UUID); если
+- `linfix profile clear` работает по `nmcli --active` (первый активный UUID); если
   `nmcli` нет или нет активных соединений — печатается понятное сообщение.
 - В MVP (`M4`) смена стратегии запрещена: `STRATEGIES = {"general"}`. Структура
   `[profiles."<uuid>"]` готова для продвинутых `strategy = "cf" | "direct" | "auto"`.
-- Dispatcher `90-netfix` вызывает helper `profile.apply <uuid>` — агент там не
+- Dispatcher `90-linfix` вызывает helper `profile.apply <uuid>` — агент там не
   выполняется (минимальное окружение), всё решается через helper.
 

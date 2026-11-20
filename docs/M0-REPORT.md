@@ -8,16 +8,16 @@
    Ключевое: на машине **zapret2** (`/opt/zapret2`, `nfqws2`, `zapret2.service`),
    hostlist — `/opt/zapret2/ipset/zapret-hosts-user.txt` (29 756 строк, CRLF),
    CF-доменов в нём 0/20.
-2. **Каркас проекта** по SPEC 5.3: `pyproject.toml`, `src/netfix/`,
+2. **Каркас проекта** по SPEC 5.3: `pyproject.toml`, `src/linfix/`,
    `data/`, `packaging/debian/`, `docs/`, `tests/`, `scripts/`.
 3. **Реализовано:**
-   - `netfix --help`, `netfix status` с реальным детектом zapret/zapret2;
-   - `netfix doctor` (базовый набор проверок, `--json`);
-   - `netfix domains list` и `netfix domains test` (только чтение);
-   - `netfix logs`, `netfix tgws status|link`;
+   - `linfix --help`, `linfix status` с реальным детектом zapret/zapret2;
+   - `linfix doctor` (базовый набор проверок, `--json`);
+   - `linfix domains list` и `linfix domains test` (только чтение);
+   - `linfix logs`, `linfix tgws status|link`;
    - декодер CF-доменов, fallback-список, HTTPS-загрузка;
    - идемпотентный merge hostlist с сохранением CRLF и бэкапом;
-   - `netfix-helper` с белым списком действий и валидацией путей;
+   - `linfix-helper` с белым списком действий и валидацией путей;
    - `api.py` для будущего GUI.
 4. **Тесты:** 77 unit-тестов на stdlib `unittest` (совместимы с pytest), все
    проходят.
@@ -25,7 +25,7 @@
 ## Живая проверка
 
 ```text
-$ netfix status
+$ linfix status
 Zapret:       zapret2 — active (enabled), pid 1192
 Установка:    /opt/zapret2 (nfqws2)
 Очередь:      qnum 300, fwmark 0x40000000, user tpws
@@ -40,7 +40,7 @@ Merge проверен **на копии** реального hostlist в `/tmp`
 - добавлено 20 доменов;
 - CRLF сохранён (29 777 CRLF, 0 одиночных LF);
 - повторный запуск: `changed=False`, новый бэкап не создан;
-- создан ровно один бэкап `.bak-netfix-…`.
+- создан ровно один бэкап `.bak-linfix-…`.
 
 ## Что НЕ делалось
 
