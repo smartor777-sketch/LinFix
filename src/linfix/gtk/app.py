@@ -36,6 +36,7 @@ class NetFixApp(Gtk.Application):
         # Если окно скрыто в трей/iconified — принудительно делаем его видимым.
         window.set_visible(True)
         window.deiconify()
+        window.show_all()
         window.set_skip_taskbar_hint(False)
         self.start_autostarted_services()
 
