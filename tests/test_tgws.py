@@ -115,6 +115,7 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(data["h2"])
         self.assertFalse(data["verbose"])
         self.assertEqual(data["pool_size"], 4)
+        self.assertEqual(data["log_max_mb"], 5)
         self.assertRegex(str(data["secret"]), r"^[0-9a-f]{32}$")
 
     def test_create_and_find(self) -> None:
@@ -220,6 +221,7 @@ class UnitTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIn("ExecStart=/opt/tgwsproxy/TgWsProxy", text)
         self.assertIn("WantedBy=default.target", text)
+        self.assertIn("Environment=DISPLAY=", text)
 
         again, changed_again = tgws.install_user_unit(
             "/opt/tgwsproxy/TgWsProxy", home=self.root, systemctl=False

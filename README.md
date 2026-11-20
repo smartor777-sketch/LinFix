@@ -1,90 +1,118 @@
-# LinFix
+# LinFix Linux
 
-Управление обходом блокировок на Linux из одной панели: **zapret2** (NFQUEUE/DPI)
-+ **TgWsProxy** (Telegram WS proxy). Ставится одним `.deb`, настраивается
-мастером «Далее → Далее», дальше живёт в трее.
+CLI-утилита, которая превращает связку **zapret + TgWsProxy** в управляемый продукт:
+находит установленный zapret, держит CF-домены в его hostlist, ставит и запускает
+TgWsProxy, диагностирует поломки и защищает сеть от «шторма соединений».
 
-![LinFix](docs/screenshot-settings.png)
+Полное ТЗ — в [SPEC.md](SPEC.md). Факты о целевой машине — в
+[docs/INVESTIGATION.md](docs/INVESTIGATION.md), принятые решения — в
+[docs/DECISIONS.md](docs/DECISIONS.md), отчёты по этапам — в
+`docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
+`docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/DESKTOP-ICONS.md`.
 
-## Что умеет
+Проект переименован в **LinFix** (пакет `linfix`, команда `linfix`);
+[docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлышки сервисов.
+В SPEC слово «LinFix» — основное название продукта (Linux-реализация — LinFix).
 
-- **Мастер настройки**: проверка системы → установка zapret2 из GitHub →
-  установка TgWsProxy из GitHub → CF-домены → автозапуск. Пароль спрашивается
-  только на привилегированных шагах (polkit/pkexec).
-- **Статус**: служба, процесс, nfqws2, hostlist, домены, TgWsProxy, Telegram.
-- **Настройки**: порт/хост TgWsProxy, verbose-логи и их размер, guard,
-  автозапуск, размер лога, очистка логов, ссылка `tg://proxy` + «Копировать».
-- **Домены**: обновление списка CF-доменов с GitHub, merge в hostlist,
-  рестарт с проверкой и откатом при падении.
-- **Диагностика**: отчёт по системе (nft, NFQUEUE, службы, домены, TLS, VPN, guard).
-- **Логи**: journalctl (zapret2 + tgwsproxy) + хвост `proxy.log`, поиск.
-- **Трей**: цвет иконки = состояние, меню управления службами.
+## Статус
 
-## Установка
+- Реализованы **M0–M4** + переименование + ярлышки сервисов + **M6 (GTK3-панель)**,
+  подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
+  `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
+- **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
+  установка `sudo apt install ./dist/linfix_0.1.1_all.deb` (см. `packaging/debian/README.md`).
+- CI: `.github/workflows/build-deb.yml` собирает `.deb` на push в `main` и
+  прикрепляет его к GitHub Release по тегу `v*`.
 
-### Из .deb (обычный путь)
+M6 (GTK3-панель): `make gui` или `linfix-gui` (после установки пакета); панель использует `linfix.api`.
+
+Реализованы **M0–M4**:
+
+- `linfix status` с реальным определением zapret/zapret2, hostlist и state;
+- `linfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
+- `linfix domains list|test|update`;
+- `domains update`: GitHub → декодер → merge → state → рестарт → проверка →
+  откат при падении; есть `--dry-run`, `--offline`, `--force`, `--json`;
+- `/var/lib/linfix/state.json` хранит список доменов, хэш и версию TgWsProxy;
+- `linfix tgws install|config|link|start|stop|restart|status`:
+  HTTPS + SHA256, `/opt/tgwsproxy`, user-unit, безопасный конфиг;
+- `linfix guard check|status|on|off` — защита от шторма соединений;
+- `linfix setup` и `linfix update` — оркестрация настройки/обновлений;
+- `linfix profile list|set|clear` — профили сетей (матчинг по UUID, по умолчанию general);
+- идемпотентный merge hostlist с сохранением CRLF и бэкапом;
+- `linfix-helper` с белым списком действий и валидацией путей;
+- unit-тесты (stdlib `unittest`, совместимы с pytest).
+
+Профили сетей реализованы; пакет `.deb` собирается через `make deb` (M5).
+
+## Установка из .deb (для пользователя)
 
 ```bash
-sudo apt install ./linfix_0.1.0_all.deb
-linfix-gui
+make deb                              # собрать пакет
+sudo apt install ./dist/linfix_0.1.1_all.deb
+linfix-gui                            # или запустить LinFix из меню
 ```
 
-Зависимости подтянутся через apt: `python3-gi`, `gir1.2-gtk-3.0`, `nftables`,
-`curl`, `ca-certificates`, `git`, `pkexec`, `systemd`.
+Далее — вкладка **«Мастер настройки»** и «Далее» по шагам:
+проверка → zapret2 из GitHub → TgWsProxy из GitHub → CF-домены → автозапуск.
+Пароль polkit/sudo запрашивается только на привилегированных шагах.
 
-После установки: **LinFix** в меню → вкладка **«Мастер настройки»** → «Далее».
-Мастер поставит zapret2 и TgWsProxy из GitHub, применит CF-домены и включит
-автозапуск. Требуется только ввод пароля в диалоге polkit.
-
-### Из исходников (разработка)
+## Применение доменов
 
 ```bash
-git clone https://github.com/<owner>/LinFix.git
-cd LinFix
-make test     # 197 тестов
-make gui      # запуск панели без установки
-make deb      # → dist/linfix_0.1.0_all.deb
+linfix domains update --dry-run   # показать план, ничего не менять
+linfix domains update             # нужен root: helper через pkexec/sudo
+linfix domains update --offline   # использовать state/fallback без GitHub
 ```
 
-## CLI
+При изменении hostlist helper делает бэкап, перезапускает zapret, проверяет
+`active` и живой `nfqws`/`nfqws2`. Если проверка не прошла — hostlist
+откатывается из бэкапа, а причина пишется в state и выводится в CLI.
+
+## Запуск без установки
 
 ```bash
-linfix status                 # состояние zapret и TgWsProxy
-linfix doctor                 # диагностика (+ --json)
-linfix domains update         # CF-домены → hostlist → рестарт
-linfix tgws install           # TgWsProxy из GitHub (SHA256)
-linfix tgws link              # tg://proxy-ссылка
-linfix logs                   # журналы служб
-linfix setup                  # то же, что мастер, но в терминале
+PYTHONPATH=src python3 -m linfix.cli --help
+PYTHONPATH=src python3 -m linfix.cli status
+PYTHONPATH=src python3 -m linfix.cli doctor
 ```
 
-Привилегированные операции идут через `linfix-helper` (белый список действий,
-pkexec + polkit policy). В dev-режиме — через `pkexec`/`sudo` из рабочей копии.
+## GTK3-панель (M6, через PyGObject)
 
-## Логи и их размер
+```bash
+make gui        # PYTHONPATH=src python3 -m linfix.gtk.main
+```
 
-- `~/.config/TgWsProxy/proxy.log` — ротация **5 МБ + 1 бэкап** (≈10 МБ),
-  настраивается в «Настройки → Размер лога, МБ» или `linfix tgws config --log-max-mb 10`.
-- `journalctl` — лимит системы (`SystemMaxUse`, по умолчанию 500 МБ).
-- «Настройки → Очистить логи» удаляет `proxy.log` и бэкап.
+Панель: `linfix-gui` (при установке пакета), или из меню «LinFix»
+(`~/.local/share/applications/linfix.desktop`). Панель строится только поверх
+`linfix.api`; привилегированные действия — через `pkexec /usr/libexec/linfix-helper`.
+
+Тесты на панель: `tests/test_gtk.py` (установленGTK3 + трей).
+
+## Тесты
+
+В этой системе нет `pip`/`pytest`, поэтому тесты написаны на stdlib `unittest`
+и одновременно совместимы с pytest:
+
+```bash
+make test
+# или
+PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
+```
+
+Сейчас: **169 тестов**, все проходят.
 
 ## Безопасность
 
-- Скачивание только по HTTPS, бинарник TgWsProxy — с проверкой SHA256.
-- Список действий helper'а фиксирован, пути канонизируются и проверяются.
-- Конфиг TgWsProxy пишется с правами `0600`, изменения — с бэкапом.
-- В hostlist пишется помеченный блок, есть откат при неудачном рестарте.
+- Перед любой правкой `/opt/zapret2/config` и hostlist — снимок с меткой времени
+  (`scripts/backup-zapret.sh`, либо `linfix.util.backup_file`).
+- Привилегированные действия — только через `linfix-helper` с белым списком
+  действий и канонизацией путей (никакого `shell=True`).
+- `linfix` не создаёт собственных nftables-правил: он управляет только тем,
+  что создал установщик zapret.
 
-## Структура
+## Требования к графической сессии
 
-```
-src/linfix/            api.py, cli.py, helper.py, tgws.py, zapret.py, ...
-src/linfix/gtk/        GTK3-панель (окно, экраны, трей)
-packaging/debian/      control, launchers, postinst/prerm, сборка .deb
-data/                  polkit policy, systemd user-юниты, иконки
-tests/                 197 unit-тестов (stdlib unittest)
-```
-
-## Лицензия
-
-MIT
+TgWsProxy — tray-приложение (AppIndicator + Tk), поэтому его user-юнит
+запускается в графической сессии и получает `DISPLAY`. На headless-сервере
+без X11 прокси не стартует: нужен X-сервер (например, `Xvfb :99`).

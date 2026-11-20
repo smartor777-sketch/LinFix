@@ -256,9 +256,15 @@ def install_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
         code, payload = util.run_helper(
             "zapret.install_easy",
             ["--service", "zapret2", "--git-url", ZAPRET2_GIT_URL],
+            timeout=1800,
         )
     except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {
+            "ok": False,
+            "error": f"установка zapret2 не завершилась за 30 минут: {exc}",
+        }
 
     if code != 0:
         payload.setdefault("ok", False)
@@ -288,6 +294,8 @@ def install_tgws(
     """Скачать и установить TgWsProxy через helper.
 
     При отсутствии root/helper возвращает код 4 с честным сообщением.
+    Бинарник ~57 МБ: таймаут helper'а — 10 минут, иначе на медленном канале
+    установка обрывается на 120 секундах.
     """
 
     release = tgws.fetch_release(version)
@@ -303,15 +311,22 @@ def install_tgws(
         cfg.tgws.binary,
         "--state",
         str(state.default_state_path()),
+        "--timeout",
+        "600",
     ]
     if force:
         helper_args.append("--force")
     if dry_run:
         helper_args.append("--dry-run")
     try:
-        code, payload = util.run_helper("tgws.install", helper_args)
+        code, payload = util.run_helper("tgws.install", helper_args, timeout=660)
     except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {
+            "ok": False,
+            "error": f"установка TgWsProxy не завершилась за 11 минут: {exc}",
+        }
 
     if code == 0 and not dry_run:
         # Конфиг и user-юнит: без них автозапуск из мастера не сработает.
@@ -337,6 +352,9 @@ def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str,
     started: dict[str, bool] = {}
 
     # TgWsProxy — пользовательская служба: systemctl --user.
+    # Юнит переустанавливаем: старые версии писали его без DISPLAY и
+    # бинарник-трей падал при старте.
+    tgws.install_user_unit(cfg.tgws.binary, systemctl=False)
     completed = util.run(["systemctl", "--user", "enable", tgws.UNIT_NAME], check=False, timeout=20)
     enabled[tgws.UNIT_NAME] = completed.returncode == 0
 

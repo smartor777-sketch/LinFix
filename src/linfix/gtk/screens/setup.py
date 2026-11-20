@@ -61,9 +61,12 @@ class SetupScreen:
             ),
         ]
         self.idx = 0
+        self._running = False
         self._update_ui()
 
     def on_next(self) -> None:
+        if self._running:
+            return
         if self.idx >= len(self.steps):
             if getattr(self, "_closing", False):
                 # «Готово» — вернуться на Статус, а не закрывать приложение.
@@ -76,33 +79,31 @@ class SetupScreen:
                 common.toast(self.app, _("Настройка завершена"))
             return
         _title, _desc, action = self.steps[self.idx]
-        self._running_index = self.idx
-        self.idx += 1
-        self._update_ui()
+        self._running = True
+        self.b_next.set_sensitive(False)
+        self.b_back.set_sensitive(False)
+        self.step_label.set_text(_("Выполняется…"))
         if action:
-            self.b_next.set_sensitive(False)
-            self.b_back.set_sensitive(False)
-            self.step_label.set_text(_("Выполняется…"))
             self.app.run_op(action, on_done=self._step_done, on_error=self._step_error)
+        else:
+            self._step_done(None)
 
     def on_back(self) -> None:
-        if self.idx > 0:
-            self.idx -= 1
+        if self._running or self.idx == 0:
+            return
+        self.idx -= 1
         self._update_ui()
 
     def _step_error(self, exc: Exception) -> None:
+        self._running = False
         self.b_next.set_sensitive(True)
         self.b_back.set_sensitive(True)
-        if hasattr(self, "_running_index"):
-            self.idx = self._running_index
         self._update_ui()
         common.toast(self.app, _("Ошибка: {detail}").format(detail=exc))
 
     def _step_done(self, result) -> None:
         ok, detail = True, ""
-        if result is None:
-            ok, detail = False, _("см. Логи")
-        elif isinstance(result, tuple) and len(result) >= 2:
+        if isinstance(result, tuple) and len(result) >= 2:
             code, payload = result[0], result[1]
             ok = code == 0
             if isinstance(payload, dict):
@@ -110,15 +111,17 @@ class SetupScreen:
                 detail = str(payload.get("error") or "")
             else:
                 detail = str(payload or "")
+        self._running = False
         self.b_next.set_sensitive(True)
         self.b_back.set_sensitive(True)
-        if not ok and hasattr(self, "_running_index"):
-            # Не уводим пользователя вперёд при ошибке — оставляем шаг для повтора.
-            self.idx = self._running_index
-        self._update_ui()
         if ok:
+            # Шаг выполнен — переходим к следующему.
+            self.idx += 1
+            self._update_ui()
             common.toast(self.app, _("Готово"))
         else:
+            # Остаёмся на шаге: можно повторить или уйти «Назад».
+            self._update_ui()
             common.toast(self.app, _("Ошибка: {detail}").format(detail=detail or _("см. Логи")))
 
     def _update_ui(self) -> None:

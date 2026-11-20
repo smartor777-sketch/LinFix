@@ -155,9 +155,14 @@ class NetFixWindow(Gtk.ApplicationWindow):
         for btn in self._tab_buttons.values():
             btn.get_style_context().remove_class("active")
         if 0 <= index < len(PAGES):
-            btn = self._tab_buttons.get(PAGES[index][0])
+            key = PAGES[index][0]
+            btn = self._tab_buttons.get(key)
             if btn is not None:
                 btn.get_style_context().add_class("active")
                 # Фокус следует за активной вкладкой, чтобы рамка фокуса
                 # не подсвечивала соседний раздел.
                 btn.grab_focus()
+            screen = self.screens.get(key)
+            hook = getattr(screen, "on_shown", None)
+            if callable(hook):
+                hook()
