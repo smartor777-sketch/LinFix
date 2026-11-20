@@ -1,0 +1,328 @@
+"""Диагностика: набор проверок и отчёт PASS/WARN/FAIL."""
+
+from __future__ import annotations
+
+import json
+import platform
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from . import util, zapret
+from .cfdomains import FALLBACK_DOMAINS
+from .config import Config
+
+PASS = "pass"
+WARN = "warn"
+FAIL = "fail"
+
+
+@dataclass(frozen=True)
+class Check:
+    id: str
+    title: str
+    status: str
+    details: str
+    hint: str = ""
+
+
+@dataclass(frozen=True)
+class Report:
+    checks: tuple[Check, ...]
+
+    @property
+    def ok(self) -> bool:
+        return all(check.status != FAIL for check in self.checks)
+
+    def to_json(self) -> str:
+        payload = {
+            "ok": self.ok,
+            "checks": [asdict(check) for check in self.checks],
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _os_check() -> Check:
+    pretty = util.os_pretty_name()
+    missing = [tool for tool in ("systemctl", "nft", "ss") if util.which(tool) is None]
+    if missing:
+        return Check(
+            "os",
+            "Система",
+            FAIL,
+            f"{pretty}; отсутствуют: {', '.join(missing)}",
+            "Установите пакеты systemd, nftables и iproute2",
+        )
+    lowered = pretty.lower()
+    if not any(name in lowered for name in ("mint", "ubuntu", "debian")):
+        return Check(
+            "os",
+            "Система",
+            WARN,
+            f"{pretty}, Python {platform.python_version()} — не Mint/Ubuntu",
+            "Дистрибутив не целевой; часть проверок может отличаться",
+        )
+    return Check("os", "Система", PASS, f"{pretty}, Python {platform.python_version()}")
+
+
+def _nfqueue_check() -> Check:
+    try:
+        modules = Path("/proc/modules").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return Check("nfqueue", "Модуль nfnetlink_queue", WARN, f"не удалось прочитать /proc/modules: {exc}")
+    if "nfnetlink_queue" in modules:
+        return Check("nfqueue", "Модуль nfnetlink_queue", PASS, "загружен")
+    completed = util.run(["modprobe", "-n", "nfnetlink_queue"], check=False, timeout=10)
+    if completed.returncode == 0:
+        return Check(
+            "nfqueue",
+            "Модуль nfnetlink_queue",
+            WARN,
+            "не загружен, но доступен",
+            "sudo modprobe nfnetlink_queue",
+        )
+    return Check("nfqueue", "Модуль nfnetlink_queue", FAIL, "недоступен", "Проверьте ядро и модули")
+
+
+def _zapret_checks(info: zapret.ZapretInfo) -> list[Check]:
+    checks: list[Check] = []
+    if not info.found:
+        checks.append(
+            Check(
+                "zapret.service",
+                "Служба zapret",
+                FAIL,
+                "не найдена",
+                "Установите zapret: git clone https://github.com/bol-van/zapret && cd zapret && sudo ./install_easy.sh",
+            )
+        )
+        return checks
+
+    state = "active" if info.active else "inactive"
+    enabled = info.enabled_state or ("enabled" if info.enabled else "disabled")
+    if info.active and info.enabled:
+        checks.append(Check("zapret.service", "Служба zapret", PASS, f"{info.service}: active ({enabled})"))
+    elif info.active:
+        checks.append(
+            Check(
+                "zapret.service",
+                "Служба zapret",
+                WARN,
+                f"{info.service}: active ({enabled})",
+                f"sudo systemctl enable {info.service}",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "zapret.service",
+                "Служба zapret",
+                FAIL,
+                f"{info.service}: {state} ({enabled})",
+                f"sudo systemctl start {info.service}",
+            )
+        )
+
+    if info.pid is not None:
+        checks.append(
+            Check(
+                "zapret.process",
+                "Процесс nfqws",
+                PASS,
+                f"pid {info.pid}, qnum {info.qnum if info.qnum is not None else '?'}, пользователь {info.user or '?'}",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "zapret.process",
+                "Процесс nfqws",
+                FAIL,
+                "процесс не найден",
+                f"sudo systemctl restart {info.service}",
+            )
+        )
+
+    status, details = zapret.nft_table_state(info.nft_table)
+    if status == "ok":
+        checks.append(Check("zapret.nft", "Правила nftables", PASS, details))
+    elif status == "no-root":
+        checks.append(
+            Check(
+                "zapret.nft",
+                "Правила nftables",
+                WARN,
+                details,
+                "Запустите doctor через sudo для полной проверки",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "zapret.nft",
+                "Правила nftables",
+                FAIL,
+                details,
+                f"sudo systemctl restart {info.service}",
+            )
+        )
+    return checks
+
+
+def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
+    target = zapret.hostlist_target(info, cfg.zapret.hostlist)
+    if not target:
+        return Check(
+            "domains.hostlist",
+            "CF-домены в hostlist",
+            FAIL,
+            "hostlist не определён",
+            "netfix domains list",
+        )
+    if not Path(target).exists():
+        return Check(
+            "domains.hostlist",
+            "CF-домены в hostlist",
+            FAIL,
+            f"файл не найден: {target}",
+            "netfix domains update",
+        )
+
+    present = zapret.read_hostlist_domains(target)
+    missing = [domain for domain in FALLBACK_DOMAINS if domain not in present]
+    count = len(FALLBACK_DOMAINS) - len(missing)
+    if not missing:
+        return Check(
+            "domains.hostlist",
+            "CF-домены в hostlist",
+            PASS,
+            f"{count}/{len(FALLBACK_DOMAINS)} в {target}",
+        )
+    status = FAIL if count == 0 else WARN
+    return Check(
+        "domains.hostlist",
+        "CF-домены в hostlist",
+        status,
+        f"{count}/{len(FALLBACK_DOMAINS)}; нет: {', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}",
+        "netfix domains update",
+    )
+
+
+def _tgws_checks(cfg: Config) -> list[Check]:
+    checks: list[Check] = []
+    binary = Path(cfg.tgws.binary)
+    completed = util.run(["systemctl", "--user", "is-active", "tgwsproxy"], check=False, timeout=10)
+    state = (completed.stdout or "").strip() or "inactive"
+    if binary.exists() and completed.returncode == 0 and state == "active":
+        checks.append(Check("tgws.service", "TgWsProxy: служба", PASS, f"active (user), {binary}"))
+    elif binary.exists():
+        checks.append(
+            Check(
+                "tgws.service",
+                "TgWsProxy: служба",
+                WARN,
+                f"{state}, бинарник есть",
+                "systemctl --user start tgwsproxy",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "tgws.service",
+                "TgWsProxy: служба",
+                FAIL,
+                f"не установлен ({binary})",
+                "netfix tgws install (M2)",
+            )
+        )
+
+    addresses = zapret.listening_addresses(cfg.tgws.port)
+    if not addresses:
+        checks.append(
+            Check(
+                "tgws.port",
+                f"TgWsProxy: порт {cfg.tgws.port}",
+                FAIL,
+                "никто не слушает",
+                "netfix tgws start",
+            )
+        )
+    elif all(address.startswith("127.") or address.startswith("[::1]") for address in addresses):
+        checks.append(
+            Check(
+                "tgws.port",
+                f"TgWsProxy: порт {cfg.tgws.port}",
+                PASS,
+                f"LISTEN {', '.join(addresses)}",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "tgws.port",
+                f"TgWsProxy: порт {cfg.tgws.port}",
+                FAIL,
+                f"слушает не только localhost: {', '.join(addresses)}",
+                "В конфиге TgWsProxy укажите host = 127.0.0.1",
+            )
+        )
+    return checks
+
+
+def _route_check() -> Check:
+    completed = util.run(["ip", "route"], check=False, timeout=10)
+    lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    split_default = any(line.startswith(("0.0.0.0/1", "128.0.0.0/1")) for line in lines)
+    tunnel_routes = [
+        line
+        for line in lines
+        if " dev " in line
+        and any(marker in line for marker in ("tun", "vpn", "wg"))
+    ]
+
+    # Интерфейс VPN может остаться без маршрутов (или маршруты ещё не подняты),
+    # поэтому дополнительно смотрим список интерфейсов.
+    link = util.run(["ip", "-brief", "link"], check=False, timeout=10)
+    tunnel_interfaces: list[str] = []
+    for line in (link.stdout or "").splitlines():
+        parts = line.split()
+        if parts and parts[0].startswith(("tun", "vpn", "wg")):
+            tunnel_interfaces.append(parts[0])
+
+    if split_default or tunnel_routes or tunnel_interfaces:
+        if tunnel_routes:
+            details = tunnel_routes[0]
+        elif split_default:
+            details = "split-default 0.0.0.0/1 + 128.0.0.0/1"
+        else:
+            details = f"интерфейс {', '.join(tunnel_interfaces)}"
+        return Check(
+            "route.vpn",
+            "Маршрут по умолчанию",
+            WARN,
+            f"обнаружен VPN/TUN: {details}",
+            "zapret может не видеть трафик, а TLS-тест — обходить DPI через VPN",
+        )
+    return Check("route.vpn", "Маршрут по умолчанию", PASS, "без VPN/TUN")
+
+
+def _guard_check(cfg: Config) -> Check:
+    if cfg.guard.enabled:
+        return Check(
+            "guard",
+            "Guard",
+            WARN,
+            f"включён в конфиге, но ещё не реализован (порог {cfg.guard.error_threshold}/{cfg.guard.window_seconds} с)",
+            "Будет реализовано в M3",
+        )
+    return Check("guard", "Guard", WARN, "выключен", "netfix guard on (M3)")
+
+
+def run_doctor(cfg: Config) -> Report:
+    info = zapret.detect_zapret(cfg.zapret.service)
+    checks: list[Check] = [_os_check(), _nfqueue_check()]
+    checks.extend(_zapret_checks(info))
+    checks.append(_domains_check(info, cfg))
+    checks.extend(_tgws_checks(cfg))
+    checks.append(_route_check())
+    checks.append(_guard_check(cfg))
+    return Report(tuple(checks))

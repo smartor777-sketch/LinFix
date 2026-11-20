@@ -1,0 +1,14 @@
+[Unit]
+Description=TgWsProxy (Telegram WS proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/tgwsproxy/TgWsProxy
+Restart=on-failure
+RestartSec=3
+# если приложение пишет в stdout — journald подхватит автоматически
+
+[Install]
+WantedBy=default.target
