@@ -45,7 +45,7 @@ RestartSec=3
 WantedBy=default.target
 """
 
-ALLOWED_CONFIG_KEYS = {"host", "port", "cfproxy", "h2", "verbose", "pool_size"}
+ALLOWED_CONFIG_KEYS = {"host", "port", "cfproxy", "h2", "verbose", "pool_size", "log_max_mb"}
 
 
 class TgwsError(util.NetfixError):
@@ -284,6 +284,7 @@ def default_config(port: int = 1080, host: str = "127.0.0.1") -> dict[str, objec
         "cfproxy_worker_domain": [],
         "h2": True,
         "verbose": False,
+        "log_max_mb": 5,
         "pool_size": 4,
         "secret": secrets.token_hex(16),
     }
@@ -344,6 +345,9 @@ def _validate_config_value(key: str, value: object) -> None:
     elif key == "pool_size":
         if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 64:
             raise TgwsError(f"pool_size: ожидается целое 1..64, получено {value!r}")
+    elif key == "log_max_mb":
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not 0.5 <= value <= 100:
+            raise TgwsError(f"log_max_mb: ожидается число 0.5..100, получено {value!r}")
     elif key == "host":
         if not isinstance(value, str) or not value.strip():
             raise TgwsError("host: ожидается непустая строка")
@@ -352,8 +356,6 @@ def _validate_config_value(key: str, value: object) -> None:
     elif key in {"cfproxy", "h2", "verbose"}:
         if not isinstance(value, bool):
             raise TgwsError(f"{key}: ожидается bool, получено {type(value).__name__}")
-    else:
-        raise TgwsError(f"ключ {key} нельзя менять через linfix")
 
 
 def update_config(

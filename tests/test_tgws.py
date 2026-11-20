@@ -180,6 +180,21 @@ class ConfigTests(unittest.TestCase):
                 updated, _, _ = tgws.update_config(path, {"host": host})
                 self.assertEqual(updated["host"], host)
 
+    def test_log_max_mb_default_and_validation(self) -> None:
+        data = tgws.default_config()
+        self.assertEqual(data["log_max_mb"], 5)
+
+        path, _ = tgws.ensure_config(create=True, home=self.root)
+        assert path is not None
+        updated, _, changed = tgws.update_config(path, {"log_max_mb": 12.5})
+        self.assertTrue(changed)
+        self.assertEqual(updated["log_max_mb"], 12.5)
+
+        for bad in (0, 0.1, 101, "5", True):
+            with self.subTest(bad=bad):
+                with self.assertRaises(tgws.TgwsError):
+                    tgws.update_config(path, {"log_max_mb": bad})
+
     def test_read_link(self) -> None:
         path, _ = tgws.ensure_config(create=True, home=self.root)
         assert path is not None

@@ -84,6 +84,7 @@ class AppTests(unittest.TestCase):
             "Остановить TgWsProxy",
             "Остановить Zapret2",
             "Подключить Telegram",
+            "Очистить логи",
         ):
             self.assertIn(label, settings_labels)
         self.assertTrue(hasattr(settings, "link_entry"))

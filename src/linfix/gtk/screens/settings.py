@@ -26,6 +26,7 @@ class SettingsScreen:
 
         self.port_entry = common.entry()
         self.host_entry = common.entry()
+        self.log_max_entry = common.entry()
         self.verbose_switch = common.switch(False)
         self.guard_switch = common.switch(False)
         self.autostart_switch = common.switch(False)
@@ -38,9 +39,10 @@ class SettingsScreen:
         attach(0, self.port_entry, _("Порт:"))
         attach(1, self.host_entry, _("Хост:"))
         attach(2, self.verbose_switch, _("Логирование verbose"))
-        attach(3, self.guard_switch, _("Guard"))
-        attach(4, self.autostart_switch, _("Автозапуск TgWsProxy"))
-        attach(5, self.zapret2_switch, _("Автозапуск Zapret2"))
+        attach(3, self.log_max_entry, _("Размер лога, МБ:"))
+        attach(4, self.guard_switch, _("Guard"))
+        attach(5, self.autostart_switch, _("Автозапуск TgWsProxy"))
+        attach(6, self.zapret2_switch, _("Автозапуск Zapret2"))
 
         self.box.pack_start(self.grid, False, False, 0)
 
@@ -70,6 +72,7 @@ class SettingsScreen:
             _("Остановить Zapret2"), lambda _: self._run_op(lambda: api.stop_zapret(self.app.cfg))
         )
         add_service(_("Подключить Telegram"), lambda _: self.open_telegram())
+        add_service(_("Очистить логи"), lambda _: self.clear_logs())
         # fill=True по горизонтали в вертикальном Box — на всю ширину окна.
         self.box.pack_start(self.services_box, False, True, 0)
 
@@ -103,6 +106,28 @@ class SettingsScreen:
         clipboard.set_text(link, len(link))
         common.toast(self.app, _("Ссылка скопирована"))
 
+    def clear_logs(self) -> None:
+        """Удалить proxy.log и его ротированные бэкапы (TgWsProxy)."""
+
+        removed: list[str] = []
+        candidates = list(tgws.log_candidates())
+        path = tgws.find_log_path()
+        if path is not None:
+            candidates.append(path)
+        for base in candidates:
+            for target in sorted({base, base.with_suffix(base.suffix + ".1")}):
+                try:
+                    if target.exists():
+                        target.unlink()
+                        removed.append(target.name)
+                except OSError as exc:
+                    common.message(self.app, _("Не удалось удалить {name}: {err}").format(name=target.name, err=exc))
+                    return
+        if removed:
+            common.toast(self.app, _("Удалено: {names}").format(names=", ".join(removed)))
+        else:
+            common.toast(self.app, _("Логи уже пусты"))
+
     def open_telegram(self) -> None:
         link = api.connect_telegram(self.app.cfg)
         if not link:
@@ -120,6 +145,7 @@ class SettingsScreen:
         self.port_entry.set_text(str(data.get("port", 1080)))
         self.host_entry.set_text(str(data.get("host", "127.0.0.1")))
         self.verbose_switch.set_active(bool(data.get("verbose", False)))
+        self.log_max_entry.set_text(str(data.get("log_max_mb", 5)))
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
         completed = util.run(["systemctl", "--user", "is-enabled", tgws.UNIT_NAME], check=False, timeout=10)
         self.autostart_switch.set_active((completed.stdout or "").strip() == "enabled")
@@ -139,6 +165,11 @@ class SettingsScreen:
             return
         changes["host"] = host
         changes["verbose"] = self.verbose_switch.get_active()
+        try:
+            changes["log_max_mb"] = float(self.log_max_entry.get_text() or "5")
+        except ValueError:
+            common.message(self.app, _("Некорректный размер лога"))
+            return
 
         code, payload = api.set_tgws_config(changes)
         if payload.get("ok") is False:

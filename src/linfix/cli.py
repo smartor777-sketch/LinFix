@@ -588,6 +588,8 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
         changes["host"] = args.host
     if args.pool_size is not None:
         changes["pool_size"] = args.pool_size
+    if args.log_max_mb is not None:
+        changes["log_max_mb"] = args.log_max_mb
     if args.verbose is not None:
         changes["verbose"] = _bool_choice(args.verbose)
     if args.h2 is not None:
@@ -622,7 +624,7 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
     if args.json:
         safe = {
             key: data.get(key)
-            for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size")
+            for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size", "log_max_mb")
             if key in data
         }
         print(
@@ -645,7 +647,7 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
             print(f"Изменено; бэкап: {backup}")
         elif changes:
             print("Изменений нет")
-        for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size"):
+        for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size", "log_max_mb"):
             if key in data:
                 print(f"  {key} = {data[key]}")
         print("Секрет не показывается; ссылка: linfix tgws link")
@@ -1118,6 +1120,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--port", type=int, help="локальный порт")
     p_config.add_argument("--host", help="адрес прослушивания")
     p_config.add_argument("--pool-size", type=int, help="размер пула")
+    p_config.add_argument("--log-max-mb", type=float, help="макс. размер proxy.log, МБ")
     p_config.add_argument("--verbose", choices=["on", "off"])
     p_config.add_argument("--h2", choices=["on", "off"])
     p_config.add_argument("--cfproxy", choices=["on", "off"])
