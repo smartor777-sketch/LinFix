@@ -63,6 +63,17 @@ class StateTests(unittest.TestCase):
         self.assertIsNone(loaded.last_error)
         self.assertIsNotNone(loaded.domains_updated_at)
 
+    def test_record_tgws(self) -> None:
+        updated = state.State().record_tgws(
+            "v1.11.4", "a" * 64, "/opt/tgwsproxy/TgWsProxy"
+        )
+        path = updated.save(self.root / "state.json")
+        loaded = state.load_state(path)
+        self.assertEqual(loaded.tgws_version, "v1.11.4")
+        self.assertEqual(loaded.tgws_sha256, "a" * 64)
+        self.assertEqual(loaded.tgws_binary, "/opt/tgwsproxy/TgWsProxy")
+        self.assertIsNotNone(loaded.tgws_installed_at)
+
     def test_record_error(self) -> None:
         updated = state.State().record_error("restart failed\njournal tail")
         self.assertIn("restart failed", updated.last_error or "")

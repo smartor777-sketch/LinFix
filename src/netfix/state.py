@@ -52,6 +52,10 @@ class State:
     hostlist: str | None = None
     service: str | None = None
     last_error: str | None = None
+    tgws_version: str | None = None
+    tgws_sha256: str | None = None
+    tgws_installed_at: str | None = None
+    tgws_binary: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -66,6 +70,10 @@ class State:
             "hostlist": self.hostlist,
             "service": self.service,
             "last_error": self.last_error,
+            "tgws_version": self.tgws_version,
+            "tgws_sha256": self.tgws_sha256,
+            "tgws_installed_at": self.tgws_installed_at,
+            "tgws_binary": self.tgws_binary,
         }
 
     @classmethod
@@ -86,6 +94,10 @@ class State:
             hostlist=str(raw["hostlist"]) if isinstance(raw.get("hostlist"), str) else None,
             service=str(raw["service"]) if isinstance(raw.get("service"), str) else None,
             last_error=str(raw["last_error"]) if isinstance(raw.get("last_error"), str) else None,
+            tgws_version=str(raw["tgws_version"]) if isinstance(raw.get("tgws_version"), str) else None,
+            tgws_sha256=str(raw["tgws_sha256"]) if isinstance(raw.get("tgws_sha256"), str) else None,
+            tgws_installed_at=str(raw["tgws_installed_at"]) if isinstance(raw.get("tgws_installed_at"), str) else None,
+            tgws_binary=str(raw["tgws_binary"]) if isinstance(raw.get("tgws_binary"), str) else None,
         )
 
     def record_domains(
@@ -109,6 +121,17 @@ class State:
             domains=tuple(domains),
             hostlist=str(hostlist) if hostlist is not None else None,
             service=service,
+            last_error=None,
+        )
+
+    def record_tgws(self, version: str, sha256: str, binary: str | Path) -> "State":
+        return replace(
+            self,
+            updated_at=now_iso(),
+            tgws_version=version,
+            tgws_sha256=sha256,
+            tgws_installed_at=now_iso(),
+            tgws_binary=str(binary),
             last_error=None,
         )
 

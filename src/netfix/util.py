@@ -179,6 +179,29 @@ def atomic_write(
         raise
 
 
+def atomic_copy(source: str | Path, target: str | Path, *, mode: int = 0o755) -> None:
+    """Атомарно скопировать файл (потоково, без чтения целиком в память)."""
+
+    src = Path(source)
+    dst = Path(target)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{dst.name}.", suffix=".tmp", dir=str(dst.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as out_handle, src.open("rb") as in_handle:
+            shutil.copyfileobj(in_handle, out_handle, length=1024 * 1024)
+            out_handle.flush()
+            os.fsync(out_handle.fileno())
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, dst)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def restore_file(backup: str | Path, target: str | Path) -> None:
     """Восстановить файл из бэкапа атомарно, с сохранением прав бэкапа."""
 
@@ -246,9 +269,14 @@ def run_helper(
     else:
         installed = which("netfix-helper")
         if installed is None:
+            if action.startswith("domains."):
+                example = "sudo netfix domains update"
+            elif action.startswith("tgws."):
+                example = "sudo netfix tgws install"
+            else:
+                example = "sudo netfix"
             raise NetfixError(
-                "netfix-helper не установлен. Запустите команду через sudo "
-                "(например: sudo netfix domains update)"
+                f"netfix-helper не установлен. Запустите через sudo: {example}"
             )
         if which("pkexec"):
             cmd = ["pkexec", installed, action, *[str(item) for item in args]]

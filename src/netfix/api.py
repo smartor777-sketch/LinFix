@@ -44,8 +44,13 @@ def get_status(cfg: Config) -> Status:
     )
 
 
-def get_doctor_report(cfg: Config) -> doctor.Report:
-    return doctor.run_doctor(cfg)
+def get_doctor_report(
+    cfg: Config,
+    *,
+    tls: bool = True,
+    tls_timeout: float = 3.0,
+) -> doctor.Report:
+    return doctor.run_doctor(cfg, tls=tls, tls_timeout=tls_timeout)
 
 
 def get_domain_source(

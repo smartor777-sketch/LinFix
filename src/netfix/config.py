@@ -116,6 +116,47 @@ def _warn_unknown(section: dict[str, Any], section_name: str, known: set[str], w
         warnings.append(f"неизвестный ключ [{section_name}] {key} — игнорируется")
 
 
+def set_guard_enabled(text: str, enabled: bool) -> str:
+    """Вернуть текст конфига с изменённым ``[guard] enabled``.
+
+    Сохраняет комментарии и остальные ключи; при отсутствии секции добавляет
+    её в конец. Используется helper'ом для ``netfix guard on|off``.
+    """
+
+    value = "true" if enabled else "false"
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+
+    guard_start: int | None = None
+    guard_end = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if guard_start is not None:
+                guard_end = index
+                break
+            if stripped == "[guard]":
+                guard_start = index
+
+    if guard_start is None:
+        if text and not text.endswith(("\n", "\r")):
+            text += newline
+        separator = "" if not text else newline
+        return f"{text}{separator}[guard]{newline}enabled = {value}{newline}"
+
+    for index in range(guard_start + 1, guard_end):
+        stripped = lines[index].strip()
+        if stripped.startswith("enabled"):
+            indent = lines[index][: len(lines[index]) - len(lines[index].lstrip())]
+            lines[index] = f"{indent}enabled = {value}{newline}"
+            return "".join(lines)
+
+    header = lines[guard_start]
+    header_newline = "\r\n" if header.endswith("\r\n") else newline
+    lines.insert(guard_start + 1, f"enabled = {value}{header_newline}")
+    return "".join(lines)
+
+
 def load_config(path: str | Path | None = None) -> Config:
     """Загрузить конфиг или вернуть значения по умолчанию.
 

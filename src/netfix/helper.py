@@ -14,9 +14,9 @@ import sys
 import time
 from pathlib import Path
 
-from . import state, util, zapret
+from . import state, tgws, util, zapret
 from .cfdomains import is_valid_domain, merge_hostlist_file, normalize_domain
-from .config import DEFAULT_MARKER
+from .config import DEFAULT_CONFIG_PATH, DEFAULT_MARKER, ConfigError, load_config, set_guard_enabled
 
 ALLOWED_ROOTS: tuple[Path, ...] = tuple(
     Path(path)
@@ -30,7 +30,13 @@ ALLOWED_ROOTS: tuple[Path, ...] = tuple(
     )
 )
 ALLOWED_SERVICES = {"zapret", "zapret2"}
-ALLOWED_ACTIONS = {"domains.apply", "domains.merge", "zapret.restart"}
+ALLOWED_ACTIONS = {
+    "config.guard",
+    "domains.apply",
+    "domains.merge",
+    "tgws.install",
+    "zapret.restart",
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -251,6 +257,72 @@ def action_domains_merge(args: argparse.Namespace) -> tuple[int, dict[str, objec
     return 0, payload
 
 
+def action_config_guard(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if args.enabled not in {"on", "off"}:
+        raise HelperError("config.guard: --enabled должен быть on|off")
+    target = validate_path(args.config or str(DEFAULT_CONFIG_PATH), must_exist=False)
+    existed = target.exists()
+    text = ""
+    if existed:
+        with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            text = handle.read()
+
+    want = args.enabled == "on"
+    new_text = set_guard_enabled(text, want)
+    changed = new_text != text
+    backup = None
+    if changed:
+        if existed:
+            backup = util.backup_file(target)
+        util.atomic_write(target, new_text, mode=0o644)
+        try:
+            updated = load_config(target)
+        except ConfigError as exc:
+            if backup is not None:
+                util.restore_file(backup, target)
+            elif target.exists():
+                target.unlink()
+            raise HelperError(f"после правки конфиг некорректен: {exc}") from exc
+        if updated.guard.enabled != want:
+            if backup is not None:
+                util.restore_file(backup, target)
+            raise HelperError("не удалось изменить [guard] enabled")
+
+    return 0, {
+        "ok": True,
+        "changed": changed,
+        "path": str(target),
+        "backup": str(backup) if backup else None,
+        "enabled": want,
+    }
+
+
+def action_tgws_install(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.url:
+        raise HelperError("tgws.install: требуется --url")
+    if not args.sha256:
+        raise HelperError("tgws.install: требуется --sha256")
+
+    url = validate_source_url(args.url)
+    sha256 = validate_sha256(args.sha256)
+    dest = validate_path(args.dest or str(tgws.BINARY), must_exist=False)
+    state_path = validate_path(args.state, must_exist=False)
+    version = tgws.normalize_version(args.version) or "unknown"
+
+    info = tgws.install_from_url(url, dest, sha256, timeout=args.timeout)
+    current = state.load_state(state_path).record_tgws(version, str(info["sha256"]), dest)
+    current.save(state_path)
+
+    return 0, {
+        "ok": True,
+        "version": version,
+        "path": str(dest),
+        "sha256": info["sha256"],
+        "size": info["size"],
+        "state": str(state_path),
+    }
+
+
 def action_zapret_restart(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.restart: требуется --service")
@@ -296,6 +368,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="перезапустить zapret, если hostlist изменился",
     )
+    parser.add_argument("--url", default="", help="URL бинарника для tgws.install")
+    parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
+    parser.add_argument("--version", default="", help="версия TgWsProxy")
+    parser.add_argument("--dest", default=str(tgws.BINARY), help="куда установить бинарник")
+    parser.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="путь к config.toml")
+    parser.add_argument("--enabled", choices=["on", "off"], help="для config.guard")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -315,6 +394,10 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_domains_merge(args)
         elif args.action == "domains.apply":
             code, payload = action_domains_apply(args)
+        elif args.action == "tgws.install":
+            code, payload = action_tgws_install(args)
+        elif args.action == "config.guard":
+            code, payload = action_config_guard(args)
         else:
             code, payload = action_zapret_restart(args)
     except HelperError as exc:
@@ -337,6 +420,17 @@ def main(argv: list[str] | None = None) -> int:
             print(f"рестарт {payload['service']}: {'да' if payload['ok'] else 'ошибка'}")
         if payload.get("journal"):
             print(payload["journal"], file=sys.stderr)
+    elif args.action == "tgws.install":
+        print(
+            f"TgWsProxy {payload['version']}: {payload['path']} "
+            f"({payload['size']} байт, sha256 {str(payload['sha256'])[:12]}…)"
+        )
+    elif args.action == "config.guard":
+        state_label = "включён" if payload["enabled"] else "выключен"
+        print(
+            f"guard {state_label}: {payload['path']}"
+            + (f" (бэкап: {payload['backup']})" if payload.get("backup") else "")
+        )
     else:
         print(f"{payload['service']}: {payload['state']}")
         if payload.get("journal"):

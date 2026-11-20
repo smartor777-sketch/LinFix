@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from netfix import helper
 
@@ -67,6 +69,84 @@ class ServiceValidationTests(unittest.TestCase):
     def test_unknown_service(self) -> None:
         with self.assertRaises(helper.HelperError):
             helper.validate_service("ssh")
+
+
+class ConfigGuardActionTests(unittest.TestCase):
+    def test_updates_existing_config_with_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            path.write_text(
+                "[general]\nlog_level = \"info\"\n\n[guard]\nenabled = false\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                helper, "validate_path", side_effect=lambda raw, must_exist=False: Path(raw)
+            ):
+                code, payload = helper.action_config_guard(
+                    SimpleNamespace(config=str(path), enabled="on")
+                )
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["changed"])
+            self.assertTrue(Path(str(payload["backup"])).exists())
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("enabled = true", text)
+            self.assertIn("log_level = \"info\"", text)
+
+    def test_creates_missing_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.toml"
+            with mock.patch.object(
+                helper, "validate_path", side_effect=lambda raw, must_exist=False: Path(raw)
+            ):
+                code, payload = helper.action_config_guard(
+                    SimpleNamespace(config=str(path), enabled="off")
+                )
+            self.assertEqual(code, 0)
+            self.assertIsNone(payload["backup"])
+            self.assertIn("enabled = false", path.read_text(encoding="utf-8"))
+
+
+class TgwsInstallActionTests(unittest.TestCase):
+    def args(self, **overrides):
+        values = {
+            "url": "https://example.com/TgWsProxy_linux_amd64",
+            "sha256": "a" * 64,
+            "dest": "/opt/tgwsproxy/TgWsProxy",
+            "state": "/var/lib/netfix/state.json",
+            "version": "v1.11.4",
+            "timeout": 1.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_installs_and_updates_state(self) -> None:
+        with (
+            mock.patch.object(
+                helper.tgws,
+                "install_from_url",
+                return_value={"sha256": "a" * 64, "size": 123},
+            ) as install,
+            mock.patch.object(helper.state, "load_state", return_value=helper.state.State()) as load,
+            mock.patch.object(helper.state.State, "save", return_value=Path("/var/lib/netfix/state.json")) as save,
+        ):
+            code, payload = helper.action_tgws_install(self.args())
+
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["version"], "v1.11.4")
+        self.assertEqual(payload["size"], 123)
+        install.assert_called_once()
+        load.assert_called_once()
+        save.assert_called_once()
+
+    def test_http_url_rejected(self) -> None:
+        with self.assertRaises(helper.HelperError):
+            helper.action_tgws_install(self.args(url="http://example.com/x"))
+
+    def test_bad_sha_rejected(self) -> None:
+        with self.assertRaises(helper.HelperError):
+            helper.action_tgws_install(self.args(sha256="abc"))
 
 
 if __name__ == "__main__":

@@ -7,9 +7,12 @@ import json
 import os
 import platform
 import sys
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
-from . import __version__, api, cfdomains, doctor, profiles, state, tgws, util, zapret
+from . import __version__, api, cfdomains, doctor, guard, profiles, state, tgws, util, zapret
 from .config import Config, ConfigError, load_config
 
 EXIT_OK = 0
@@ -90,8 +93,11 @@ def cmd_status(cfg: Config, *, verbose: bool = False) -> int:
         print("Zapret:       не найден")
         print("              установите: git clone https://github.com/bol-van/zapret && sudo ./zapret/install_easy.sh")
 
+    tgws_line = status.tgws_state
+    if status.tgws_installed and status.state_info.tgws_version:
+        tgws_line += f" {status.state_info.tgws_version}"
     print(
-        f"TgWsProxy:    {status.tgws_state}"
+        f"TgWsProxy:    {tgws_line}"
         + ("" if status.tgws_installed else f" ({cfg.tgws.binary})")
     )
 
@@ -113,8 +119,14 @@ def cmd_status(cfg: Config, *, verbose: bool = False) -> int:
 # ---------------------------------------------------------------------------
 
 
-def cmd_doctor(cfg: Config, *, as_json: bool) -> int:
-    report = api.get_doctor_report(cfg)
+def cmd_doctor(
+    cfg: Config,
+    *,
+    as_json: bool,
+    tls: bool = True,
+    tls_timeout: float = 3.0,
+) -> int:
+    report = api.get_doctor_report(cfg, tls=tls, tls_timeout=tls_timeout)
     if as_json:
         print(report.to_json())
     else:
@@ -398,22 +410,245 @@ def cmd_domains_test(cfg: Config, args: argparse.Namespace) -> int:
 
 def cmd_tgws_status(cfg: Config) -> int:
     installed = tgws.is_installed(cfg.tgws.binary)
-    state = tgws.service_state() if installed else "не установлен"
+    service = tgws.service_state() if installed else "не установлен"
     listeners = zapret.listening_addresses(cfg.tgws.port)
-    print(f"Установлен: {'да' if installed else 'нет'} ({cfg.tgws.binary})")
-    print(f"Служба:     {state}")
+    state_info = state.load_state()
+    version = state_info.tgws_version or "—"
+    print(f"Установлен: {'да' if installed else 'нет'} ({cfg.tgws.binary}), версия {version}")
+    print(f"Служба:     {service}")
     print(f"Порт:       {', '.join(listeners) if listeners else 'не слушается'}")
+    print(f"User unit:  {tgws.user_unit_path()} ({'есть' if tgws.user_unit_path().exists() else 'нет'})")
     config_path = tgws.find_config_path()
     print(f"Конфиг:     {config_path or 'не найден'}")
-    return EXIT_OK if installed and state == "active" else EXIT_NOT_INSTALLED
+    return EXIT_OK if installed and service == "active" else EXIT_NOT_INSTALLED
 
 
-def cmd_tgws_link(cfg: Config) -> int:
+def cmd_tgws_link(cfg: Config, *, qr: bool = False) -> int:
     link = tgws.read_link(cfg.tgws.host, cfg.tgws.port)
     if not link:
         print("не удалось найти конфиг TgWsProxy или секрет", file=sys.stderr)
         return EXIT_NOT_INSTALLED
     print(link)
+    if qr:
+        try:
+            import qrcode  # type: ignore[import-not-found]
+        except ImportError:
+            print("для --qr установите python3-qrcode (пакет qrcode)", file=sys.stderr)
+            return EXIT_NOT_INSTALLED
+        code = qrcode.QRCode(border=1)
+        code.add_data(link)
+        code.make()
+        code.print_ascii(invert=True)
+    return EXIT_OK
+
+
+def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
+    try:
+        release = tgws.fetch_release(args.version, timeout=args.timeout)
+        asset = tgws.select_linux_asset(release, args.arch)
+    except tgws.TgwsError as exc:
+        print(f"ошибка получения релиза: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    state_info = state.load_state()
+    already = (
+        not args.force
+        and state_info.tgws_version == release.tag
+        and tgws.is_installed(cfg.tgws.binary)
+    )
+
+    if args.dry_run:
+        payload = {
+            "ok": True,
+            "dry_run": True,
+            "version": release.tag,
+            "asset": asset.name,
+            "url": asset.url,
+            "sha256": asset.sha256,
+            "size": asset.size,
+            "dest": cfg.tgws.binary,
+            "already_installed": already,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"Версия:  {release.tag}")
+            print(f"Asset:   {asset.name} ({asset.size} байт)")
+            print(f"SHA256:  {asset.sha256}")
+            print(f"Куда:    {cfg.tgws.binary}")
+            print(f"Статус:  {'уже установлено' if already else 'будет установлено'}")
+        return EXIT_OK
+
+    if not already:
+        helper_args = [
+            "--url",
+            asset.url,
+            "--sha256",
+            asset.sha256,
+            "--version",
+            release.tag,
+            "--dest",
+            cfg.tgws.binary,
+            "--state",
+            str(state.default_state_path()),
+            "--timeout",
+            str(args.timeout),
+        ]
+        try:
+            code, payload = util.run_helper(
+                "tgws.install", helper_args, timeout=args.timeout + 60
+            )
+        except util.NetfixError as exc:
+            print(f"ошибка: {exc}", file=sys.stderr)
+            return EXIT_NO_RIGHTS
+        except util.CommandError as exc:
+            print(f"ошибка запуска helper: {exc}", file=sys.stderr)
+            return EXIT_NO_RIGHTS
+        if code != 0:
+            message = payload.get("error") or "не удалось установить TgWsProxy"
+            print(f"ОШИБКА: {message}", file=sys.stderr)
+            return EXIT_NO_RIGHTS if code == 4 else EXIT_ERROR
+    else:
+        payload = {
+            "ok": True,
+            "version": release.tag,
+            "path": cfg.tgws.binary,
+            "sha256": state_info.tgws_sha256,
+            "size": None,
+            "already_installed": True,
+        }
+
+    if not tgws.is_installed(cfg.tgws.binary):
+        print(
+            "ОШИБКА: helper сообщил об успехе, но бинарник не найден: "
+            f"{cfg.tgws.binary}",
+            file=sys.stderr,
+        )
+        return EXIT_CHECK_FAILED
+
+    config_path = None
+    config_created = False
+    if not args.no_config:
+        config_path, config_created = tgws.ensure_config(
+            create=True,
+            port=cfg.tgws.port,
+            host=cfg.tgws.host,
+        )
+
+    unit_path = None
+    unit_changed = False
+    unit_result: dict[str, object] = {}
+    if not args.no_unit:
+        unit_path, unit_changed = tgws.install_user_unit(cfg.tgws.binary)
+        unit_result = tgws.enable_user_unit(start=not args.no_start)
+
+    result = {
+        **payload,
+        "config": str(config_path) if config_path else None,
+        "config_created": config_created,
+        "unit": str(unit_path) if unit_path else None,
+        "unit_changed": unit_changed,
+        **unit_result,
+    }
+
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"TgWsProxy {result.get('version')}: установлен в {result.get('path')}")
+        if result.get("already_installed"):
+            print("Бинарник уже был актуален, скачивание пропущено")
+        if config_path:
+            print(f"Конфиг:   {config_path}" + (" (создан)" if config_created else ""))
+        if unit_path:
+            print(f"User unit: {unit_path}" + (" (обновлён)" if unit_changed else ""))
+            if unit_result.get("enabled_ok"):
+                print("Автозапуск включён")
+            else:
+                print(f"Не удалось включить автозапуск: {unit_result.get('enabled_error')}", file=sys.stderr)
+            if unit_result.get("started_ok"):
+                print("Служба запущена")
+            elif unit_result.get("started_ok") is False:
+                print(f"Не удалось запустить: {unit_result.get('started_error')}", file=sys.stderr)
+        print("Дальше: netfix tgws link")
+
+    if unit_result.get("enabled_ok") is False or unit_result.get("started_ok") is False:
+        return EXIT_CHECK_FAILED
+    return EXIT_OK
+
+
+def _bool_choice(value: str) -> bool:
+    return value == "on"
+
+
+def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
+    changes: dict[str, object] = {}
+    if args.port is not None:
+        changes["port"] = args.port
+    if args.host is not None:
+        changes["host"] = args.host
+    if args.pool_size is not None:
+        changes["pool_size"] = args.pool_size
+    if args.verbose is not None:
+        changes["verbose"] = _bool_choice(args.verbose)
+    if args.h2 is not None:
+        changes["h2"] = _bool_choice(args.h2)
+    if args.cfproxy is not None:
+        changes["cfproxy"] = _bool_choice(args.cfproxy)
+
+    path, created = tgws.ensure_config(
+        create=args.create or bool(changes),
+        port=cfg.tgws.port,
+        host=cfg.tgws.host,
+    )
+    if path is None:
+        print(
+            "конфиг TgWsProxy не найден. Запустите TgWsProxy один раз "
+            "или используйте --create",
+            file=sys.stderr,
+        )
+        return EXIT_NOT_INSTALLED
+
+    if created and changes:
+        data, backup, changed = tgws.update_config(path, changes)
+    elif created:
+        data = tgws.load_json_config(path)
+        backup = None
+        changed = False
+    elif changes:
+        data, backup, changed = tgws.update_config(path, changes)
+    else:
+        data, backup, changed = tgws.load_json_config(path), None, False
+
+    if args.json:
+        safe = {
+            key: data.get(key)
+            for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size")
+            if key in data
+        }
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "path": str(path),
+                    "created": created,
+                    "changed": changed,
+                    "backup": str(backup) if backup else None,
+                    "config": safe,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print(f"Конфиг: {path}" + (" (создан)" if created else ""))
+        if changed:
+            print(f"Изменено; бэкап: {backup}")
+        elif changes:
+            print("Изменений нет")
+        for key in ("host", "port", "cfproxy", "h2", "verbose", "pool_size"):
+            if key in data:
+                print(f"  {key} = {data[key]}")
+        print("Секрет не показывается; ссылка: netfix tgws link")
     return EXIT_OK
 
 
@@ -479,6 +714,290 @@ def cmd_logs(cfg: Config, args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# guard
+# ---------------------------------------------------------------------------
+
+
+def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
+    if args.state == "check":
+        report = guard.check_guard(
+            cfg,
+            stop_service=(lambda: SimpleNamespace(returncode=0)) if args.no_stop else None,
+        )
+        if args.json:
+            print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(f"{report.status.upper()}: {report.detail}")
+            if report.log_path:
+                print(f"Лог: {report.log_path}")
+        return EXIT_OK if report.status in {"ok", "warn", "disabled"} else EXIT_CHECK_FAILED
+
+    if args.state == "status":
+        event = guard.load_event()
+        cursor = guard.load_cursor(guard.cursor_path())
+        payload = {
+            "enabled": cfg.guard.enabled,
+            "threshold": cfg.guard.error_threshold,
+            "window_seconds": cfg.guard.window_seconds,
+            "cursor": asdict(cursor) if cursor else None,
+            "last_trip": event.get("last_trip"),
+            "last_detail": event.get("detail"),
+            "last_status": event.get("status"),
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"Guard: {'включён' if cfg.guard.enabled else 'выключен'} "
+                f"(порог {cfg.guard.error_threshold}/{cfg.guard.window_seconds} с)"
+            )
+            if cursor:
+                print(f"Offset лога: {cursor.offset}")
+            if payload["last_trip"]:
+                print(f"Последнее срабатывание: {payload['last_trip']}")
+                print(f"  {payload['last_detail']}")
+            else:
+                print("Срабатываний не было")
+        return EXIT_OK
+
+    # on | off
+    try:
+        code, payload = util.run_helper(
+            "config.guard",
+            ["--enabled", args.state, "--config", "/etc/netfix/config.toml"],
+        )
+    except (util.NetfixError, util.CommandError) as exc:
+        print(f"ошибка: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    elif payload.get("ok"):
+        state_label = "включён" if payload.get("enabled") else "выключен"
+        print(
+            f"Guard {state_label}: {payload.get('path')}"
+            + (f" (бэкап: {payload['backup']})" if payload.get("backup") else "")
+        )
+    else:
+        print(f"ОШИБКА: {payload.get('error', 'не удалось изменить конфиг')}", file=sys.stderr)
+    return EXIT_OK if code == 0 else EXIT_NO_RIGHTS
+
+
+# ---------------------------------------------------------------------------
+# update / setup (оркестрация)
+# ---------------------------------------------------------------------------
+
+
+def _domains_update_args(
+    *,
+    dry_run: bool = False,
+    force: bool = False,
+    offline: bool = False,
+    as_json: bool = False,
+    timeout: float = 15.0,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        dry_run=dry_run,
+        force=force,
+        offline=offline,
+        json=as_json,
+        timeout=timeout,
+    )
+
+
+def _tgws_install_args(
+    *,
+    version: str | None = None,
+    dry_run: bool = False,
+    force: bool = False,
+    no_config: bool = False,
+    no_unit: bool = False,
+    no_start: bool = False,
+    as_json: bool = False,
+    timeout: float = 600.0,
+    arch: str = "amd64",
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        version=version,
+        dry_run=dry_run,
+        force=force,
+        no_config=no_config,
+        no_unit=no_unit,
+        no_start=no_start,
+        json=as_json,
+        timeout=timeout,
+        arch=arch,
+    )
+
+
+def _domains_due(cfg: Config, state_info: state.State, *, now: datetime | None = None) -> bool:
+    if not state_info.domains_updated_at:
+        return True
+    try:
+        updated = datetime.fromisoformat(state_info.domains_updated_at)
+    except ValueError:
+        return True
+    if now is not None:
+        reference = now
+    elif updated.tzinfo is not None:
+        reference = datetime.now(updated.tzinfo)
+    else:
+        reference = datetime.now()
+    return (reference - updated).days >= cfg.lists.update_days
+
+
+def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
+    state_info = state.load_state()
+    domains_due = _domains_due(cfg, state_info)
+
+    latest: str | None = None
+    fetch_error: str | None = None
+    if not args.domains_only:
+        try:
+            latest = tgws.fetch_release(timeout=args.timeout).tag
+        except tgws.TgwsError as exc:
+            fetch_error = str(exc)
+
+    current = state_info.tgws_version
+    if current:
+        current_label = current
+    elif tgws.is_installed(cfg.tgws.binary):
+        current_label = "версия неизвестна"
+    else:
+        current_label = "не установлено"
+    print(f"TgWsProxy: {current_label}, доступно {latest or '—'}")
+    print(
+        "CF-домены: "
+        + (
+            f"обновлено {state_info.domains_updated_at}"
+            if state_info.domains_updated_at
+            else "ещё не обновлялись"
+        )
+        + (" (пора обновить)" if domains_due else " (актуальны)")
+    )
+    if fetch_error:
+        print(f"предупреждение: {fetch_error}", file=sys.stderr)
+
+    actions: list[tuple[str, str, object]] = []
+    if domains_due and not args.tgws_only:
+        actions.append(
+            (
+                "CF-домены",
+                "netfix domains update",
+                lambda: cmd_domains_update(cfg, _domains_update_args(dry_run=args.dry_run)),
+            )
+        )
+    if latest and current != latest and not args.domains_only:
+        actions.append(
+            (
+                "TgWsProxy",
+                f"netfix tgws install --version {latest}",
+                lambda: cmd_tgws_install(
+                    cfg,
+                    _tgws_install_args(version=latest, dry_run=args.dry_run),
+                ),
+            )
+        )
+
+    if args.check:
+        if not actions:
+            print("Обновлений нет")
+        else:
+            for title, command, _ in actions:
+                print(f"Доступно: {title}: {command}")
+        return EXIT_OK
+
+    if not actions:
+        print("Обновлений нет")
+        return EXIT_OK
+
+    if args.dry_run:
+        for title, command, _ in actions:
+            print(f"[dry-run] {title}: {command}")
+        return EXIT_OK
+
+    if not args.yes:
+        for _, command, _ in actions:
+            print(f"Запустите: {command}")
+        return EXIT_OK
+
+    for title, _, action in actions:
+        print(f"=== {title} ===")
+        code = action()  # type: ignore[operator]
+        if code != EXIT_OK:
+            return int(code)
+    return EXIT_OK
+
+
+def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.found:
+        print(
+            "Zapret не найден. Установите его официальным установщиком:\n"
+            "  git clone https://github.com/bol-van/zapret\n"
+            "  cd zapret && sudo ./install_easy.sh\n"
+            "Выберите nfqws + systemd, затем повторите: netfix setup",
+            file=sys.stderr,
+        )
+        return EXIT_NOT_INSTALLED
+
+    state_info = state.load_state()
+    target = zapret.hostlist_target(info, cfg.zapret.hostlist)
+    present = zapret.read_hostlist_domains(target) if target else set()
+    desired_domains = state_info.domains or cfdomains.FALLBACK_DOMAINS
+    missing = [domain for domain in desired_domains if domain not in present]
+
+    steps: list[tuple[str, str, object]] = []
+    if missing or not state_info.domains_updated_at:
+        steps.append(
+            (
+                "CF-домены",
+                "netfix domains update",
+                lambda: cmd_domains_update(cfg, _domains_update_args()),
+            )
+        )
+    if not tgws.is_installed(cfg.tgws.binary):
+        steps.append(
+            (
+                "TgWsProxy",
+                "netfix tgws install",
+                lambda: cmd_tgws_install(cfg, _tgws_install_args()),
+            )
+        )
+    elif tgws.service_state() != "active":
+        steps.append(
+            (
+                "TgWsProxy (запуск)",
+                "netfix tgws start",
+                lambda: cmd_tgws_control("start"),
+            )
+        )
+
+    if not steps:
+        print("Всё уже настроено, запускаю doctor")
+    else:
+        print("План настройки:")
+        for title, command, _ in steps:
+            print(f"  - {title}: {command}")
+
+    if args.dry_run:
+        return EXIT_OK
+    if not args.yes:
+        print("Для выполнения повторите: netfix setup --yes")
+        return EXIT_OK
+
+    for title, _, action in steps:
+        print(f"=== {title} ===")
+        code = action()  # type: ignore[operator]
+        if code != EXIT_OK:
+            print(f"Шаг «{title}» завершился с кодом {code}", file=sys.stderr)
+            return int(code)
+
+    print("=== doctor ===")
+    return cmd_doctor(cfg, as_json=False)
+
+
+# ---------------------------------------------------------------------------
 # parser
 # ---------------------------------------------------------------------------
 
@@ -498,6 +1017,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_doctor = sub.add_parser("doctor", help="полная диагностика")
     p_doctor.add_argument("--json", action="store_true", help="JSON для GUI")
+    p_doctor.add_argument("--no-tls", action="store_true", help="не проверять TLS CF-доменов")
+    p_doctor.add_argument("--tls-timeout", type=float, default=3.0, help="таймаут TLS-проверки")
 
     p_domains = sub.add_parser("domains", help="CF-домены TgWsProxy")
     domains_sub = p_domains.add_subparsers(dest="domains_command", required=True)
@@ -519,27 +1040,53 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_tgws = sub.add_parser("tgws", help="TgWsProxy")
     tgws_sub = p_tgws.add_subparsers(dest="tgws_command", required=True)
-    p_install = tgws_sub.add_parser("install", help="скачать и установить (M2)")
-    p_install.add_argument("--version", help="пиннинг версии")
+    p_install = tgws_sub.add_parser("install", help="скачать, проверить SHA256 и установить")
+    p_install.add_argument("--version", help="пиннинг версии (например v1.11.4)")
+    p_install.add_argument("--arch", default="amd64", help="архитектура ассета (amd64)")
+    p_install.add_argument("--dry-run", action="store_true", help="только показать релиз")
+    p_install.add_argument("--force", action="store_true", help="переустановить ту же версию")
+    p_install.add_argument("--no-config", action="store_true", help="не создавать конфиг")
+    p_install.add_argument("--no-unit", action="store_true", help="не ставить user-unit")
+    p_install.add_argument("--no-start", action="store_true", help="не запускать службу")
+    p_install.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
+    p_install.add_argument("--json", action="store_true", help="JSON для GUI")
+
     for action in ("start", "stop", "restart", "status"):
         tgws_sub.add_parser(action, help=f"{action} user-службы")
     p_link = tgws_sub.add_parser("link", help="напечатать tg://-ссылку")
-    p_link.add_argument("--qr", action="store_true", help="QR в терминале (M2)")
-    tgws_sub.add_parser("config", help="безопасно изменить конфиг (M2)")
+    p_link.add_argument("--qr", action="store_true", help="QR в терминале")
+
+    p_config = tgws_sub.add_parser("config", help="безопасно изменить конфиг")
+    p_config.add_argument("--port", type=int, help="локальный порт")
+    p_config.add_argument("--host", help="адрес прослушивания")
+    p_config.add_argument("--pool-size", type=int, help="размер пула")
+    p_config.add_argument("--verbose", choices=["on", "off"])
+    p_config.add_argument("--h2", choices=["on", "off"])
+    p_config.add_argument("--cfproxy", choices=["on", "off"])
+    p_config.add_argument("--create", action="store_true", help="создать конфиг, если его нет")
+    p_config.add_argument("--json", action="store_true", help="JSON для GUI")
 
     p_logs = sub.add_parser("logs", help="журналы zapret и TgWsProxy")
     p_logs.add_argument("--follow", action="store_true", help="следить за журналом zapret")
     p_logs.add_argument("--lines", type=int, default=50, help="сколько строк показать")
 
-    p_update = sub.add_parser("update", help="обновить TgWsProxy и домены (M1/M2)")
+    p_update = sub.add_parser("update", help="обновить TgWsProxy и CF-домены")
     p_update.add_argument("--check", action="store_true", help="только проверить версии")
+    p_update.add_argument("--yes", action="store_true", help="выполнить без подтверждения")
+    p_update.add_argument("--dry-run", action="store_true", help="показать план")
+    p_update.add_argument("--domains-only", action="store_true", help="только CF-домены")
+    p_update.add_argument("--tgws-only", action="store_true", help="только TgWsProxy")
+    p_update.add_argument("--timeout", type=float, default=20.0, help="таймаут GitHub API")
 
-    p_setup = sub.add_parser("setup", help="мастер первой настройки (M3)")
-    p_setup.add_argument("--yes", action="store_true")
+    p_setup = sub.add_parser("setup", help="мастер первой настройки")
+    p_setup.add_argument("--yes", action="store_true", help="выполнить без подтверждения")
+    p_setup.add_argument("--dry-run", action="store_true", help="показать план")
     p_setup.add_argument("--no-zapret-install", action="store_true")
 
-    p_guard = sub.add_parser("guard", help="управление guard (M3)")
-    p_guard.add_argument("state", choices=["on", "off"])
+    p_guard = sub.add_parser("guard", help="управление guard")
+    p_guard.add_argument("state", choices=["check", "status", "on", "off"])
+    p_guard.add_argument("--json", action="store_true", help="JSON для GUI")
+    p_guard.add_argument("--no-stop", action="store_true", help="не останавливать прокси")
 
     p_profile = sub.add_parser("profile", help="профили сетей (M4)")
     profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
@@ -572,7 +1119,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             return cmd_status(cfg, verbose=args.verbose)
         if args.command == "doctor":
-            return cmd_doctor(cfg, as_json=args.json)
+            return cmd_doctor(
+                cfg,
+                as_json=args.json,
+                tls=not args.no_tls,
+                tls_timeout=args.tls_timeout,
+            )
         if args.command == "domains":
             if args.domains_command == "list":
                 return cmd_domains_list(cfg, offline=args.offline, as_json=args.json)
@@ -585,22 +1137,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.tgws_command == "status":
                 return cmd_tgws_status(cfg)
             if args.tgws_command == "link":
-                if args.qr:
-                    return _not_implemented("netfix tgws link --qr", "M2")
-                return cmd_tgws_link(cfg)
+                return cmd_tgws_link(cfg, qr=args.qr)
             if args.tgws_command in {"start", "stop", "restart"}:
                 return cmd_tgws_control(args.tgws_command)
             if args.tgws_command == "install":
-                return _not_implemented("netfix tgws install", "M2")
-            return _not_implemented("netfix tgws config", "M2")
+                return cmd_tgws_install(cfg, args)
+            if args.tgws_command == "config":
+                return cmd_tgws_config(cfg, args)
         if args.command == "logs":
             return cmd_logs(cfg, args)
         if args.command == "update":
-            return _not_implemented("netfix update", "M1/M2")
+            return cmd_update(cfg, args)
         if args.command == "setup":
-            return _not_implemented("netfix setup", "M3")
+            return cmd_setup(cfg, args)
         if args.command == "guard":
-            return _not_implemented("netfix guard", "M3")
+            return cmd_guard(cfg, args)
         if args.command == "profile":
             if args.profile_command == "list":
                 loaded = profiles.load_profiles("/etc/netfix/profiles.toml")

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from . import state, util, zapret
+from . import cfdomains, guard, state, util, zapret
 from .cfdomains import FALLBACK_DOMAINS
 from .config import Config
 
@@ -257,6 +257,72 @@ def _state_check(cfg: Config) -> Check:
     )
 
 
+def _tls_check(cfg: Config, timeout: float = 3.0) -> Check:
+    state_info = state.load_state()
+    domains = state_info.domains or FALLBACK_DOMAINS
+    results = cfdomains.test_domains(domains, limit=2, timeout=timeout)
+    if not results:
+        return Check(
+            "domains.tls",
+            "CF-домены: TLS-тест",
+            FAIL,
+            "нет результатов",
+            "netfix domains update",
+        )
+    ok_count = sum(1 for _, ok, _ in results if ok)
+    total = len(results)
+    details = f"{ok_count}/{total} (" + ", ".join(
+        f"{host}: {detail}" for host, ok, detail in results if not ok
+    ) + ")" if ok_count < total else f"{ok_count}/{total}"
+    if ok_count == total:
+        return Check("domains.tls", "CF-домены: TLS-тест", PASS, details)
+    if ok_count == 0:
+        return Check(
+            "domains.tls",
+            "CF-домены: TLS-тест",
+            FAIL,
+            details,
+            "netfix domains update && sudo systemctl restart zapret2",
+        )
+    return Check(
+        "domains.tls",
+        "CF-домены: TLS-тест",
+        WARN,
+        details,
+        "Проверьте netfix domains test --all",
+    )
+
+
+def _telegram_check(cfg: Config) -> Check:
+    completed = util.run(["ss", "-tn"], check=False, timeout=10)
+    count = 0
+    for line in (completed.stdout or "").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        state_column = parts[0]
+        local = parts[3]
+        peer = parts[4]
+        if state_column == "ESTAB" and (
+            local.endswith(f":{cfg.tgws.port}") or peer.endswith(f":{cfg.tgws.port}")
+        ):
+            count += 1
+    if count:
+        return Check(
+            "telegram.connections",
+            "Telegram подключён",
+            PASS,
+            f"{count} соединений на 127.0.0.1:{cfg.tgws.port}",
+        )
+    return Check(
+        "telegram.connections",
+        "Telegram подключён",
+        WARN,
+        f"нет соединений на 127.0.0.1:{cfg.tgws.port}",
+        "Откройте tg://-ссылку: netfix tgws link",
+    )
+
+
 def _tgws_checks(cfg: Config) -> list[Check]:
     checks: list[Check] = []
     binary = Path(cfg.tgws.binary)
@@ -356,24 +422,42 @@ def _route_check() -> Check:
 
 
 def _guard_check(cfg: Config) -> Check:
-    if cfg.guard.enabled:
+    if not cfg.guard.enabled:
+        return Check("guard", "Guard", WARN, "выключен", "netfix guard on")
+
+    event = guard.load_event()
+    if event.get("last_trip"):
+        detail = str(event.get("detail", ""))[:90]
         return Check(
             "guard",
             "Guard",
             WARN,
-            f"включён в конфиге, но ещё не реализован (порог {cfg.guard.error_threshold}/{cfg.guard.window_seconds} с)",
-            "Будет реализовано в M3",
+            f"последнее срабатывание {event.get('last_trip')}: {detail}",
+            "netfix domains test && netfix tgws restart",
         )
-    return Check("guard", "Guard", WARN, "выключен", "netfix guard on (M3)")
+    return Check(
+        "guard",
+        "Guard",
+        PASS,
+        f"включён, срабатываний не было (порог {cfg.guard.error_threshold}/{cfg.guard.window_seconds} с)",
+    )
 
 
-def run_doctor(cfg: Config) -> Report:
+def run_doctor(
+    cfg: Config,
+    *,
+    tls: bool = True,
+    tls_timeout: float = 3.0,
+) -> Report:
     info = zapret.detect_zapret(cfg.zapret.service)
     checks: list[Check] = [_os_check(), _nfqueue_check()]
     checks.extend(_zapret_checks(info))
     checks.append(_domains_check(info, cfg))
     checks.append(_state_check(cfg))
+    if tls:
+        checks.append(_tls_check(cfg, tls_timeout))
     checks.extend(_tgws_checks(cfg))
+    checks.append(_telegram_check(cfg))
     checks.append(_route_check())
     checks.append(_guard_check(cfg))
     return Report(tuple(checks))
