@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from ... import api, tgws, util, zapret
 from ..i18n import _
@@ -123,7 +123,9 @@ class StatusScreen:
     def connect_telegram(self) -> None:
         link = api.connect_telegram(self.app.cfg)
         if link:
-            clipboard = Gtk.Clipboard.get_default()
+            clipboard = Gtk.Clipboard.get_for_display(
+                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+            )
             clipboard.set_text(link, len(link))
             common.toast(self.app, _("Ссылка скопирована"))
         else:

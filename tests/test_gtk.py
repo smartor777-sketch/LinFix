@@ -95,6 +95,12 @@ class AppTests(unittest.TestCase):
         self.assertEqual(set(screen.telegram_card.rows), {"connections", "status"})
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
+        connect_btn = next(
+            (b for b in screen.buttons.get_children() if b.get_label() == "Подключить Telegram"),
+            None,
+        )
+        self.assertIsNotNone(connect_btn)
+        connect_btn.emit("clicked")  # не должен падать
         app.window.destroy()
 
 

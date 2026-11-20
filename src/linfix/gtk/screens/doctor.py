@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from ... import api
 from ..i18n import _
@@ -57,6 +57,8 @@ class DoctorScreen:
         if self.last_report is None:
             common.toast(self.app, _("Отчёт ещё не создан"))
             return
-        clipboard = Gtk.Clipboard.get_default()
+        clipboard = Gtk.Clipboard.get_for_display(
+            Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+        )
         clipboard.set_text(self.last_report.to_json(), len(self.last_report.to_json()))
         common.toast(self.app, _("Отчёт скопирован"))
