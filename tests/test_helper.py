@@ -252,3 +252,29 @@ class ZapretInstallEasyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SysctlAndMtuTests(unittest.TestCase):
+    def test_sysctl_rejects_unknown_key(self) -> None:
+        args = SimpleNamespace(key="net.ipv4.ip_forward", value="1", json=False)
+        with self.assertRaises(helper.HelperError):
+            helper.action_sysctl_set(args)
+
+    def test_sysctl_rejects_bad_value(self) -> None:
+        args = SimpleNamespace(key="net.ipv4.tcp_mtu_probing", value="9", json=False)
+        with self.assertRaises(helper.HelperError):
+            helper.action_sysctl_set(args)
+
+    def test_mtu_never_increases(self) -> None:
+        running = mock.Mock(returncode=0, stdout="2: wlo1: mtu 1400 qdisc\n", stderr="")
+        args = SimpleNamespace(interface="wlo1", mtu=1492, json=False)
+        with mock.patch.object(helper.util, "run", return_value=running):
+            with self.assertRaises(helper.HelperError):
+                helper.action_mtu_set(args)
+
+    def test_mtu_rejects_missing_interface(self) -> None:
+        missing = mock.Mock(returncode=1, stdout="", stderr="not found")
+        args = SimpleNamespace(interface="nope0", mtu=1492, json=False)
+        with mock.patch.object(helper.util, "run", return_value=missing):
+            with self.assertRaises(helper.HelperError):
+                helper.action_mtu_set(args)

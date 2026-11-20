@@ -43,6 +43,8 @@ class SiteCheck:
     details: list[str] = field(default_factory=list)
     ip: str | None = None
     advice: str = ""
+    #: Для статуса pmtu: рабочий MTU, который можно применить.
+    suggested_mtu: int | None = None
 
 
 def _resolve(host: str, timeout: float) -> tuple[str | None, str]:
@@ -237,9 +239,10 @@ def check_site(host: str, *, timeout: float = DEFAULT_TIMEOUT) -> SiteCheck:
                     ip=ip,
                     advice=(
                         "TLS проходит, но крупные пакеты теряются — «чёрная дыра» PMTU. "
-                        "Проверьте MTU у провайдера/маршрутизатора (у Wi-Fi часто 1492) "
-                        "или включите tcp_mtu_probing."
+                        "Нажмите «Починить MTU»: включить tcp_mtu_probing "
+                        "или уменьшить MTU интерфейса."
                     ),
+                    suggested_mtu=mtu,
                 )
             return SiteCheck(
                 host,
