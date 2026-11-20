@@ -1,151 +1,130 @@
-# LinFix Linux
+# LinFix
 
-CLI-утилита, которая превращает связку **zapret + TgWsProxy** в управляемый продукт:
-находит установленный zapret, держит CF-домены в его hostlist, ставит и запускает
-TgWsProxy, диагностирует поломки и защищает сеть от «шторма соединений».
+**Графическая панель для Linux**, которая превращает связку
+**zapret2** (обход DPI через NFQUEUE) + **TgWsProxy** (MTProto-прокси для Telegram)
+в управляемый продукт: поставил `.deb`, открыл окно, нажал «Далее» — работает.
 
-Полное ТЗ — в [SPEC.md](SPEC.md). Факты о целевой машине — в
-[docs/INVESTIGATION.md](docs/INVESTIGATION.md), принятые решения — в
-[docs/DECISIONS.md](docs/DECISIONS.md), отчёты по этапам — в
-`docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
-`docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/DESKTOP-ICONS.md`.
+![Статус](docs/screenshot-status.png)
 
-Проект переименован в **LinFix** (пакет `linfix`, команда `linfix`);
-[docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлыки сервисов.
-В SPEC слово «LinFix» — основное название продукта (Linux-реализация — LinFix).
+## Как это выглядит
 
-## Статус
+Панель — это одно окно с закреплёнными разделами: **Статус**, **Мастер настройки**,
+**Домены**, **Диагностика**, **Настройки**, **Логи**. Плюс иконка в трее, которая
+меняет цвет по состоянию системы.
 
-- Реализованы **M0–M4** + переименование + ярлыки сервисов + **M6 (GTK3-панель)**,
-  подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
-  `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
-- **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
-  установка `sudo apt install ./dist/linfix_0.1.3_all.deb` (см. `packaging/debian/README.md`).
-- CI: `.github/workflows/build-deb.yml` собирает `.deb` на push в `main` и
-  прикрепляет его к GitHub Release по тегу `v*`.
+| Мастер настройки | Настройки |
+|---|---|
+| ![Мастер](docs/screenshot-wizard.png) | ![Настройки](docs/screenshot-settings.png) |
 
-M6 (GTK3-панель): `make gui` или `linfix-gui` (после установки пакета); панель использует `linfix.api`.
+| Диагностика |
+|---|
+| ![Диагностика](docs/screenshot-doctor.png) |
 
-Реализованы **M0–M4**:
+## Что умеет
 
-- `linfix status` с реальным определением zapret/zapret2, hostlist и state;
-- `linfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
-- `linfix domains list|test|update`;
-- `domains update`: GitHub → декодер → merge → state → рестарт → проверка →
-  откат при падении; есть `--dry-run`, `--offline`, `--force`, `--json`;
-- `/var/lib/linfix/state.json` хранит список доменов, хэш и версию TgWsProxy;
-- `linfix tgws install|config|link|start|stop|restart|status`:
-  HTTPS + SHA256, `/opt/tgwsproxy`, user-unit, безопасный конфиг;
-- `linfix guard check|status|on|off` — защита от шторма соединений;
-- `linfix setup` и `linfix update` — оркестрация настройки/обновлений;
-- `linfix profile list|set|clear` — профили сетей (матчинг по UUID, по умолчанию general);
-- идемпотентный merge hostlist с сохранением CRLF и бэкапом;
-- `linfix-helper` с белым списком действий и валидацией путей;
-- unit-тесты (stdlib `unittest`, совместимы с pytest).
+- **Мастер настройки** — пять шагов «Далее»: проверка системы → установка
+  zapret2 из GitHub → установка TgWsProxy из GitHub → CF-домены → автозапуск.
+  Пароль спрашивается только на привилегированных шагах (polkit/pkexec).
+- **Статус** — служба, процесс nfqws2, очередь/разметка, hostlist, домены,
+  TgWsProxy, порт и telegram-ссылка в одном экране.
+- **Домены** — обновление списка CF-доменов с GitHub, точечная проверка TLS,
+  добавление в hostlist с бэкапом и откатом при неудачном рестарте.
+- **Диагностика** — отчёт по системе: NFQUEUE, nftables, службы, hostlist,
+  TLS до CF-доменов, VPN/TUN, guard.
+- **Настройки** — порт, хост, verbose, размер лога, режим TgWsProxy
+  (трей/CLI), guard, автозапуск, управление службами, ссылка `tg://proxy`.
+- **Логи** — journalctl обеих служб + хвост `proxy.log`, с поиском.
+- **Трей** — цвет иконки отражает состояние, меню управляет службами.
 
-Профили сетей реализованы; пакет `.deb` собирается через `make deb` (M5).
+## Установка
 
-## Установка из .deb (для пользователя)
+### Из .deb
 
 ```bash
-make deb                              # собрать пакет
-sudo apt install ./dist/linfix_0.1.3_all.deb
-linfix-gui                            # или запустить LinFix из меню
+sudo apt install ./linfix_0.1.3_all.deb
 ```
 
-Далее — вкладка **«Мастер настройки»** и «Далее» по шагам:
-проверка → zapret2 из GitHub → TgWsProxy из GitHub → CF-домены → автозапуск.
-Пароль polkit/sudo запрашивается только на привилегированных шагах.
+Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
+**«Мастер настройки»** и нажимайте «Далее».
 
-## Применение доменов
+Зависимости ставятся через apt: `python3-gi`, `gir1.2-gtk-3.0`, `nftables`,
+`curl`, `ca-certificates`, `git`, `pkexec`, `systemd`.
+
+### Из исходников
 
 ```bash
-linfix domains update --dry-run   # показать план, ничего не менять
-linfix domains update             # нужен root: helper через pkexec/sudo
-linfix domains update --offline   # использовать state/fallback без GitHub
+git clone https://github.com/smartor777-sketch/LinFix.git
+cd LinFix
+make test     # 202 теста
+make gui      # запуск панели без установки
+make deb      # → dist/linfix_<version>_all.deb
 ```
 
-При изменении hostlist helper делает бэкап, перезапускает zapret, проверяет
-`active` и живой `nfqws`/`nfqws2`. Если проверка не прошла — hostlist
-откатывается из бэкапа, а причина пишется в state и выводится в CLI.
+## Два режима TgWsProxy
 
-## Запуск без установки
-
-```bash
-PYTHONPATH=src python3 -m linfix.cli --help
-PYTHONPATH=src python3 -m linfix.cli status
-PYTHONPATH=src python3 -m linfix.cli doctor
-```
-
-## GTK3-панель (M6, через PyGObject)
-
-```bash
-make gui        # PYTHONPATH=src python3 -m linfix.gtk.main
-```
-
-Панель: `linfix-gui` (при установке пакета), или из меню «LinFix»
-(`~/.local/share/applications/linfix.desktop`). Панель строится только поверх
-`linfix.api`; привилегированные действия — через `pkexec /usr/libexec/linfix-helper`.
-
-Тесты на панель: `tests/test_gtk.py` (установленGTK3 + трей).
-
-## Тесты
-
-В этой системе нет `pip`/`pytest`, поэтому тесты написаны на stdlib `unittest`
-и одновременно совместимы с pytest:
-
-```bash
-make test
-# или
-PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
-```
-
-Сейчас: **169 тестов**, все проходят.
-
-## Безопасность
-
-- Перед любой правкой `/opt/zapret2/config` и hostlist — снимок с меткой времени
-  (`scripts/backup-zapret.sh`, либо `linfix.util.backup_file`).
-- Привилегированные действия — только через `linfix-helper` с белым списком
-  действий и канонизацией путей (никакого `shell=True`).
-- `linfix` не создаёт собственных nftables-правил: он управляет только тем,
-  что создал установщик zapret.
-
-## Режимы TgWsProxy: trey и CLI
-
-TgWsProxy бывает двух видов, и LinFix умеет оба:
+TgWsProxy существует в двух видах, и LinFix поддерживает оба:
 
 | | `tray` | `cli` |
 |---|---|---|
-| X11 / DISPLAY | **нужен** | **не нужен** |
-| Трей-меню | есть | нет |
-| Годится для | десктопа | сервера, headless, SSH |
+| X11 / `DISPLAY` | нужен | **не нужен** |
+| Иконка в трее | есть | нет |
+| Для чего | десктоп | сервер, SSH, headless |
 
-Выбор — в «Настройки → Режим TgWsProxy» или:
+Переключение — в **«Настройки → Режим TgWsProxy»** или из терминала:
 
 ```bash
-linfix tgws config --mode cli     # headless-сервер
-linfix tgws config --mode tray    # обычный десктоп
+linfix tgws config --mode cli
 linfix tgws restart
 ```
 
-В режиме `cli` LinFix скачивает исходники TgWsProxy в `/opt/tgwsproxy/src`
-и запускает прокси как обычный процесс:
+Порт, secret, `tg://`-ссылка и ротация лога общие для обоих режимов — они
+хранятся в `~/.config/TgWsProxy/config.json`. Если `DISPLAY` недоступен,
+LinFix сам выбирает `cli`.
 
-```
-python3 -m proxy.tg_ws_proxy --port 1080 --host 127.0.0.1 \
-    --log-file ~/.config/TgWsProxy/proxy.log --log-max-mb 5 \
-    --pool-size 4 --secret <из config.json>
-```
+## CLI (второй интерфейс)
 
-Порт, secret и размер лога берутся из того же `config.json`, поэтому
-`linfix tgws link` и панель показывают одну и ту же ссылку. Зависимости
-CLI-режима (в Debian/Ubuntu ставятся из apt):
+Вся функциональность панели доступна и из терминала — удобно для серверов
+и скриптов:
 
 ```bash
-sudo apt install python3-httpx python3-h2 python3-certifi python3-cryptography
+linfix status                  # сводка по компонентам
+linfix doctor                  # полная диагностика (+ --json)
+linfix domains update          # CF-домены → hostlist → рестарт
+linfix tgws install            # TgWsProxy из GitHub (SHA256)
+linfix tgws config --mode cli  # headless-режим
+linfix tgws link               # tg://proxy-ссылка
+linfix logs                    # журналы служб
+linfix setup                   # мастер настройки в терминале
 ```
 
-Если `DISPLAY` нет, а в конфиге выбран `tray`, LinFix сам переключается на
-`cli` — прокси всё равно поднимется. Обратно на `tray` без X11 переключиться
-нельзя: такой выбор проигнорируется до появления дисплея.
+Привилегированные операции идут через `linfix-helper` — отдельный бинарник
+с белым списком действий, вызываемый через pkexec и polkit-policy.
+
+## Логи и их размер
+
+- `~/.config/TgWsProxy/proxy.log` — ротация **5 МБ + 1 бэкап** (≈10 МБ).
+  Меняется в «Настройки → Размер лога, МБ» или
+  `linfix tgws config --log-max-mb 10`.
+- «Настройки → Очистить логи» удаляет `proxy.log` и его бэкап.
+- `journalctl` ограничен системно (`SystemMaxUse`, по умолчанию 500 МБ).
+
+## Безопасность
+
+- Скачивание только по HTTPS; бинарник TgWsProxy — с проверкой SHA256.
+- Список действий helper'а фиксирован, пути канонизируются и проверяются.
+- Конфиг TgWsProxy пишется с правами `0600`, изменения — с бэкапом.
+- В hostlist пишется помеченный блок; при неудачном рестарте — откат.
+
+## Структура
+
+```
+src/linfix/            api.py, cli.py, helper.py, tgws.py, zapret.py, …
+src/linfix/gtk/        GTK3-панель: окно, экраны, трей
+packaging/debian/      control, обёртки, postinst/prerm, сборка .deb
+data/                  polkit policy, systemd user-юниты, иконки
+tests/                 202 unit-теста (stdlib unittest)
+```
+
+## Лицензия
+
+MIT

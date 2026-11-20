@@ -1,6 +1,6 @@
 # packaging/debian
 
-Сборка `.deb`-пакета LinFix.
+Сборка `.deb`-пакета LinFix — графической панели (GTK3) с CLI.
 
 ## Сборка
 

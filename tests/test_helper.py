@@ -206,7 +206,8 @@ class TgwsInstallActionTests(unittest.TestCase):
         self.assertEqual(payload["version"], "v1.11.4")
         self.assertEqual(payload["size"], 123)
         install.assert_called_once()
-        load.assert_called_once()
+        # Фоновые потоки GTK-тестов тоже читают state — проверяем свой вызов.
+        load.assert_any_call(Path("/var/lib/linfix/state.json"))
         save.assert_called_once()
 
     def test_http_url_rejected(self) -> None:
