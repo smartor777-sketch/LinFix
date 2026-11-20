@@ -38,11 +38,20 @@ class NetFixWindow(Gtk.ApplicationWindow):
         main_box.pack_start(self.notebook, True, True, 0)
         main_box.pack_start(self.statusbar, False, False, 0)
         self.add(main_box)
-        # Поведение «на верху»: просим WM поднять окно при активации.
-        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        # Поведение: минимизируется (type hint NORMAL даёт кнопку minimize),
+        # закрытие скрывает в трей, а не убивает приложение (см. delete-event).
+        self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
+        self.set_deletable(True)
+        self.set_resizable(True)
         self.set_keep_above(True)
         self.set_focus_on_map(True)
+        self.connect("delete-event", self._on_delete_event)
         self.show_all()
+
+    def _on_delete_event(self, _widget, _event) -> bool:
+        # Закрытие (X) прячет окно, трей остаётся живым.
+        self.hide()
+        return True
 
     def set_page(self, key: str) -> None:
         for index, (name, _label) in enumerate(PAGES):

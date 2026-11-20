@@ -80,6 +80,22 @@ class AppTests(unittest.TestCase):
         self.assertTrue(logs.full_text is not None)
         app.window.destroy()
 
+    def test_window_hint_and_hide_on_delete(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertEqual(window.get_type_hint(), Gdk.WindowTypeHint.NORMAL)
+        self.assertTrue(window.get_deletable())
+        self.assertTrue(window.get_visible())
+        returned = window._on_delete_event(window, None)
+        self.assertTrue(returned)
+        self.assertFalse(window.get_visible())
+        app.window.destroy()
+
     def test_status_screen_widgets(self) -> None:
         from linfix.gtk.app import NetFixApp
 
