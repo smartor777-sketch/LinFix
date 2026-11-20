@@ -15,8 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Зависимости GTK для тестов
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-gi gir1.2-gtk-3.0 \
+            gir1.2-ayatanaappindicator3-0.1 xvfb
+
       - name: Тесты
-        run: python3 -m unittest discover -s tests -t .
+        run: xvfb-run -a python3 -m unittest discover -s tests -t .
 
       - name: Собрать .deb
         run: sh packaging/build_deb.sh
