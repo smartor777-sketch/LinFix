@@ -73,7 +73,23 @@ class AppTests(unittest.TestCase):
         settings = app.window.screens["settings"]
         self.assertTrue(settings.port_entry.get_text())
         self.assertTrue(hasattr(settings, "zapret2_switch"))
-        self.assertTrue(settings.zapret2_switch.get_label() if hasattr(settings.zapret2_switch, "get_label") else True)
+        settings_labels = [
+            b.get_label() for b in settings.services_box.get_children() if isinstance(b, Gtk.Button)
+        ]
+        for label in (
+            "Перезапустить",
+            "Перезапустить TgWsProxy",
+            "Остановить TgWsProxy",
+            "Остановить Zapret2",
+            "Подключить Telegram",
+        ):
+            self.assertIn(label, settings_labels)
+        self.assertTrue(hasattr(settings, "link_entry"))
+        self.assertTrue(hasattr(settings, "copy_link"))
+        self.assertTrue(hasattr(settings, "open_telegram"))
+        self.assertTrue(app.window.tab_bar)
+        tab_labels = [b.get_label() for b in app.window.tab_bar.get_children()]
+        self.assertEqual(tab_labels, ["Статус", "Настройка", "Домены", "Диагностика", "Настройки", "Логи"])
         setup = app.window.screens["setup"]
         self.assertTrue(setup.step_label.get_text())
         logs = app.window.screens["logs"]
@@ -129,25 +145,11 @@ class AppTests(unittest.TestCase):
             set(screen.telegram_card.rows),
             {"connections", "status", "server", "port", "secret", "link"},
         )
-        self.assertTrue(hasattr(screen, "link_entry"))
-        self.assertTrue(hasattr(screen, "copy_link"))
-        self.assertFalse(hasattr(screen, "print_qr"))
-        labels = [
-            b.get_label() for b in screen.link_box.get_children() if isinstance(b, Gtk.Button)
-        ]
-        self.assertEqual(labels, ["Копировать ссылку"])
+        self.assertFalse(hasattr(screen, "link_entry"))
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
         labels = [b.get_label() for b in screen.buttons.get_children()]
-        self.assertIn("Остановить TgWsProxy", labels)
-        if screen.has_zapret:
-            self.assertIn("Остановить Zapret2", labels)
-        connect_btn = next(
-            (b for b in screen.buttons.get_children() if b.get_label() == "Подключить Telegram"),
-            None,
-        )
-        self.assertIsNotNone(connect_btn)
-        connect_btn.emit("clicked")  # не должен падать
+        self.assertEqual(labels, ["Обновить"])
         app.window.destroy()
 
     def test_autostarted_services_start_when_enabled(self) -> None:

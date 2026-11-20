@@ -1,12 +1,12 @@
 """Экран «Статус» (SPEC 14).
 
-Карточки: Zapret, TgWsProxy, Домены, Telegram + кнопки «Перезапустить»,
-«Подключить Telegram».
+Карточки: Zapret, TgWsProxy, Домены, Telegram. Кнопка «Обновить».
+(Кнопки управления службами и ссылка Telegram — в разделе «Настройки».)
 """
 
 from __future__ import annotations
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Gtk
 
 from ... import api, tgws, util, zapret
 from ..i18n import _
@@ -70,43 +70,11 @@ class StatusScreen:
         common.pack(self.box, self.telegram_card)
         common.pack(self.box, self.buttons)
 
-        self.link_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=12)
-        self.link_entry = common.entry()
-        self.link_entry.set_editable(False)
-        self.link_entry.set_placeholder_text(_("tg://proxy?server=127.0.0.1&port=1080&secret=dd…"))
-        common.pack_expand(self.link_box, self.link_entry)
-        common.pack(
-            self.link_box,
-            common.button(_("Копировать ссылку"), lambda _: self.copy_link()),
-        )
-        common.pack(self.box, self.link_box)
-
         self._build_buttons()
         self.refresh()
 
     def _build_buttons(self) -> None:
-        common.pack(self.buttons, common.button(_("Перезапустить"), lambda _: self.app.run_op(api.restart_zapret, on_done=lambda _: self.refresh())))
-        common.pack(self.buttons, common.button(_("Перезапустить TgWsProxy"), lambda _: self.app.run_op(api.restart_tgws, on_done=lambda _: self.refresh())))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
-        common.pack(
-            self.buttons,
-            common.button(
-                _("Остановить TgWsProxy"),
-                lambda _: self.app.run_op(api.stop_tgws, on_done=lambda _: self.refresh()),
-            ),
-        )
-        if self.has_zapret:
-            common.pack(
-                self.buttons,
-                common.button(
-                    _("Остановить Zapret2"),
-                    lambda _: self.app.run_op(
-                        lambda: api.stop_zapret(self.app.cfg),
-                        on_done=lambda _: self.refresh(),
-                    ),
-                ),
-            )
-        common.pack(self.buttons, common.button(_("Подключить Telegram"), lambda _: self.open_telegram()))
 
     def refresh(self) -> None:
         def job():
@@ -162,7 +130,7 @@ class StatusScreen:
             self.telegram_card.set("server", data["server"])
             self.telegram_card.set("port", data["port"])
             self.telegram_card.set("secret", data["secret"])
-            self.link_entry.set_text(data["link"] or "")
+            self.telegram_card.set("link", data["link"] or "—")
 
         run_in_thread(job, on_done=apply_data)
 
@@ -174,42 +142,3 @@ class StatusScreen:
             "port": str(data.get("port", 1080)),
             "secret": str(data.get("secret", "")),
         }
-
-    def open_telegram(self) -> None:
-        """Открыть tg://proxy-ссылку в настройках Telegram (по стилю NetFix SPEC 9.4)."""
-
-        link = api.connect_telegram(self.app.cfg)
-        if not link:
-            common.message(self.app, _("Конфиг TgWsProxy не найден"))
-            return
-        try:
-            Gtk.show_uri(Gdk.Screen.get_default(), link, Gdk.CURRENT_TIME)
-            common.toast(self.app, _("Открыта ссылка для настройки Telegram"))
-        except Exception as exc:  # noqa: BLE001 — fallback в буфер
-            clipboard = Gtk.Clipboard.get_for_display(
-                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
-            )
-            clipboard.set_text(link, len(link))
-            common.toast(self.app, _("Ссылка скопирована"))
-
-    def copy_link(self) -> None:
-        link = api.connect_telegram(self.app.cfg)
-        if link:
-            clipboard = Gtk.Clipboard.get_for_display(
-                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
-            )
-            clipboard.set_text(link, len(link))
-            common.toast(self.app, _("Ссылка скопирована"))
-        else:
-            common.message(self.app, _("Конфиг TgWsProxy не найден"))
-
-    def connect_telegram(self) -> None:
-        link = api.connect_telegram(self.app.cfg)
-        if link:
-            clipboard = Gtk.Clipboard.get_for_display(
-                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
-            )
-            clipboard.set_text(link, len(link))
-            common.toast(self.app, _("Ссылка скопирована"))
-        else:
-            common.message(self.app, _("Конфиг TgWsProxy не найден"))

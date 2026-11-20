@@ -1,11 +1,12 @@
 """Экран «Настройки» (SPEC 14).
 
-TgWsProxy config: порт, хост, verbose, guard, автозапуск.
+TgWsProxy config: порт, хост, verbose, guard, автозапуск;
+кнопки управления службами и Telegram-ссылка (перенесены из «Статус»).
 """
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from ... import api, tgws, util
 from ..i18n import _
@@ -42,10 +43,65 @@ class SettingsScreen:
         attach(5, self.zapret2_switch, _("Автозапуск Zapret2"))
 
         self.box.pack_start(self.grid, False, False, 0)
+
+        # Кнопки управления службами (перенесены из «Статус»).
+        self.services_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
+        common.pack(
+            self.services_box,
+            common.button(_("Перезапустить"), lambda _: self._run_op(lambda: api.restart_zapret(self.app.cfg))),
+        )
+        common.pack(
+            self.services_box,
+            common.button(_("Перезапустить TgWsProxy"), lambda _: self._run_op(lambda: api.restart_tgws(self.app.cfg))),
+        )
+        common.pack(self.services_box, common.button(_("Остановить TgWsProxy"), lambda _: self._run_op(api.stop_tgws)))
+        common.pack(
+            self.services_box,
+            common.button(_("Остановить Zapret2"), lambda _: self._run_op(lambda: api.stop_zapret(self.app.cfg))),
+        )
+        common.pack(self.services_box, common.button(_("Подключить Telegram"), lambda _: self.open_telegram()))
+        common.pack(self.box, self.services_box)
+
+        # Telegram: ссылка (перенесена из «Статус»).
+        self.link_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=12)
+        self.link_entry = common.entry()
+        self.link_entry.set_editable(False)
+        self.link_entry.set_placeholder_text(_("tg://proxy?server=127.0.0.1&port=1080&secret=dd…"))
+        common.pack_expand(self.link_box, self.link_entry)
+        common.pack(self.link_box, common.button(_("Копировать ссылку"), lambda _: self.copy_link()))
+        common.pack(self.box, self.link_box)
+
         self.save_button = common.button(_("Сохранить"), lambda _: self.save())
         common.pack(self.box, self.save_button)
 
         self.load()
+        self._refresh_link()
+
+    def _run_op(self, fn) -> None:
+        self.app.run_op(fn, on_done=lambda _: self._refresh_link())
+
+    def _refresh_link(self) -> None:
+        self.link_entry.set_text(api.connect_telegram(self.app.cfg) or "")
+
+    def copy_link(self) -> None:
+        link = api.connect_telegram(self.app.cfg)
+        if not link:
+            common.message(self.app, _("Конфиг TgWsProxy не найден"))
+            return
+        clipboard = Gtk.Clipboard.get_for_display(Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD)
+        clipboard.set_text(link, len(link))
+        common.toast(self.app, _("Ссылка скопирована"))
+
+    def open_telegram(self) -> None:
+        link = api.connect_telegram(self.app.cfg)
+        if not link:
+            common.message(self.app, _("Конфиг TgWsProxy не найден"))
+            return
+        try:
+            Gtk.show_uri(Gdk.Screen.get_default(), link, Gdk.CURRENT_TIME)
+            common.toast(self.app, _("Открыта ссылка для настройки Telegram"))
+        except Exception:
+            self.copy_link()
 
     def load(self) -> None:
         path = tgws.find_config_path()

@@ -35,13 +35,35 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.statusbar = Gtk.Statusbar()
         self.statusbar.set_hexpand(True)
 
+        self.notebook.set_show_tabs(False)
+        self.notebook.set_scrollable(False)
+
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.scrolled.set_hexpand(True)
         self.scrolled.set_vexpand(True)
         self.scrolled.add(self.notebook)
 
+        # Кнопки разделов — закреплены в шапке (не скроллятся с контентом).
+        self.tab_bar = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=4,
+            margin_top=4,
+            margin_bottom=4,
+            margin_left=4,
+            margin_right=4,
+        )
+        self._tab_buttons: dict[str, Gtk.Button] = {}
+        for index, (key, label) in enumerate(PAGES):
+            btn = Gtk.Button(label=label)
+            btn.connect("clicked", lambda _b, i=index: self.notebook.set_current_page(i))
+            self._tab_buttons[key] = btn
+            self.tab_bar.pack_start(btn, False, False, 0)
+        self.notebook.connect("switch-page", lambda _nb, _p, i: self._activate_tab(i))
+        self._activate_tab(0)
+
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.pack_start(self.tab_bar, False, False, 0)
         main_box.pack_start(self.scrolled, True, True, 0)
         main_box.pack_start(self.statusbar, False, False, 0)
         self.add(main_box)
@@ -104,3 +126,11 @@ class NetFixWindow(Gtk.ApplicationWindow):
             if name == key:
                 self.notebook.set_current_page(index)
                 break
+
+    def _activate_tab(self, index: int) -> None:
+        for btn in self._tab_buttons.values():
+            btn.get_style_context().remove_class("active")
+        if 0 <= index < len(PAGES):
+            btn = self._tab_buttons.get(PAGES[index][0])
+            if btn is not None:
+                btn.get_style_context().add_class("active")
