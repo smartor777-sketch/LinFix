@@ -31,8 +31,12 @@ class NetFixApp(Gtk.Application):
             self.window = NetFixWindow(self)
         if self.tray is None:
             self.tray = Tray(self, tray_icon_path("ok"), tooltip="LinFix")
-        self.window.present()
-        self.window.set_skip_taskbar_hint(False)
+        window = self.window
+        window.present()
+        # Если окно скрыто в трей/iconified — принудительно делаем его видимым.
+        window.set_visible(True)
+        window.deiconify()
+        window.set_skip_taskbar_hint(False)
         self.start_autostarted_services()
 
     def start_autostarted_services(self) -> None:

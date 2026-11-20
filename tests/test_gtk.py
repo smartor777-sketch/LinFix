@@ -224,6 +224,18 @@ class AppTests(unittest.TestCase):
         start_zapret.assert_called_once_with(app.cfg)
         app.window.destroy()
 
+    def test_show_from_tray_restores_window(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.hide()
+        self.assertFalse(window.get_visible())
+        app.show()  # клик по трею: "Развернуть панель"
+        self.assertTrue(window.get_visible())
+        app.window.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
