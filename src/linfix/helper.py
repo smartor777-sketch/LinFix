@@ -31,10 +31,14 @@ ALLOWED_ROOTS: tuple[Path, ...] = tuple(
     )
 )
 ALLOWED_SERVICES = {"zapret", "zapret2"}
+#: Единственный sysctl, который helper согласен менять.
+ALLOWED_SYSCTLS = {"net.ipv4.tcp_mtu_probing"}
 DEFAULT_ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
 ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
+    "mtu.set",
+    "sysctl.set",
     "hostlist.import",
     "hostlist.load_source",
     "hostlist.remove",
@@ -625,6 +629,64 @@ def action_hostlist_load_source(args: argparse.Namespace) -> tuple[int, dict[str
     return hostlist_mod.load_source(args.script, directory)
 
 
+
+def action_sysctl_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Изменить один разрешённый sysctl (сейчас — только tcp_mtu_probing)."""
+
+    if args.key not in ALLOWED_SYSCTLS:
+        raise HelperError(f"sysctl.set: ключ не разрешён: {args.key}")
+    if args.value not in {"0", "1", "2"}:
+        raise HelperError("sysctl.set: значение должно быть 0, 1 или 2")
+
+    completed = util.run(
+        ["sysctl", "-w", f"{args.key}={args.value}"], check=False, timeout=30
+    )
+    path = Path(f"/proc/sys/{args.key.replace('.', '/')}")
+    try:
+        current = path.read_text().strip()
+    except OSError:
+        current = ""
+    return (0 if current == args.value else 5), {
+        "ok": current == args.value,
+        "key": args.key,
+        "value": current,
+        "error": (completed.stderr or "").strip() if current != args.value else "",
+    }
+
+
+def action_mtu_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Уменьшить MTU интерфейса (только уменьшение, 576..1500)."""
+
+    if not args.interface or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", args.interface):
+        raise HelperError("mtu.set: требуется корректное --interface")
+    if args.mtu is None or not 576 <= args.mtu <= 1500:
+        raise HelperError("mtu.set: --mtu должен быть в диапазоне 576..1500")
+
+    current = util.run(["ip", "-o", "link", "show", args.interface], check=False, timeout=10)
+    if current.returncode != 0:
+        raise HelperError(f"интерфейс не найден: {args.interface}")
+    match = re.search(r"\bmtu\s+(\d+)", current.stdout or "")
+    if match and int(match.group(1)) < args.mtu:
+        raise HelperError(
+            f"mtu.set: {args.interface} уже имеет меньший MTU ({match.group(1)}), не увеличиваем"
+        )
+
+    completed = util.run(
+        ["ip", "link", "set", args.interface, "mtu", str(args.mtu)],
+        check=False,
+        timeout=30,
+    )
+    after = util.run(["ip", "-o", "link", "show", args.interface], check=False, timeout=10)
+    now = re.search(r"\bmtu\s+(\d+)", after.stdout or "")
+    value = int(now.group(1)) if now else None
+    return (0 if value == args.mtu else 5), {
+        "ok": value == args.mtu,
+        "interface": args.interface,
+        "mtu": value,
+        "error": (completed.stderr or "").strip() if value != args.mtu else "",
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linfix-helper",
@@ -658,6 +720,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-file", default="", help="файл со списком доменов")
     parser.add_argument("--ipset-dir", default="/opt/zapret2/ipset", help="каталог ipset zapret")
     parser.add_argument("--script", default="", help="скрипт-источник zapret")
+    parser.add_argument("--key", default="", help="sysctl-ключ")
+    parser.add_argument("--value", default="", help="значение sysctl")
+    parser.add_argument("--interface", default="", help="сетевой интерфейс для mtu.set")
+    parser.add_argument("--mtu", type=int, default=None, help="MTU для mtu.set")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -683,6 +749,10 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_hostlist_remove(args)
         elif args.action == "hostlist.load_source":
             code, payload = action_hostlist_load_source(args)
+        elif args.action == "sysctl.set":
+            code, payload = action_sysctl_set(args)
+        elif args.action == "mtu.set":
+            code, payload = action_mtu_set(args)
         elif args.action == "tgws.install":
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":
