@@ -9,7 +9,7 @@ import platform
 import sys
 from pathlib import Path
 
-from . import __version__, api, cfdomains, doctor, profiles, tgws, util, zapret
+from . import __version__, api, cfdomains, doctor, profiles, state, tgws, util, zapret
 from .config import Config, ConfigError, load_config
 
 EXIT_OK = 0
@@ -75,6 +75,17 @@ def cmd_status(cfg: Config, *, verbose: bool = False) -> int:
             print(f"CF-домены:    {status.cf_present}/{status.cf_total} в hostlist")
         else:
             print("CF-домены:    hostlist не определён")
+        info_state = status.state_info
+        if info_state.domains_updated_at:
+            short_sha = (info_state.domains_sha256 or "")[:12]
+            print(
+                f"Обновлено:    {info_state.domains_updated_at} "
+                f"({info_state.domains_count} доменов, sha {short_sha or '—'})"
+            )
+        else:
+            print("Обновлено:    никогда (netfix domains update)")
+        if info_state.last_error:
+            print(f"Посл. ошибка: {info_state.last_error.splitlines()[0]}")
     else:
         print("Zapret:       не найден")
         print("              установите: git clone https://github.com/bol-van/zapret && sudo ./zapret/install_easy.sh")
@@ -124,8 +135,51 @@ def _domain_source(cfg: Config, *, offline: bool) -> cfdomains.DomainSource:
     return api.get_domain_source(cfg, offline=offline)
 
 
-def cmd_domains_list(cfg: Config, *, offline: bool) -> int:
-    source, target, present = api.get_domains(cfg, offline=offline)
+def _select_source(
+    cfg: Config,
+    state_info: state.State,
+    *,
+    offline: bool,
+    timeout: float = 15.0,
+) -> cfdomains.DomainSource:
+    """Выбрать источник: GitHub, state (если он свежее fallback) или fallback."""
+
+    source = api.get_domain_source(cfg, offline=offline, timeout=timeout)
+    warnings = list(source.warnings)
+
+    if offline and state_info.domains:
+        warnings.append("используется сохранённый список из state")
+        return cfdomains.source_from_domains(state_info.domains, source="state", warnings=tuple(warnings))
+
+    if not offline and source.source == "fallback" and state_info.domains:
+        warnings.append("GitHub недоступен, используется сохранённый список из state")
+        return cfdomains.source_from_domains(state_info.domains, source="state", warnings=tuple(warnings))
+
+    return source
+
+
+def cmd_domains_list(cfg: Config, *, offline: bool, as_json: bool = False) -> int:
+    info = zapret.detect_zapret(cfg.zapret.service)
+    target = zapret.hostlist_target(info, cfg.zapret.hostlist)
+    state_info = state.load_state()
+    source = _select_source(cfg, state_info, offline=offline)
+    present = zapret.read_hostlist_domains(target) if target else set()
+    missing = [domain for domain in source.domains if domain not in present]
+
+    if as_json:
+        payload = {
+            "source": source.source,
+            "source_total": source.total,
+            "source_invalid": source.invalid_count,
+            "domains": list(source.domains),
+            "hostlist": target,
+            "present": [domain for domain in source.domains if domain in present],
+            "missing": missing,
+            "state": state_info.to_dict(),
+            "warnings": list(source.warnings),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return EXIT_OK if target else EXIT_NOT_INSTALLED
 
     print(
         f"Источник: {source.source}, доменов: {len(source.domains)}, "
@@ -134,6 +188,13 @@ def cmd_domains_list(cfg: Config, *, offline: bool) -> int:
     for warning in source.warnings:
         print(f"предупреждение: {warning}", file=sys.stderr)
     print(f"Hostlist: {target or 'не определён'}")
+    if state_info.domains_updated_at:
+        print(
+            f"State:    обновлено {state_info.domains_updated_at}, "
+            f"доменов {state_info.domains_count}, sha {(state_info.domains_sha256 or '')[:12]}"
+        )
+    else:
+        print("State:    ещё не обновлялся (netfix domains update)")
 
     rows = [
         ["OK" if domain in present else "MISSING", domain] for domain in source.domains
@@ -144,6 +205,163 @@ def cmd_domains_list(cfg: Config, *, offline: bool) -> int:
         print("zapret/hostlist не найден — добавлять некуда", file=sys.stderr)
         return EXIT_NOT_INSTALLED
     return EXIT_OK
+
+
+def cmd_domains_update(cfg: Config, args: argparse.Namespace) -> int:
+    info = zapret.detect_zapret(cfg.zapret.service)
+    target = zapret.hostlist_target(info, cfg.zapret.hostlist)
+    if not target:
+        print(
+            "zapret/hostlist не найден. Установите zapret и повторите.",
+            file=sys.stderr,
+        )
+        return EXIT_NOT_INSTALLED
+
+    state_info = state.load_state()
+    source = _select_source(
+        cfg,
+        state_info,
+        offline=args.offline,
+        timeout=args.timeout,
+    )
+    for warning in source.warnings:
+        print(f"предупреждение: {warning}", file=sys.stderr)
+    if not source.domains:
+        print("получен пустой список доменов — обновление отменено", file=sys.stderr)
+        return EXIT_CHECK_FAILED
+
+    present = zapret.read_hostlist_domains(target)
+    missing = [domain for domain in source.domains if domain not in present]
+    digest = state.domains_digest(source.domains)
+    unchanged = (
+        not missing
+        and state_info.domains_sha256 == digest
+        and state_info.hostlist == target
+        and not state_info.last_error
+    )
+
+    if unchanged and not args.force:
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "changed": False,
+                        "reason": "no-changes",
+                        "source": source.source,
+                        "hostlist": target,
+                        "domains": len(source.domains),
+                        "digest": digest,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        else:
+            print(
+                f"Изменений нет: {len(source.domains)} доменов уже в hostlist, "
+                "state актуален"
+            )
+        return EXIT_OK
+
+    restart_needed = bool(missing) and cfg.zapret.restart_on_change
+
+    if args.dry_run:
+        payload = {
+            "ok": True,
+            "dry_run": True,
+            "source": source.source,
+            "hostlist": target,
+            "domains": len(source.domains),
+            "present": len(source.domains) - len(missing),
+            "missing": missing,
+            "digest": digest,
+            "restart": restart_needed,
+            "service": info.service,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"Источник: {source.source}, доменов: {len(source.domains)}")
+            print(f"Hostlist: {target}")
+            print(f"Добавить: {len(missing)}, уже есть: {len(source.domains) - len(missing)}")
+            print(f"Digest:   {digest}")
+            print(f"Рестарт:  {'да' if restart_needed else 'нет'}")
+        return EXIT_OK
+
+    helper_args = [
+        "--hostlist",
+        target,
+        "--marker",
+        cfg.lists.marker,
+        "--service",
+        info.service or cfg.zapret.service,
+        "--state",
+        str(state.default_state_path()),
+        "--source-label",
+        source.source,
+        "--source-url",
+        cfg.lists.cf_domains_url,
+        "--source-sha256",
+        digest,
+    ]
+    for domain in source.domains:
+        helper_args.extend(["--domain", domain])
+    if cfg.zapret.restart_on_change:
+        helper_args.append("--restart-on-change")
+
+    try:
+        code, payload = util.run_helper("domains.apply", helper_args)
+    except util.NetfixError as exc:
+        print(f"ошибка: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+    except util.CommandError as exc:
+        print(f"ошибка запуска helper: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    **payload,
+                    "source": source.source,
+                    "missing_before": missing,
+                    "digest": digest,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    elif payload.get("ok"):
+        print(f"Источник: {source.source}, доменов: {len(source.domains)}")
+        print(f"Hostlist: {payload.get('hostlist')}")
+        print(
+            f"Добавлено: {len(payload.get('added', []))}, "
+            f"уже было: {len(payload.get('present', []))}"
+        )
+        if payload.get("backup"):
+            print(f"Бэкап:    {payload['backup']}")
+        print(
+            f"Рестарт:  {'да' if payload.get('restarted') else 'нет'}"
+            + (f" ({payload['detail']})" if payload.get("detail") else "")
+        )
+        if payload.get("rollback"):
+            print("ВНИМАНИЕ: hostlist откатан к бэкапу", file=sys.stderr)
+    else:
+        message = payload.get("error") or payload.get("detail") or "не удалось применить домены"
+        print(f"ОШИБКА: {message}", file=sys.stderr)
+        if payload.get("journal"):
+            print(payload["journal"], file=sys.stderr)
+
+    if code == 0:
+        return EXIT_OK
+    if code in (EXIT_USAGE, EXIT_NO_RIGHTS, EXIT_CHECK_FAILED):
+        return code
+
+    error_text = str(payload.get("error", "")).lower()
+    if any(marker in error_text for marker in ("sudo", "root", "privileg", "no new privileges")):
+        return EXIT_NO_RIGHTS
+    return EXIT_ERROR
 
 
 def cmd_domains_test(cfg: Config, args: argparse.Namespace) -> int:
@@ -285,7 +503,14 @@ def build_parser() -> argparse.ArgumentParser:
     domains_sub = p_domains.add_subparsers(dest="domains_command", required=True)
     p_list = domains_sub.add_parser("list", help="показать домены и их наличие в hostlist")
     p_list.add_argument("--offline", action="store_true", help="не обращаться к GitHub")
-    domains_sub.add_parser("update", help="скачать и дописать домены (M1)")
+    p_list.add_argument("--json", action="store_true", help="JSON для GUI")
+
+    p_update = domains_sub.add_parser("update", help="скачать и применить домены")
+    p_update.add_argument("--force", action="store_true", help="применить, даже если изменений нет")
+    p_update.add_argument("--dry-run", action="store_true", help="только показать план, без правок")
+    p_update.add_argument("--offline", action="store_true", help="использовать state/fallback")
+    p_update.add_argument("--json", action="store_true", help="JSON для GUI")
+    p_update.add_argument("--timeout", type=float, default=15.0, help="таймаут загрузки, секунды")
     p_test = domains_sub.add_parser("test", help="TLS-тест доменов")
     p_test.add_argument("--all", action="store_true", help="проверить все домены (по умолчанию 3)")
     p_test.add_argument("--json", action="store_true", help="JSON для GUI")
@@ -350,9 +575,11 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_doctor(cfg, as_json=args.json)
         if args.command == "domains":
             if args.domains_command == "list":
-                return cmd_domains_list(cfg, offline=args.offline)
+                return cmd_domains_list(cfg, offline=args.offline, as_json=args.json)
             if args.domains_command == "test":
                 return cmd_domains_test(cfg, args)
+            if args.domains_command == "update":
+                return cmd_domains_update(cfg, args)
             return _not_implemented("netfix domains update", "M1")
         if args.command == "tgws":
             if args.tgws_command == "status":

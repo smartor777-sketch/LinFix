@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import platform
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
-from . import util, zapret
+from . import state, util, zapret
 from .cfdomains import FALLBACK_DOMAINS
 from .config import Config
 
@@ -187,23 +188,72 @@ def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
             "netfix domains update",
         )
 
+    state_info = state.load_state()
+    domains = state_info.domains or FALLBACK_DOMAINS
     present = zapret.read_hostlist_domains(target)
-    missing = [domain for domain in FALLBACK_DOMAINS if domain not in present]
-    count = len(FALLBACK_DOMAINS) - len(missing)
+    missing = [domain for domain in domains if domain not in present]
+    count = len(domains) - len(missing)
     if not missing:
         return Check(
             "domains.hostlist",
             "CF-домены в hostlist",
             PASS,
-            f"{count}/{len(FALLBACK_DOMAINS)} в {target}",
+            f"{count}/{len(domains)} в {target}",
         )
     status = FAIL if count == 0 else WARN
     return Check(
         "domains.hostlist",
         "CF-домены в hostlist",
         status,
-        f"{count}/{len(FALLBACK_DOMAINS)}; нет: {', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}",
+        f"{count}/{len(domains)}; нет: {', '.join(missing[:3])}{'…' if len(missing) > 3 else ''}",
         "netfix domains update",
+    )
+
+
+def _state_check(cfg: Config) -> Check:
+    state_info = state.load_state()
+    if not state_info.domains_updated_at:
+        return Check(
+            "domains.state",
+            "Состояние доменов",
+            WARN,
+            "state.json ещё не создан",
+            "netfix domains update",
+        )
+    if state_info.last_error:
+        first_line = state_info.last_error.splitlines()[0]
+        return Check(
+            "domains.state",
+            "Состояние доменов",
+            WARN,
+            f"последняя ошибка: {first_line}",
+            "netfix domains update && sudo systemctl restart zapret2",
+        )
+    try:
+        updated = datetime.fromisoformat(state_info.domains_updated_at)
+    except ValueError:
+        return Check(
+            "domains.state",
+            "Состояние доменов",
+            WARN,
+            f"некорректная дата: {state_info.domains_updated_at}",
+            "netfix domains update",
+        )
+    now = datetime.now(updated.tzinfo) if updated.tzinfo else datetime.now()
+    days = (now - updated).days
+    if days > cfg.lists.update_days:
+        return Check(
+            "domains.state",
+            "Состояние доменов",
+            WARN,
+            f"обновлено {days} дн. назад (порог {cfg.lists.update_days})",
+            "netfix update",
+        )
+    return Check(
+        "domains.state",
+        "Состояние доменов",
+        PASS,
+        f"{state_info.domains_count} доменов, обновлено {state_info.domains_updated_at}",
     )
 
 
@@ -322,6 +372,7 @@ def run_doctor(cfg: Config) -> Report:
     checks: list[Check] = [_os_check(), _nfqueue_check()]
     checks.extend(_zapret_checks(info))
     checks.append(_domains_check(info, cfg))
+    checks.append(_state_check(cfg))
     checks.extend(_tgws_checks(cfg))
     checks.append(_route_check())
     checks.append(_guard_check(cfg))

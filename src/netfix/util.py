@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import platform
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -174,6 +177,94 @@ def atomic_write(
         except OSError:
             pass
         raise
+
+
+def restore_file(backup: str | Path, target: str | Path) -> None:
+    """Восстановить файл из бэкапа атомарно, с сохранением прав бэкапа."""
+
+    source = Path(backup)
+    if not source.exists():
+        raise NetfixError(f"бэкап не найден: {source}")
+    data = source.read_bytes()
+    mode = source.stat().st_mode & 0o777
+    atomic_write(target, data, mode=mode)
+    LOG.warning("восстановлен файл %s из %s", target, source)
+
+
+def helper_command() -> list[str]:
+    """Команда запуска helper.
+
+    ``NETFIX_HELPER`` — явное переопределение (dev/тесты). Иначе ищем
+    установленный ``netfix-helper``; в dev-режиме запускаем модуль текущим
+    интерпретатором.
+    """
+
+    override = os.environ.get("NETFIX_HELPER")
+    if override:
+        return shlex.split(override)
+    installed = which("netfix-helper")
+    if installed:
+        return [installed]
+    return [sys.executable, "-m", "netfix.helper"]
+
+
+def _parse_helper_payload(stdout: str, stderr: str) -> dict[str, object]:
+    for stream in (stdout, stderr):
+        text = (stream or "").strip()
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            start = text.find("{")
+            end = text.rfind("}")
+            if start < 0 or end <= start:
+                continue
+            try:
+                payload = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def run_helper(
+    action: str,
+    args: Sequence[str],
+    *,
+    timeout: float = 120.0,
+) -> tuple[int, dict[str, object]]:
+    """Вызвать привилегированный helper и разобрать его JSON-ответ.
+
+    Возвращает (код возврата, payload). Исключения NetfixError — если helper
+    не установлен и эскалация невозможна.
+    """
+
+    if is_root() or os.environ.get("NETFIX_HELPER"):
+        cmd = helper_command() + [action, *[str(item) for item in args]]
+    else:
+        installed = which("netfix-helper")
+        if installed is None:
+            raise NetfixError(
+                "netfix-helper не установлен. Запустите команду через sudo "
+                "(например: sudo netfix domains update)"
+            )
+        if which("pkexec"):
+            cmd = ["pkexec", installed, action, *[str(item) for item in args]]
+        elif which("sudo"):
+            cmd = ["sudo", installed, action, *[str(item) for item in args]]
+        else:
+            raise NetfixError("нет pkexec/sudo для привилегированной операции")
+
+    completed = run(cmd, check=False, timeout=timeout)
+    payload = _parse_helper_payload(completed.stdout, completed.stderr)
+    if not payload:
+        payload = {
+            "ok": completed.returncode == 0,
+            "error": (completed.stderr or completed.stdout or "").strip(),
+        }
+    return completed.returncode, payload
 
 
 def read_text(path: str | Path) -> str:

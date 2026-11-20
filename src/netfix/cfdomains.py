@@ -141,6 +141,25 @@ def fallback_source(warnings: tuple[str, ...] = ()) -> DomainSource:
     )
 
 
+def source_from_domains(
+    domains: list[str] | tuple[str, ...],
+    *,
+    source: str = "state",
+    warnings: tuple[str, ...] = (),
+) -> DomainSource:
+    """Собрать DomainSource из сохранённого списка (state/fallback)."""
+
+    normalized = tuple(_normalize_domains(list(domains)))
+    return DomainSource(
+        domains=normalized,
+        source=source,
+        total=len(normalized),
+        invalid_count=0,
+        ok=bool(normalized),
+        warnings=warnings,
+    )
+
+
 def fetch_text(url: str = DEFAULT_CF_DOMAINS_URL, timeout: float = 15.0) -> str:
     # SPEC 15.1: скачивание только по HTTPS.
     if not url.lower().startswith("https://"):

@@ -10,15 +10,31 @@ TgWsProxy, диагностирует поломки и защищает сет�
 
 ## Статус
 
-Реализован **M0** (каркас):
+Реализованы **M0 и M1**:
 
-- `netfix --help`, `netfix status` с реальным определением zapret;
-- `netfix doctor` (базовый набор проверок);
-- `netfix domains list` и `netfix domains test` (только чтение);
-- декодер CF-доменов и идемпотентный merge hostlist;
+- `netfix status` с реальным определением zapret/zapret2, hostlist и state;
+- `netfix doctor` (+ `--json`): служба, процесс, nft, домены, VPN, TgWsProxy;
+- `netfix domains list|test|update`;
+- `domains update`: GitHub → декодер → merge → state → рестарт → проверка →
+  откат при падении; есть `--dry-run`, `--offline`, `--force`, `--json`;
+- `/var/lib/netfix/state.json` хранит список доменов и хэш — источник правды;
+- идемпотентный merge hostlist с сохранением CRLF и бэкапом;
+- `netfix-helper` с белым списком действий и валидацией путей;
 - unit-тесты (stdlib `unittest`, совместимы с pytest).
 
-`domains update`, установка TgWsProxy, guard, профили и GTK — следующие этапы (M1–M6).
+Установка TgWsProxy, guard, профили и GTK — следующие этапы (M2–M6).
+
+## Применение доменов
+
+```bash
+netfix domains update --dry-run   # показать план, ничего не менять
+netfix domains update             # нужен root: helper через pkexec/sudo
+netfix domains update --offline   # использовать state/fallback без GitHub
+```
+
+При изменении hostlist helper делает бэкап, перезапускает zapret, проверяет
+`active` и живой `nfqws`/`nfqws2`. Если проверка не прошла — hostlist
+откатывается из бэкапа, а причина пишется в state и выводится в CLI.
 
 ## Запуск без установки
 
@@ -38,6 +54,8 @@ make test
 # или
 PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 ```
+
+Сейчас: **94 теста**, все проходят.
 
 ## Безопасность
 
