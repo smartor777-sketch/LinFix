@@ -21,6 +21,8 @@ TgWsProxy, диагностирует поломки и защищает сет�
   `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
 - **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
   установка `sudo apt install ./dist/linfix_0.1.0_all.deb` (см. `packaging/debian/README.md`).
+- CI: `.github/workflows/build-deb.yml` собирает `.deb` на push в `main` и
+  прикрепляет его к GitHub Release по тегу `v*`.
 
 M6 (GTK3-панель): `make gui` или `linfix-gui` (после установки пакета); панель использует `linfix.api`.
 
