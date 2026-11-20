@@ -11,12 +11,12 @@ TgWsProxy, диагностирует поломки и защищает сет�
 `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/DESKTOP-ICONS.md`.
 
 Проект переименован в **LinFix** (пакет `linfix`, команда `linfix`);
-[docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлышки сервисов.
+[docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлыки сервисов.
 В SPEC слово «LinFix» — основное название продукта (Linux-реализация — LinFix).
 
 ## Статус
 
-- Реализованы **M0–M4** + переименование + ярлышки сервисов + **M6 (GTK3-панель)**,
+- Реализованы **M0–M4** + переименование + ярлыки сервисов + **M6 (GTK3-панель)**,
   подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
   `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
 - **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
