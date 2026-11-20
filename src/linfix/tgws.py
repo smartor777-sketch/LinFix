@@ -76,7 +76,16 @@ WantedBy=default.target
 MODE_TRAY = "tray"
 MODE_CLI = "cli"
 MODES = (MODE_TRAY, MODE_CLI)
-SOURCE_DIR = INSTALL_DIR / "src"
+
+
+def source_dir() -> Path:
+    """Исходники TgWsProxy для CLI-режима — в каталоге пользователя.
+
+    В /opt их писать нельзя без root: переключение режима не должно требовать
+    пароля, иначе «Сохранить» в панели висит на запросе polkit.
+    """
+
+    return Path.home() / ".local" / "share" / "linfix" / "tgws-src"
 
 ALLOWED_CONFIG_KEYS = {
     "host",
@@ -86,6 +95,7 @@ ALLOWED_CONFIG_KEYS = {
     "verbose",
     "pool_size",
     "log_max_mb",
+    # linfix_mode остаётся только для чтения старых конфигов (см. detect_mode).
     "linfix_mode",
 }
 
@@ -355,7 +365,6 @@ def default_config(port: int = 1080, host: str = "127.0.0.1") -> dict[str, objec
         "verbose": False,
         "log_max_mb": 5,
         "pool_size": 4,
-        "linfix_mode": MODE_TRAY,
         "secret": secrets.token_hex(16),
     }
 
@@ -507,15 +516,42 @@ def display_available() -> bool:
     return Path(f"/tmp/.X11-unix/X{number}").exists()
 
 
-def detect_mode(config_path: str | Path | None = None) -> str:
-    """Режим работы: tray (по умолчанию) или cli, если X11 нет."""
+def mode_file() -> Path:
+    """Файл выбора режима LinFix — вне конфига TgWsProxy.
 
+    TgWsProxy при старте перезаписывает свой ``config.json`` и выбрасывает
+    незнакомые ключи, поэтому ``linfix_mode`` там не живёт.
+    """
+
+    return Path.home() / ".config" / "linfix" / "tgws-mode"
+
+
+def detect_mode(config_path: str | Path | None = None) -> str:
+    """Выбранный режим: файл LinFix → старый ключ в config.json → авто."""
+
+    try:
+        stored = mode_file().read_text(encoding="utf-8").strip()
+    except OSError:
+        stored = ""
+    if stored in MODES:
+        return stored
+
+    # Совместимость с версиями, которые писали ключ в config.json.
     if config_path is not None and Path(config_path).exists():
         data = load_json_config(config_path)
         mode = data.get("linfix_mode")
         if mode in MODES:
             return str(mode)
+
     return MODE_TRAY if display_available() else MODE_CLI
+
+
+def save_mode(mode: str) -> Path:
+    if mode not in MODES:
+        raise TgwsError(f"неизвестный режим: {mode}")
+    target = mode_file()
+    util.atomic_write(target, mode + "\n", mode=0o644)
+    return target
 
 
 def effective_mode(config_path: str | Path | None = None) -> str:
@@ -567,13 +603,13 @@ def render_unit(
     *,
     mode: str = MODE_TRAY,
     data: dict[str, object] | None = None,
-    source: str | Path = SOURCE_DIR,
+    source: str | Path | None = None,
     python: str | None = None,
 ) -> str:
     if mode == MODE_CLI:
         args = " ".join(shlex.quote(part) for part in cli_args(data or {}))
         return CLI_UNIT_TEMPLATE.format(
-            source=str(source),
+            source=str(source or source_dir()),
             python=python or sys.executable,
             args=args,
         )
@@ -592,7 +628,7 @@ def install_user_unit(
     systemctl: bool = True,
     mode: str = MODE_TRAY,
     data: dict[str, object] | None = None,
-    source: str | Path = SOURCE_DIR,
+    source: str | Path | None = None,
 ) -> tuple[Path, bool]:
     target = user_unit_path(home)
     text = render_unit(binary, mode=mode, data=data, source=source)
@@ -626,3 +662,19 @@ def enable_user_unit(*, start: bool = True) -> dict[str, object]:
 def service_state() -> str:
     completed = util.run(["systemctl", "--user", "is-active", UNIT_NAME], check=False, timeout=10)
     return (completed.stdout or "").strip() or "inactive"
+
+
+def running_mode() -> str | None:
+    """Фактический режим запущенного процесса — независимо от config.json."""
+
+    completed = util.run(["pgrep", "-af", UNIT_NAME], check=False, timeout=10)
+    lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        completed = util.run(["pgrep", "-af", "tg_ws_proxy"], check=False, timeout=10)
+        lines = [line for line in (completed.stdout or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    for line in lines:
+        if "proxy.tg_ws_proxy" in line or "tg_ws_proxy" in line:
+            return MODE_CLI
+    return MODE_TRAY

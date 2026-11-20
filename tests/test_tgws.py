@@ -197,27 +197,39 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(tgws.TgwsError):
                     tgws.update_config(path, {"log_max_mb": bad})
 
-    def test_mode_default_and_validation(self) -> None:
-        data = tgws.default_config()
-        self.assertEqual(data["linfix_mode"], tgws.MODE_TRAY)
+    def test_mode_saved_outside_tgws_config(self) -> None:
+        # TgWsProxy при старте затирает незнакомые ключи в своём config.json,
+        # поэтому режим хранится в отдельном файле LinFix.
+        mode_path = tgws.save_mode(tgws.MODE_CLI)
+        self.addCleanup(mode_path.unlink, missing_ok=True)
+        self.assertEqual(mode_path.read_text(encoding="utf-8").strip(), tgws.MODE_CLI)
+        self.assertEqual(tgws.detect_mode(None), tgws.MODE_CLI)
 
-        path, _ = tgws.ensure_config(create=True, home=self.root)
-        assert path is not None
-        updated, _, changed = tgws.update_config(path, {"linfix_mode": tgws.MODE_CLI})
-        self.assertTrue(changed)
-        self.assertEqual(updated["linfix_mode"], tgws.MODE_CLI)
+        tgws.save_mode(tgws.MODE_TRAY)
+        with mock.patch.object(tgws, "display_available", return_value=True):
+            self.assertEqual(tgws.detect_mode(None), tgws.MODE_TRAY)
 
         with self.assertRaises(tgws.TgwsError):
-            tgws.update_config(path, {"linfix_mode": "gui"})
+            tgws.save_mode("gui")
 
-    def test_effective_mode_falls_back_to_cli_without_x11(self) -> None:
+    def test_detect_mode_reads_legacy_key(self) -> None:
+        mode_path = tgws.mode_file()
+        if mode_path.exists():
+            self.addCleanup(mode_path.write_text, mode_path.read_text(encoding="utf-8"))
+            mode_path.unlink()
         path, _ = tgws.ensure_config(create=True, home=self.root)
         assert path is not None
-        tgws.update_config(path, {"linfix_mode": tgws.MODE_TRAY})
+        tgws.update_config(path, {"linfix_mode": tgws.MODE_CLI})
+        self.assertFalse(mode_path.exists())
+        self.assertEqual(tgws.detect_mode(path), tgws.MODE_CLI)
+
+    def test_effective_mode_falls_back_to_cli_without_x11(self) -> None:
+        mode_path = tgws.save_mode(tgws.MODE_TRAY)
+        self.addCleanup(mode_path.unlink, missing_ok=True)
         with mock.patch.object(tgws, "display_available", return_value=False):
-            self.assertEqual(tgws.effective_mode(path), tgws.MODE_CLI)
+            self.assertEqual(tgws.effective_mode(None), tgws.MODE_CLI)
         with mock.patch.object(tgws, "display_available", return_value=True):
-            self.assertEqual(tgws.effective_mode(path), tgws.MODE_TRAY)
+            self.assertEqual(tgws.effective_mode(None), tgws.MODE_TRAY)
 
     def test_cli_unit_has_no_display(self) -> None:
         data = tgws.default_config(1081, "127.0.0.1")
@@ -289,3 +301,27 @@ class UnitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunningModeTests(unittest.TestCase):
+    def _cp(self, stdout: str, code: int = 0):
+        import subprocess
+
+        return subprocess.CompletedProcess(args=[], returncode=code, stdout=stdout, stderr="")
+
+    def test_cli_process_detected(self) -> None:
+        out = (
+            "123 /usr/bin/python3 -m proxy.tg_ws_proxy --port 1080 "
+            "--secret abc\n"
+        )
+        with mock.patch.object(tgws.util, "run", return_value=self._cp(out)):
+            self.assertEqual(tgws.running_mode(), tgws.MODE_CLI)
+
+    def test_tray_process_detected(self) -> None:
+        out = "456 /opt/tgwsproxy/TgWsProxy\n"
+        with mock.patch.object(tgws.util, "run", return_value=self._cp(out)):
+            self.assertEqual(tgws.running_mode(), tgws.MODE_TRAY)
+
+    def test_no_process(self) -> None:
+        with mock.patch.object(tgws.util, "run", return_value=self._cp("", 1)):
+            self.assertIsNone(tgws.running_mode())

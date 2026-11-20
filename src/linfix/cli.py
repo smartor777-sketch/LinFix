@@ -546,20 +546,25 @@ def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
             mode_data = tgws.load_json_config(config_path)
         if requested_mode:
             mode = str(requested_mode)
-            if config_path is not None:
-                # Сохраняем выбор в конфиг, иначе автозапуск вернётся к tray.
-                mode_data, _backup, _changed = tgws.update_config(
-                    config_path, {"linfix_mode": mode}
-                )
         elif config_path is not None:
             mode = tgws.effective_mode(config_path)
-        if config_path is not None and mode_data.get("linfix_mode") != mode:
-            # Фиксируем фактический режим, чтобы автозапуск не вернулся к tray.
-            mode_data, _backup, _changed = tgws.update_config(
-                config_path, {"linfix_mode": mode}
-            )
+        # Режим пишем в файл LinFix, а не в config.json TgWsProxy:
+        # TgWsProxy затирает незнакомые ключи при старте.
+        tgws.save_mode(mode)
         if mode == tgws.MODE_CLI:
-            api.install_tgws_source(tgws.normalize_version(args.version) or "v1.11.4")
+            _code, source_payload = api.install_tgws_source(
+                tgws.normalize_version(args.version) or "v1.11.4"
+            )
+            if not source_payload.get("ok"):
+                payload["error"] = str(source_payload.get("error") or "нет исходников TgWsProxy")
+                return EXIT_ERROR
+            deps = api.ensure_source_deps()
+            if not deps.get("deps_ok"):
+                print(
+                    f"ОШИБКА: {deps.get('deps_error')}",
+                    file=sys.stderr,
+                )
+                return EXIT_ERROR
         unit_path, unit_changed = tgws.install_user_unit(
             cfg.tgws.binary, mode=mode, data=mode_data
         )

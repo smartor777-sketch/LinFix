@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import shutil
+import tarfile
+import tempfile
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from . import cfdomains, doctor, guard, helper, state, tgws, util, zapret
@@ -350,14 +354,15 @@ def _finalize_tgws_install(
     )
     mode = tgws.effective_mode(config_path)
     data = tgws.load_json_config(config_path) if config_path is not None else {}
-    if config_path is not None and data.get("linfix_mode") != mode:
-        # Фиксируем фактический режим (например, CLI на headless-сервере),
-        # чтобы автозапуск и панель не пытались вернуться к tray.
-        data, _backup, _changed = tgws.update_config(config_path, {"linfix_mode": mode})
+    # Режим живёт в файле LinFix: TgWsProxy затирает незнакомые ключи
+    # в своём config.json при каждом старте.
+    tgws.save_mode(mode)
 
     if mode == tgws.MODE_CLI:
         code, source_payload = install_tgws_source(version)
         payload["source"] = source_payload
+        if code == 0:
+            payload["deps"] = ensure_source_deps()
         if code != 0:
             payload["ok"] = False
             payload["error"] = str(
@@ -382,15 +387,78 @@ def _finalize_tgws_install(
 
 
 def install_tgws_source(version: str) -> tuple[int, dict[str, object]]:
-    """Распаковать исходники TgWsProxy (нужны для CLI-режима без X11)."""
+    """Скачать и распаковать исходники TgWsProxy для CLI-режима.
 
-    helper_args = ["--version", version, "--source-dest", str(tgws.SOURCE_DIR)]
+    Без root: каталог в домашней директории пользователя, поэтому режим
+    переключается без запроса пароля.
+    """
+
+    target = tgws.source_dir()
+    if (target / "proxy" / "tg_ws_proxy.py").exists():
+        return EXIT_OK, {"ok": True, "path": str(target), "cached": True}
+
+    url = f"https://github.com/{tgws.REPO}/archive/refs/tags/{version}.tar.gz"
     try:
-        return util.run_helper("tgws.install_source", helper_args, timeout=600)
-    except util.NetfixError as exc:
-        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
-    except util.CommandError as exc:
-        return EXIT_ERROR, {"ok": False, "error": f"скачивание исходников: {exc}"}
+        archive = tgws.download_to_temp(url, Path("/tmp"), timeout=60, attempts=3)
+    except tgws.TgwsError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+
+    staging = Path(tempfile.mkdtemp(prefix="linfix-tgws-src."))
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(staging, filter="data")
+        roots = [p for p in staging.iterdir() if p.is_dir()]
+        package = roots[0] / "proxy" / "tg_ws_proxy.py" if len(roots) == 1 else None
+        if package is None or not package.exists():
+            return EXIT_ERROR, {"ok": False, "error": "в архиве нет пакета proxy"}
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(roots[0], target)
+        (target / "VERSION").write_text(version + "\n", encoding="utf-8")
+    except (OSError, tarfile.TarError) as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"распаковка исходников: {exc}"}
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        archive.unlink(missing_ok=True)
+
+    return EXIT_OK, {"ok": True, "path": str(target), "version": version}
+
+
+def source_deps_missing() -> list[str]:
+    """Модули, нужные CLI-режиму и отсутствующие в системе."""
+
+    import importlib.util
+
+    return [name for name in ("httpx", "h2") if importlib.util.find_spec(name) is None]
+
+
+def ensure_source_deps() -> dict[str, object]:
+    """Поставить python-зависимости CLI-режима из apt (через pkexec/sudo)."""
+
+    missing = source_deps_missing()
+    if not missing:
+        return {"deps_ok": True, "deps_installed": []}
+
+    packages = ["python3-httpx", "python3-h2", "python3-certifi", "python3-cryptography"]
+    command = ["apt-get", "install", "-y", *packages]
+    if util.which("pkexec"):
+        argv = ["pkexec", *command]
+    elif util.which("sudo"):
+        argv = ["sudo", "-n", *command]
+    else:
+        return {
+            "deps_ok": False,
+            "deps_error": "нет pkexec/sudo: установите вручную: apt install " + " ".join(packages),
+        }
+
+    completed = util.run(argv, check=False, timeout=600)
+    still_missing = source_deps_missing()
+    return {
+        "deps_ok": not still_missing,
+        "deps_installed": [p for p in packages if p not in missing] if not still_missing else [],
+        "deps_error": (completed.stderr or "").strip()[-500:] if still_missing else "",
+    }
 
 
 def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
@@ -414,22 +482,40 @@ def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
         code, source_payload = install_tgws_source(_installed_version())
         if code != 0:
             return code, source_payload
+        deps = ensure_source_deps()
+        if not deps.get("deps_ok"):
+            return EXIT_ERROR, {
+                "ok": False,
+                "error": str(deps.get("deps_error") or "нет python-зависимостей для CLI-режима"),
+                "deps": deps,
+            }
 
     try:
-        data, backup, changed = tgws.update_config(config_path, {"linfix_mode": mode})
+        mode_file = tgws.save_mode(mode)
+        data, backup, changed = tgws.load_json_config(config_path), None, True
     except tgws.TgwsError as exc:
         return EXIT_ERROR, {"ok": False, "error": str(exc)}
 
     unit_path, unit_changed = tgws.install_user_unit(
         cfg.tgws.binary, mode=mode, data=data
     )
+    # Перезапускаем службу: без этого продолжает работать старый процесс
+    # (например, tray-бинарник при переключении на cli) — режим меняется
+    # в конфиге, но не в жизни.
+    util.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
+    restarted = util.run(
+        ["systemctl", "--user", "restart", tgws.UNIT_NAME], check=False, timeout=60
+    )
     return EXIT_OK, {
         "ok": True,
         "mode": mode,
+        "mode_file": str(mode_file),
         "changed": changed,
         "backup": str(backup) if backup else None,
         "unit": str(unit_path),
         "unit_changed": unit_changed,
+        "restarted": restarted.returncode == 0,
+        "restart_error": (restarted.stderr or "").strip(),
     }
 
 
