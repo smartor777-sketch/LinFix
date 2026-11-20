@@ -48,6 +48,9 @@ class SettingsScreen:
         attach(6, self.autostart_switch, _("Автозапуск TgWsProxy"))
         attach(7, self.zapret2_switch, _("Автозапуск Zapret2"))
 
+        self.mode_status = common.label("", css_class="card-title")
+        self.grid.attach(self.mode_status, 1, 8, 1, 1)
+
         self.box.pack_start(self.grid, False, False, 0)
 
         # Кнопки управления службами (перенесены из «Статус»).
@@ -155,13 +158,32 @@ class SettingsScreen:
         self.host_entry.set_text(str(data.get("host", "127.0.0.1")))
         self.verbose_switch.set_active(bool(data.get("verbose", False)))
         self.log_max_entry.set_text(str(data.get("log_max_mb", 5)))
-        mode = data.get("linfix_mode")
-        if mode not in tgws.MODES:
-            mode = tgws.MODE_TRAY
+        mode = tgws.detect_mode(path)
         self.mode_combo.set_active_id(str(mode))
         self._saved_mode = str(mode)
         # Конфиг может говорить одно, а работать — другое (старый процесс).
         self._running_mode = tgws.running_mode()
+        self._update_mode_status()
+
+    def _update_mode_status(self) -> None:
+        saved = self.mode_combo.get_active_id() or tgws.MODE_TRAY
+        running = tgws.running_mode()
+        self._running_mode = running
+        if running is None:
+            self.mode_status.set_text(_("Служба не запущена"))
+        elif running == saved:
+            self.mode_status.set_text(
+                _("Работает: {mode}").format(
+                    mode=_("трей") if running == tgws.MODE_TRAY else _("CLI")
+                )
+            )
+        else:
+            self.mode_status.set_text(
+                _("Выбран {saved}, но работает {running} — нужен перезапуск").format(
+                    saved=saved,
+                    running=_("трей") if running == tgws.MODE_TRAY else _("CLI"),
+                )
+            )
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
         timer = util.run(["systemctl", "--user", "is-enabled", guard.timer_unit()], check=False, timeout=10)
         self._guard_timer_state = (timer.stdout or "").strip() or "disabled"
