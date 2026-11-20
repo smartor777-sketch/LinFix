@@ -77,7 +77,7 @@ class Tray:
 
         menu = Gtk.Menu()
 
-        item = Gtk.MenuItem(label=_("Открыть панель"))
+        item = Gtk.MenuItem(label=_("Развернуть панель"))
         item.connect("activate", lambda *_: self.app.show())
         menu.append(item)
 

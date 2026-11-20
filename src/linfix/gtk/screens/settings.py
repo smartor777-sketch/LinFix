@@ -92,4 +92,10 @@ class SettingsScreen:
             if not payload.get("ok"):
                 common.message(self.app, str(payload.get("error", _("Ошибка"))))
 
+        # Автозапуск включён — поднимаем службы через systemd.
+        if self.autostart_switch.get_active():
+            api.start_tgws(self.app.cfg)
+        if self.zapret2_switch.get_active():
+            api.start_zapret(self.app.cfg)
+
         common.toast(self.app, _("Настройки сохранены"))

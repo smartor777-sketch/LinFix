@@ -167,6 +167,35 @@ def restart_tgws(cfg: Config) -> tuple[int, str]:
     return EXIT_OK, "tgwsproxy restarted"
 
 
+def start_tgws(cfg: Config) -> tuple[int, str]:
+    """Запустить TgWsProxy (user-служба)."""
+
+    cp = util.run(["systemctl", "--user", "start", tgws.UNIT_NAME], check=False, timeout=30)
+    if cp.returncode != 0:
+        err = (cp.stderr or cp.stdout or "").strip()
+        return EXIT_ERROR, f"не удалось запустить tgwsproxy: {err or f'code={cp.returncode}'}"
+    return EXIT_OK, "tgwsproxy запущена"
+
+
+def start_zapret(cfg: Config) -> tuple[int, str]:
+    """Запустить zapret2 (root через helper)."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    service = info.service or cfg.zapret.service
+
+    is_active = util.run(["systemctl", "is-active", service], check=False, timeout=10)
+    if (is_active.stdout or "").strip() == "active":
+        return EXIT_OK, f"{service} уже запущен"
+
+    try:
+        code, payload = util.run_helper("zapret.restart", ["--service", service])
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, str(exc)
+    if code != 0:
+        return code, str(payload.get("error") or f"ошибка запуска {service}")
+    return EXIT_OK, f"{service} запущен"
+
+
 def set_tgws_config(changes: dict[str, object]) -> tuple[int, dict[str, object]]:
     """Безопасно изменить конфиг TgWsProxy (бэкап + валидация)."""
 

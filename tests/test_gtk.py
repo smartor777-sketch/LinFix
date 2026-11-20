@@ -146,6 +146,84 @@ class AppTests(unittest.TestCase):
         connect_btn.emit("clicked")  # не должен падать
         app.window.destroy()
 
+    def test_autostarted_services_start_when_enabled(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        with (
+            patch(
+                "linfix.gtk.app.util.run",
+                return_value=SimpleNamespace(stdout="enabled", returncode=0),
+            ),
+            patch("linfix.gtk.app.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.app.api.start_zapret") as start_zapret,
+        ):
+            app._autostarted_job()
+        start_tgws.assert_called_once_with(app.cfg)
+        start_zapret.assert_called_once_with(app.cfg)
+
+    def test_autostarted_services_skip_when_disabled(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        with (
+            patch(
+                "linfix.gtk.app.util.run",
+                return_value=SimpleNamespace(stdout="disabled", returncode=0),
+            ),
+            patch("linfix.gtk.app.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.app.api.start_zapret") as start_zapret,
+        ):
+            app._autostarted_job()
+        start_tgws.assert_not_called()
+        start_zapret.assert_not_called()
+
+    def test_settings_save_starts_autostarted_services(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        settings = app.window.screens["settings"]
+        settings.autostart_switch.set_active(True)
+        settings.zapret2_switch.set_active(True)
+        with (
+            patch(
+                "linfix.gtk.screens.settings.api.set_tgws_config",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.toggle_guard",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.enable_autostart",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.set_zapret2_autostart",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.util.run",
+                return_value=SimpleNamespace(stdout="disabled", returncode=0),
+            ),
+            patch("linfix.gtk.screens.settings.api.start_tgws") as start_tgws,
+            patch("linfix.gtk.screens.settings.api.start_zapret") as start_zapret,
+        ):
+            settings.save()
+        start_tgws.assert_called_once_with(app.cfg)
+        start_zapret.assert_called_once_with(app.cfg)
+        app.window.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
