@@ -12,7 +12,7 @@ TgWsProxy, диагностирует поломки и защищает сет�
 
 Проект переименован в **LinFix** (пакет `linfix`, команда `linfix`);
 [docs/DESKTOP-ICONS.md](docs/DESKTOP-ICONS.md) описывает ярлышки сервисов.
-В SPEC слово «NetFix» — основное название продукта (Linux-реализация — LinFix).
+В SPEC слово «LinFix» — основное название продукта (Linux-реализация — LinFix).
 
 ## Статус
 
@@ -21,7 +21,7 @@ TgWsProxy, диагностирует поломки и защищает сет�
   `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
 - **M5 (.deb)** — следующий этап.
 
-M6 (GTK3-панель): `make gui` или `netfix-gui` (после установки пакета); панель использует `netfix.api`.
+M6 (GTK3-панель): `make gui` или `linfix-gui` (после установки пакета); панель использует `linfix.api`.
 
 Реализованы **M0–M4**:
 
@@ -68,9 +68,9 @@ PYTHONPATH=src python3 -m linfix.cli doctor
 make gui        # PYTHONPATH=src python3 -m linfix.gtk.main
 ```
 
-Панель: `netfix-gui` (при установке пакета), или из меню «LinFix»
+Панель: `linfix-gui` (при установке пакета), или из меню «LinFix»
 (`~/.local/share/applications/linfix.desktop`). Панель строится только поверх
-`netfix.api`; привилегированные действия — через `pkexec /usr/libexec/linfix-helper`.
+`linfix.api`; привилегированные действия — через `pkexec /usr/libexec/linfix-helper`.
 
 Тесты на панель: `tests/test_gtk.py` (установленGTK3 + трей).
 

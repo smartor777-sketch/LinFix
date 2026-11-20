@@ -19,7 +19,7 @@ PAGES: list[tuple[str, str]] = [
 
 class NetFixWindow(Gtk.ApplicationWindow):
     def __init__(self, app) -> None:
-        super().__init__(application=app, title=_("NetFix — статус"), default_width=800, default_height=560)
+        super().__init__(application=app, title=_("LinFix — статус"), default_width=800, default_height=560)
         self.app = app
         self.notebook = Gtk.Notebook()
         self.screens: dict[str, object] = {}

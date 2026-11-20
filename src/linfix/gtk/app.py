@@ -17,7 +17,7 @@ from .window import NetFixWindow
 
 
 class NetFixApp(Gtk.Application):
-    """`netfix-gui` — основное окно, трей, работа через `netfix.api`."""
+    """`linfix-gui` — основное окно, трей, работа через `linfix.api`."""
 
     def __init__(self) -> None:
         super().__init__(application_id="org.linfix.gui", flags=Gio.ApplicationFlags.FLAGS_NONE)
@@ -42,7 +42,7 @@ class NetFixApp(Gtk.Application):
 
 
 def main() -> int:
-    """Entry point: netfix-gui."""
+    """Entry point: linfix-gui."""
 
     install(load_config().general.language)
     icon = icons.icon_path("linfix")

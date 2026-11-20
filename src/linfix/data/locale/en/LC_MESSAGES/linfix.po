@@ -3,23 +3,23 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "NetFix — статус"
-msgstr "NetFix — status"
+msgid "LinFix — статус"
+msgstr "LinFix — status"
 
-msgid "NetFix — настройки"
-msgstr "NetFix — settings"
+msgid "LinFix — настройки"
+msgstr "LinFix — settings"
 
-msgid "NetFix — домены"
-msgstr "NetFix — domains"
+msgid "LinFix — домены"
+msgstr "LinFix — domains"
 
-msgid "NetFix — диагностика"
-msgstr "NetFix — doctor"
+msgid "LinFix — диагностика"
+msgstr "LinFix — doctor"
 
-msgid "NetFix — логи"
-msgstr "NetFix — logs"
+msgid "LinFix — логи"
+msgstr "LinFix — logs"
 
-msgid "NetFix — настройка"
-msgstr "NetFix — setup"
+msgid "LinFix — настройка"
+msgstr "LinFix — setup"
 
 msgid "Статус"
 msgstr "Status"

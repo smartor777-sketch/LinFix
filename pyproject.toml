@@ -17,7 +17,7 @@ dependencies = [
 [project.scripts]
 linfix = "linfix.cli:main"
 linfix-helper = "linfix.helper:main"
-netfix-gui = "linfix.gtk.main:main"
+linfix-gui = "linfix.gtk.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

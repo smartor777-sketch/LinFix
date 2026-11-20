@@ -46,7 +46,7 @@ def install(lang: str | None = None) -> None:
 
     try:
         translator = gettext.translation(
-            "netfix", str(LOCALE_DIR), languages=[lang, "ru", "en"], fallback=True
+            "linfix", str(LOCALE_DIR), languages=[lang, "ru", "en"], fallback=True
         )
         _translator = translator.gettext
     except Exception:

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=LinFix
-Exec=netfix-gui
+Exec=linfix-gui
 Icon=/home/alex/.local/share/icons/hicolor/scalable/apps/linfix.svg
-Comment=NetFix for Linux: управление zapret + TgWsProxy
+Comment=LinFix for Linux: управление zapret + TgWsProxy
 Terminal=false
 Categories=Network;
