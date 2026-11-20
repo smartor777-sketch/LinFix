@@ -652,3 +652,139 @@ def update_domains(
         "missing_before": missing,
         "hostlist": target,
     }
+
+
+# ---------------------------------------------------------------------------
+# Hostlist zapret: свои списки, импорт, редактирование
+# ---------------------------------------------------------------------------
+
+
+def hostlist_path(cfg: Config) -> str | None:
+    """Путь к hostlist, в который можно писать."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    return zapret.hostlist_target(info, cfg.zapret.hostlist)
+
+
+def get_hostlist_entries(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Все домены hostlist с пометкой источника (cf/user/other)."""
+
+    from . import hostlist as hostlist_mod
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    entries = hostlist_mod.read_entries(path)
+    counts = {"cf": 0, "user": 0, "other": 0}
+    for entry in entries:
+        counts[entry.source] = counts.get(entry.source, 0) + 1
+    return EXIT_OK, {
+        "ok": True,
+        "hostlist": path,
+        "counts": counts,
+        "total": len(entries),
+        "entries": [{"domain": e.domain, "source": e.source} for e in entries],
+    }
+
+
+def add_to_hostlist(
+    cfg: Config, domains: list[str], *, restart: bool = True
+) -> tuple[int, dict[str, object]]:
+    """Добавить домены в hostlist (root через helper) с рестартом zapret."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--timeout", "30"]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def import_hostlist(
+    cfg: Config,
+    *,
+    url: str | None = None,
+    list_file: str | None = None,
+    restart: bool = True,
+) -> tuple[int, dict[str, object]]:
+    """Импортировать список доменов из URL или файла."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--timeout", "60"]
+    if url:
+        args.extend(["--url", url])
+    if list_file:
+        args.extend(["--list-file", list_file])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=300)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def remove_from_hostlist(
+    cfg: Config, domains: list[str], *, restart: bool = True
+) -> tuple[int, dict[str, object]]:
+    """Удалить домены из блоков LinFix с рестартом zapret."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.remove", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.remove: {exc}"}
+
+
+def hostlist_sources(cfg: Config) -> list[tuple[str, str]]:
+    """Скрипты-источники списков, доступные в установленном zapret."""
+
+    from . import hostlist as hostlist_mod
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.install_dir:
+        return []
+    return hostlist_mod.list_sources(Path(info.install_dir) / "ipset")
+
+
+def load_hostlist_source(cfg: Config, script: str) -> tuple[int, dict[str, object]]:
+    """Загрузить готовый список через штатный скрипт zapret (root)."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    directory = Path(info.install_dir) / "ipset" if info.install_dir else Path("/opt/zapret2/ipset")
+    try:
+        return util.run_helper(
+            "hostlist.load_source",
+            ["--script", script, "--ipset-dir", str(directory)],
+            timeout=900,
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.load_source: {exc}"}

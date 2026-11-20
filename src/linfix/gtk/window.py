@@ -5,12 +5,23 @@ from __future__ import annotations
 from gi.repository import GLib, Gdk, Gtk
 
 from .i18n import _
-from .screens import DoctorScreen, DomainsScreen, LogsScreen, SettingsScreen, SetupScreen, StatusScreen
+from .screens import (
+    DoctorScreen,
+    DomainsScreen,
+    HostlistScreen,
+    LogsScreen,
+    SettingsScreen,
+    SetupScreen,
+    SiteCheckScreen,
+    StatusScreen,
+)
 
 PAGES: list[tuple[str, str]] = [
     ("status", _("Статус")),
     ("setup", _("Мастер настройки")),
     ("domains", _("Домены")),
+    ("hostlist", _("Списки")),
+    ("sitecheck", _("Сайты")),
     ("doctor", _("Диагностика")),
     ("settings", _("Настройки")),
     ("logs", _("Логи")),
@@ -48,7 +59,16 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.notebook = Gtk.Notebook()
         self.screens: dict[str, object] = {}
 
-        screen_classes = [StatusScreen, SetupScreen, DomainsScreen, DoctorScreen, SettingsScreen, LogsScreen]
+        screen_classes = [
+            StatusScreen,
+            SetupScreen,
+            DomainsScreen,
+            HostlistScreen,
+            SiteCheckScreen,
+            DoctorScreen,
+            SettingsScreen,
+            LogsScreen,
+        ]
         for (key, label), screen_class in zip(PAGES, screen_classes):
             screen = screen_class(app)
             self.screens[key] = screen
