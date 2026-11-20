@@ -169,6 +169,29 @@ def _zapret_checks(info: zapret.ZapretInfo) -> list[Check]:
     return checks
 
 
+def _hostlist_args_check(info: zapret.ZapretInfo) -> Check:
+    """Голый путь hostlist в конфиге ломает весь HTTPS — это частая причина."""
+
+    bare = zapret.find_bare_hostlist_args(info.cmdline)
+    if not bare:
+        return Check(
+            "zapret.hostlist_args",
+            "Аргументы hostlist",
+            PASS,
+            "все списки переданы через --hostlist",
+        )
+    names = ", ".join(Path(item).name for item in bare)
+    return Check(
+        "zapret.hostlist_args",
+        "Аргументы hostlist",
+        FAIL,
+        f"без --hostlist: {names}. Такой профиль применяется ко всем TLS-сайтам "
+        "и ломает HTTPS",
+        "Исправить в «Диагностика → Починить конфиг zapret» или добавить "
+        "--hostlist= перед путём в config",
+    )
+
+
 def _domains_check(info: zapret.ZapretInfo, cfg: Config) -> Check:
     target = zapret.hostlist_target(info, cfg.zapret.hostlist)
     if not target:
@@ -452,6 +475,7 @@ def run_doctor(
     info = zapret.detect_zapret(cfg.zapret.service)
     checks: list[Check] = [_os_check(), _nfqueue_check()]
     checks.extend(_zapret_checks(info))
+    checks.append(_hostlist_args_check(info))
     checks.append(_domains_check(info, cfg))
     checks.append(_state_check(cfg))
     if tls:

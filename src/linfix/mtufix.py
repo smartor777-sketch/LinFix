@@ -33,18 +33,21 @@ class MtuState:
     link_mtu_source: str | None
 
 
-def read_state(ip: str | None = None) -> MtuState:
+def read_state(ip: str | None = None, *, interface: str | None = None) -> MtuState:
     """Собрать текущее состояние: интерфейс, его MTU, probing, MTU маршрута."""
 
-    interface: str | None = None
     link_mtu: int | None = None
     source: str | None = None
 
-    if ip:
-        route = util.run(["ip", "-o", "route", "get", ip], check=False, timeout=10)
+    if interface is None:
+        route_args = (
+            ["ip", "-o", "route", "get", ip] if ip else ["ip", "-o", "route", "show", "default"]
+        )
+        route = util.run(route_args, check=False, timeout=10)
         match = re.search(r"\bdev\s+(\S+)", route.stdout or "")
         if match:
             interface = match.group(1)
+        if ip:
             cache_match = re.search(r"\bcache\b.*\bmtu\s+(\d+)", route.stdout or "")
             if cache_match:
                 source = cache_match.group(1)
@@ -113,7 +116,9 @@ def set_interface_mtu(interface: str, mtu: int) -> tuple[int, dict[str, object]]
     if code != 0:
         return code, payload
 
-    now = read_state()
+    # Проверяем именно этот интерфейс: read_state() без адреса вернёт
+    # интерфейс default-маршрута, и раньше результат терялся.
+    now = read_state(interface=interface)
     return 0, {
         "ok": now.interface_mtu == mtu,
         "action": "interface_mtu",

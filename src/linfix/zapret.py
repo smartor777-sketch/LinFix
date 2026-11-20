@@ -310,3 +310,44 @@ def listening_addresses(port: int) -> list[str]:
         if local.rsplit(":", 1)[-1] == str(port):
             addresses.append(local)
     return addresses
+
+
+def find_bare_hostlist_args(cmdline: tuple[str, ...] | list[str]) -> list[str]:
+    """Найти hostlist-файлы, переданные без --hostlist (баг конфига zapret).
+
+    nfqws2 понимает только ``--hostlist=path``. Голый путь молча игнорируется:
+    профиль становится «для всех TLS», и desync ломает каждый HTTPS-сайт.
+    """
+
+    bare: list[str] = []
+    for argument in cmdline:
+        if argument.startswith("-") or "=" in argument:
+            continue
+        if argument.endswith(".txt") or argument.endswith(".gz"):
+            bare.append(argument)
+        elif argument.startswith("/") and Path(argument).suffix in {".txt", ".gz"}:
+            bare.append(argument)
+    return bare
+
+
+def config_hostlist_problems(config_path: str | Path = "/opt/zapret2/config") -> list[str]:
+    """Строки конфига zapret, где hostlist передан без --hostlist."""
+
+    target = Path(config_path)
+    if not target.exists():
+        return []
+    problems: list[str] = []
+    for line in target.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "--hostlist=" in stripped or "--hostlist-exclude=" in stripped:
+            # в строке уже есть корректный флаг, но может быть и голый путь
+            pass
+        for token in stripped.split():
+            if token.startswith("-") or "=" in token:
+                continue
+            if token.endswith(".txt") or token.endswith(".gz"):
+                problems.append(stripped)
+                break
+    return problems

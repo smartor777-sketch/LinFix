@@ -38,6 +38,7 @@ ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
     "mtu.set",
+    "zapret.fix_hostlist_args",
     "sysctl.set",
     "hostlist.import",
     "hostlist.load_source",
@@ -687,6 +688,60 @@ def action_mtu_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     }
 
 
+
+def action_zapret_fix_hostlist_args(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Добавить --hostlist= перед голыми путями списков в config zapret.
+
+    nfqws2 понимает только ``--hostlist=path``: голый путь игнорируется,
+    профиль становится «для всех TLS», и desync ломает каждый HTTPS-сайт.
+    Правим только такие токены, остальной файл не трогаем.
+    """
+
+    config_path = Path(args.config_path or "/opt/zapret2/config")
+    if not config_path.is_file():
+        raise HelperError(f"конфиг zapret не найден: {config_path}")
+
+    original = config_path.read_text(encoding="utf-8", errors="replace")
+    changed_lines: list[str] = []
+    result_lines: list[str] = []
+    for line in original.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped and not stripped.startswith("-"):
+            result_lines.append(line)
+            continue
+        tokens = line.split()
+        new_tokens: list[str] = []
+        edited = False
+        for token in tokens:
+            if (
+                token.startswith("-")
+                or "=" in token
+                or not (token.endswith(".txt") or token.endswith(".gz"))
+            ):
+                new_tokens.append(token)
+                continue
+            new_tokens.append(f"--hostlist={token}")
+            edited = True
+        if edited:
+            result_lines.append(" ".join(new_tokens))
+            changed_lines.append(stripped)
+        else:
+            result_lines.append(line)
+
+    if not changed_lines:
+        return 0, {"ok": True, "changed": False, "path": str(config_path), "lines": []}
+
+    backup = util.backup_file(config_path)
+    util.atomic_write(config_path, "\n".join(result_lines) + "\n")
+    return 0, {
+        "ok": True,
+        "changed": True,
+        "path": str(config_path),
+        "backup": str(backup) if backup else None,
+        "lines": changed_lines,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linfix-helper",
@@ -724,6 +779,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--value", default="", help="значение sysctl")
     parser.add_argument("--interface", default="", help="сетевой интерфейс для mtu.set")
     parser.add_argument("--mtu", type=int, default=None, help="MTU для mtu.set")
+    parser.add_argument("--config-path", default="/opt/zapret2/config", help="config zapret")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -753,6 +809,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_sysctl_set(args)
         elif args.action == "mtu.set":
             code, payload = action_mtu_set(args)
+        elif args.action == "zapret.fix_hostlist_args":
+            code, payload = action_zapret_fix_hostlist_args(args)
         elif args.action == "tgws.install":
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":

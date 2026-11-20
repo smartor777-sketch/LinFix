@@ -103,3 +103,42 @@ class HostlistReadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BareHostlistTests(unittest.TestCase):
+    def test_finds_bare_path(self) -> None:
+        argv = [
+            "--qnum=300",
+            "--filter-tcp=443",
+            "/opt/zapret2/ipset/zapret-hosts-rut.txt",
+            "--payload=tls_client_hello",
+        ]
+        self.assertEqual(
+            zapret.find_bare_hostlist_args(argv),
+            ["/opt/zapret2/ipset/zapret-hosts-rut.txt"],
+        )
+
+    def test_ignores_proper_flag(self) -> None:
+        argv = ["--hostlist=/opt/zapret2/ipset/zapret-hosts-user.txt"]
+        self.assertEqual(zapret.find_bare_hostlist_args(argv), [])
+
+    def test_ignores_non_list_paths(self) -> None:
+        argv = ["--lua-init=@/opt/zapret2/lua/x.lua", "--user=tpws"]
+        self.assertEqual(zapret.find_bare_hostlist_args(argv), [])
+
+    def test_config_problems(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config"
+            path.write_text(
+                'NFQWS2_OPT="\n'
+                "--filter-tcp=443 --filter-l7=tls /opt/zapret2/ipset/zapret-hosts-rut.txt "
+                "--payload=tls_client_hello --new\n"
+                "--filter-tcp=443 --hostlist=/opt/zapret2/ipset/zapret-hosts-user.txt --new\n"
+                '"\n',
+                encoding="utf-8",
+            )
+            problems = zapret.config_hostlist_problems(path)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("zapret-hosts-rut.txt", problems[0])

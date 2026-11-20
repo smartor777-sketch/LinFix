@@ -788,3 +788,38 @@ def load_hostlist_source(cfg: Config, script: str) -> tuple[int, dict[str, objec
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
     except util.CommandError as exc:
         return EXIT_ERROR, {"ok": False, "error": f"hostlist.load_source: {exc}"}
+
+
+def zapret_hostlist_arg_problems(cfg: Config) -> list[str]:
+    """Строки конфига zapret, где hostlist передан без --hostlist."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    bare = list(zapret.find_bare_hostlist_args(info.cmdline))
+    if bare:
+        return bare
+    return zapret.config_hostlist_problems()
+
+
+def fix_zapret_hostlist_args(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Исправить голые пути hostlist в config zapret (root через helper)."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    base = Path(info.install_dir) if info.install_dir else Path("/opt/zapret2")
+    config_path = base / "config"
+    try:
+        code, payload = util.run_helper(
+            "zapret.fix_hostlist_args", ["--config-path", str(config_path)], timeout=120
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"правка конфига: {exc}"}
+
+    if code == 0 and payload.get("changed"):
+        restart = util.run(
+            ["systemctl", "restart", info.service or cfg.zapret.service],
+            check=False,
+            timeout=60,
+        )
+        payload["restarted"] = restart.returncode == 0
+    return code, payload
