@@ -131,7 +131,11 @@ class AppTests(unittest.TestCase):
         )
         self.assertTrue(hasattr(screen, "link_entry"))
         self.assertTrue(hasattr(screen, "copy_link"))
-        self.assertTrue(hasattr(screen, "print_qr"))
+        self.assertFalse(hasattr(screen, "print_qr"))
+        labels = [
+            b.get_label() for b in screen.link_box.get_children() if isinstance(b, Gtk.Button)
+        ]
+        self.assertEqual(labels, ["Копировать ссылку"])
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
         labels = [b.get_label() for b in screen.buttons.get_children()]

@@ -79,7 +79,6 @@ class StatusScreen:
             self.link_box,
             common.button(_("Копировать ссылку"), lambda _: self.copy_link()),
         )
-        common.pack(self.link_box, common.button(_("QR"), lambda _: self.print_qr()))
         common.pack(self.box, self.link_box)
 
         self._build_buttons()
@@ -203,21 +202,6 @@ class StatusScreen:
             common.toast(self.app, _("Ссылка скопирована"))
         else:
             common.message(self.app, _("Конфиг TgWsProxy не найден"))
-
-    def print_qr(self) -> None:
-        link = api.connect_telegram(self.app.cfg)
-        if not link:
-            common.message(self.app, _("Конфиг TgWsProxy не найден"))
-            return
-        try:
-            import qrcode
-        except ImportError:
-            common.message(self.app, _("Установите python3-qrcode для QR"))
-            return
-        code = qrcode.QRCode(border=2)
-        code.add_data(link)
-        code.make()
-        code.print_ascii()
 
     def connect_telegram(self) -> None:
         link = api.connect_telegram(self.app.cfg)
