@@ -10,6 +10,7 @@ from gi.repository import Gtk  # noqa: E402
 from linfix.gtk import icons  # noqa: E402
 from linfix.gtk.i18n import install, _  # noqa: E402
 from linfix.gtk.tray import Tray  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
 HAS_DISPLAY = Gtk.init_check(None)[0]
 
@@ -273,3 +274,44 @@ class AppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SettingsActionTests(unittest.TestCase):
+    """Кнопки служб должны вызывать API с cfg и не падать в фоне."""
+
+    def test_every_service_button_calls_api(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["settings"]
+
+        called: list[str] = []
+
+        def fake_run_op(fn, **_kwargs):
+            try:
+                fn()
+            except TypeError as exc:  # неверная сигнатура — это баг кнопки
+                raise AssertionError(f"кнопка вызвала API неправильно: {exc}") from exc
+            called.append(getattr(fn, "__name__", "lambda"))
+
+        with patch.object(app, "run_op", side_effect=fake_run_op), patch(
+            "linfix.api.stop_tgws", return_value=(0, "ok")
+        ) as stop_tgws, patch(
+            "linfix.api.restart_tgws", return_value=(0, "ok")
+        ), patch(
+            "linfix.api.restart_zapret", return_value=(0, "ok")
+        ), patch(
+            "linfix.api.stop_zapret", return_value=(0, "ok")
+        ):
+            for child in screen.services_box.get_children():
+                button = child.get_child()
+                if button.get_label() in {"Перезапустить", "Перезапустить TgWsProxy",
+                                          "Остановить TgWsProxy", "Остановить Zapret2"}:
+                    button.emit("clicked")
+
+        # Именно с cfg: без него кнопка падала бы с TypeError в фоне.
+        stop_tgws.assert_called_once()
+        self.assertEqual(len(stop_tgws.call_args.args), 1)
+        self.assertTrue(called)
+        app.window.destroy()
