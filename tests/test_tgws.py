@@ -5,6 +5,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from linfix import tgws
 
@@ -195,6 +196,62 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(tgws.TgwsError):
                     tgws.update_config(path, {"log_max_mb": bad})
+
+    def test_mode_default_and_validation(self) -> None:
+        data = tgws.default_config()
+        self.assertEqual(data["linfix_mode"], tgws.MODE_TRAY)
+
+        path, _ = tgws.ensure_config(create=True, home=self.root)
+        assert path is not None
+        updated, _, changed = tgws.update_config(path, {"linfix_mode": tgws.MODE_CLI})
+        self.assertTrue(changed)
+        self.assertEqual(updated["linfix_mode"], tgws.MODE_CLI)
+
+        with self.assertRaises(tgws.TgwsError):
+            tgws.update_config(path, {"linfix_mode": "gui"})
+
+    def test_effective_mode_falls_back_to_cli_without_x11(self) -> None:
+        path, _ = tgws.ensure_config(create=True, home=self.root)
+        assert path is not None
+        tgws.update_config(path, {"linfix_mode": tgws.MODE_TRAY})
+        with mock.patch.object(tgws, "display_available", return_value=False):
+            self.assertEqual(tgws.effective_mode(path), tgws.MODE_CLI)
+        with mock.patch.object(tgws, "display_available", return_value=True):
+            self.assertEqual(tgws.effective_mode(path), tgws.MODE_TRAY)
+
+    def test_cli_unit_has_no_display(self) -> None:
+        data = tgws.default_config(1081, "127.0.0.1")
+        data["linfix_mode"] = tgws.MODE_CLI
+        unit = tgws.render_unit(
+            "/opt/tgwsproxy/TgWsProxy",
+            mode=tgws.MODE_CLI,
+            data=data,
+            source="/opt/tgwsproxy/src",
+            python="/usr/bin/python3",
+        )
+        self.assertNotIn("DISPLAY", unit)
+        self.assertIn("PYTHONPATH=/opt/tgwsproxy/src", unit)
+        self.assertIn("-m proxy.tg_ws_proxy", unit)
+        self.assertIn("--port 1081", unit)
+        self.assertIn("--secret", unit)
+        self.assertIn("--log-file", unit)
+
+    def test_cli_args_from_config(self) -> None:
+        data = tgws.default_config(1090, "127.0.0.1")
+        data["verbose"] = True
+        data["cfproxy"] = False
+        data["h2"] = False
+        args = tgws.cli_args(data)
+        self.assertIn("--port", args)
+        self.assertEqual(args[args.index("--port") + 1], "1090")
+        self.assertIn("--verbose", args)
+        self.assertIn("--no-cfproxy", args)
+        self.assertIn("--no-h2", args)
+
+    def test_tray_unit_keeps_display(self) -> None:
+        unit = tgws.render_unit("/opt/tgwsproxy/TgWsProxy", display=":7")
+        self.assertIn("Environment=DISPLAY=:7", unit)
+        self.assertIn("StartLimitBurst=5", unit)
 
     def test_read_link(self) -> None:
         path, _ = tgws.ensure_config(create=True, home=self.root)

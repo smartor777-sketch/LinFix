@@ -20,7 +20,7 @@ TgWsProxy, диагностирует поломки и защищает сет�
   подробности: `docs/M0-REPORT.md`, `docs/M1-REPORT.md`, `docs/M2-REPORT.md`,
   `docs/M3-REPORT.md`, `docs/M4-REPORT.md`, `docs/M6-REPORT.md`.
 - **M5 (.deb)** — реализован: `make deb` → `dist/linfix_<version>_all.deb`,
-  установка `sudo apt install ./dist/linfix_0.1.1_all.deb` (см. `packaging/debian/README.md`).
+  установка `sudo apt install ./dist/linfix_0.1.2_all.deb` (см. `packaging/debian/README.md`).
 - CI: `.github/workflows/build-deb.yml` собирает `.deb` на push в `main` и
   прикрепляет его к GitHub Release по тегу `v*`.
 
@@ -49,7 +49,7 @@ M6 (GTK3-панель): `make gui` или `linfix-gui` (после устано�
 
 ```bash
 make deb                              # собрать пакет
-sudo apt install ./dist/linfix_0.1.1_all.deb
+sudo apt install ./dist/linfix_0.1.2_all.deb
 linfix-gui                            # или запустить LinFix из меню
 ```
 
@@ -111,8 +111,41 @@ PYTHONPATH=src python3 -m unittest discover -s tests -t . -v
 - `linfix` не создаёт собственных nftables-правил: он управляет только тем,
   что создал установщик zapret.
 
-## Требования к графической сессии
+## Режимы TgWsProxy: trey и CLI
 
-TgWsProxy — tray-приложение (AppIndicator + Tk), поэтому его user-юнит
-запускается в графической сессии и получает `DISPLAY`. На headless-сервере
-без X11 прокси не стартует: нужен X-сервер (например, `Xvfb :99`).
+TgWsProxy бывает двух видов, и LinFix умеет оба:
+
+| | `tray` | `cli` |
+|---|---|---|
+| X11 / DISPLAY | **нужен** | **не нужен** |
+| Трей-меню | есть | нет |
+| Годится для | десктопа | сервера, headless, SSH |
+
+Выбор — в «Настройки → Режим TgWsProxy» или:
+
+```bash
+linfix tgws config --mode cli     # headless-сервер
+linfix tgws config --mode tray    # обычный десктоп
+linfix tgws restart
+```
+
+В режиме `cli` LinFix скачивает исходники TgWsProxy в `/opt/tgwsproxy/src`
+и запускает прокси как обычный процесс:
+
+```
+python3 -m proxy.tg_ws_proxy --port 1080 --host 127.0.0.1 \
+    --log-file ~/.config/TgWsProxy/proxy.log --log-max-mb 5 \
+    --pool-size 4 --secret <из config.json>
+```
+
+Порт, secret и размер лога берутся из того же `config.json`, поэтому
+`linfix tgws link` и панель показывают одну и ту же ссылку. Зависимости
+CLI-режима (в Debian/Ubuntu ставятся из apt):
+
+```bash
+sudo apt install python3-httpx python3-h2 python3-certifi python3-cryptography
+```
+
+Если `DISPLAY` нет, а в конфиге выбран `tray`, LinFix сам переключается на
+`cli` — прокси всё равно поднимется. Обратно на `tray` без X11 переключиться
+нельзя: такой выбор проигнорируется до появления дисплея.

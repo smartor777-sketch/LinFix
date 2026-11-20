@@ -11,7 +11,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
+import tarfile
+import tempfile
 import time
 from pathlib import Path
 
@@ -40,6 +43,7 @@ ALLOWED_ACTIONS = {
     "profile.clear",
     "profile.set",
     "tgws.install",
+    "tgws.install_source",
     "zapret.install_easy",
     "zapret.set_enabled",
     "zapret.stop",
@@ -408,6 +412,46 @@ def action_tgws_install(args: argparse.Namespace) -> tuple[int, dict[str, object
     }
 
 
+def action_tgws_install_source(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Скачать исходники TgWsProxy для CLI-режима (без X11)."""
+
+    if not args.version:
+        raise HelperError("tgws.install_source: требуется --version")
+    version = tgws.normalize_version(args.version)
+    if not version:
+        raise HelperError(f"tgws.install_source: неверная версия {args.version!r}")
+
+    target = validate_path(args.source_dest or str(tgws.SOURCE_DIR), must_exist=False)
+    url = f"https://github.com/{tgws.REPO}/archive/refs/tags/{version}.tar.gz"
+
+    archive = tgws.download_to_temp(url, Path("/tmp"), timeout=60, attempts=3)
+    try:
+        staging = Path(tempfile.mkdtemp(prefix=".tgws-src.", dir="/tmp"))
+        try:
+            with tarfile.open(archive, "r:gz") as tar:
+                tar.extractall(staging, filter="data")
+            roots = [item for item in staging.iterdir() if item.is_dir()]
+            if len(roots) != 1 or not (roots[0] / "proxy" / "tg_ws_proxy.py").exists():
+                return 5, {"ok": False, "error": "в архиве нет пакета proxy"}
+            if target.exists():
+                version_file = target / "VERSION"
+                if version_file.exists():
+                    util.backup_file(version_file)
+                shutil.rmtree(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(roots[0], target, dirs_exist_ok=False)
+            (target / "VERSION").write_text(version + "\n", encoding="utf-8")
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    finally:
+        try:
+            archive.unlink()
+        except OSError:
+            pass
+
+    return 0, {"ok": True, "version": version, "path": str(target), "url": url}
+
+
 def action_zapret_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.stop: требуется --service")
@@ -567,6 +611,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
     parser.add_argument("--version", default="", help="версия TgWsProxy")
     parser.add_argument("--dest", default=str(tgws.BINARY), help="куда установить бинарник")
+    parser.add_argument("--source-dest", default=str(tgws.SOURCE_DIR), help="куда распаковать исходники")
     parser.add_argument("--timeout", type=float, default=600.0, help="таймаут скачивания")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="путь к config.toml")
     parser.add_argument("--enabled", choices=["on", "off"], help="для config.guard / zapret.set_enabled")
@@ -594,6 +639,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_domains_apply(args)
         elif args.action == "tgws.install":
             code, payload = action_tgws_install(args)
+        elif args.action == "tgws.install_source":
+            code, payload = action_tgws_install_source(args)
         elif args.action == "config.guard":
             code, payload = action_config_guard(args)
         elif args.action == "zapret.set_enabled":

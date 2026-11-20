@@ -90,6 +90,7 @@ class AppTests(unittest.TestCase):
         self.assertTrue(hasattr(settings, "link_entry"))
         self.assertTrue(hasattr(settings, "copy_link"))
         self.assertTrue(hasattr(settings, "open_telegram"))
+        self.assertTrue(hasattr(settings, "mode_combo"))
         self.assertTrue(app.window.tab_bar)
         tab_labels = [b.get_label() for b in app.window.tab_bar.get_children()]
         self.assertEqual(
