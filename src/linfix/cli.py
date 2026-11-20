@@ -553,6 +553,11 @@ def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
                 )
         elif config_path is not None:
             mode = tgws.effective_mode(config_path)
+        if config_path is not None and mode_data.get("linfix_mode") != mode:
+            # Фиксируем фактический режим, чтобы автозапуск не вернулся к tray.
+            mode_data, _backup, _changed = tgws.update_config(
+                config_path, {"linfix_mode": mode}
+            )
         if mode == tgws.MODE_CLI:
             api.install_tgws_source(tgws.normalize_version(args.version) or "v1.11.4")
         unit_path, unit_changed = tgws.install_user_unit(

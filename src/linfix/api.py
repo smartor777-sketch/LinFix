@@ -343,6 +343,10 @@ def _finalize_tgws_install(
     )
     mode = tgws.effective_mode(config_path)
     data = tgws.load_json_config(config_path) if config_path is not None else {}
+    if config_path is not None and data.get("linfix_mode") != mode:
+        # Фиксируем фактический режим (например, CLI на headless-сервере),
+        # чтобы автозапуск и панель не пытались вернуться к tray.
+        data, _backup, _changed = tgws.update_config(config_path, {"linfix_mode": mode})
 
     if mode == tgws.MODE_CLI:
         code, source_payload = install_tgws_source(version)
@@ -387,6 +391,11 @@ def set_tgws_mode(cfg: Config, mode: str) -> tuple[int, dict[str, object]]:
 
     if mode not in tgws.MODES:
         return EXIT_USAGE, {"ok": False, "error": f"неизвестный режим: {mode}"}
+    if mode == tgws.MODE_TRAY and not tgws.display_available():
+        return EXIT_USAGE, {
+            "ok": False,
+            "error": "режим tray требует X11/DISPLAY; на этом хосте доступен только cli",
+        }
 
     config_path, _created = tgws.ensure_config(
         create=True, port=cfg.tgws.port, host=cfg.tgws.host
