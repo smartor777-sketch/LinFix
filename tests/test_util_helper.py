@@ -20,7 +20,9 @@ class DevHelperFallbackTests(unittest.TestCase):
         self.assertIn("env", cmd)
         pythonpath = next(part for part in cmd if part.startswith("PYTHONPATH="))
         self.assertTrue(pythonpath.endswith("src"), pythonpath)
-        self.assertEqual(cmd[-6:], ["linfix.helper", "zapret.set_enabled", "--service", "zapret2", "--enabled", "on"])
+        tail = ["linfix.helper", "zapret.set_enabled", "--service", "zapret2", "--enabled", "on"]
+        self.assertEqual(cmd[-7:-1], tail)
+        self.assertEqual(cmd[-1], "--json")
         self.assertIn(sys.executable, cmd)
 
     def test_without_escalation_raises(self) -> None:

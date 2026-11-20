@@ -264,7 +264,14 @@ def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
     """
 
     src_root = str(Path(__file__).resolve().parent.parent)
-    inner = [sys.executable, "-m", "linfix.helper", action, *[str(item) for item in args]]
+    inner = [
+        sys.executable,
+        "-m",
+        "linfix.helper",
+        action,
+        *[str(item) for item in args],
+        "--json",
+    ]
     if which("pkexec"):
         return ["pkexec", "env", f"PYTHONPATH={src_root}", *inner]
     if which("sudo"):
@@ -285,7 +292,7 @@ def run_helper(
     """
 
     if is_root() or os.environ.get("LINFIX_HELPER"):
-        cmd = helper_command() + [action, *[str(item) for item in args]]
+        cmd = helper_command() + [action, *[str(item) for item in args], "--json"]
     else:
         installed = None
         for candidate in (
@@ -301,9 +308,9 @@ def run_helper(
             # pkexec/sudo запускает тот же модуль с PYTHONPATH на src/.
             cmd = _dev_helper_command(action, args)
         elif which("pkexec"):
-            cmd = ["pkexec", installed, action, *[str(item) for item in args]]
+            cmd = ["pkexec", installed, action, *[str(item) for item in args], "--json"]
         elif which("sudo"):
-            cmd = ["sudo", installed, action, *[str(item) for item in args]]
+            cmd = ["sudo", installed, action, *[str(item) for item in args], "--json"]
         else:
             raise NetfixError("нет pkexec/sudo для привилегированной операции")
 
