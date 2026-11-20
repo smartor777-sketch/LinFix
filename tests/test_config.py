@@ -70,6 +70,16 @@ enabled = false
         with self.assertRaises(ConfigError):
             load_config(path)
 
+    def test_invalid_log_level(self) -> None:
+        path = self.write('[general]\nlog_level = "loud"\n')
+        with self.assertRaises(ConfigError):
+            load_config(path)
+
+    def test_invalid_guard_bounds(self) -> None:
+        path = self.write("[guard]\nerror_threshold = 0\n")
+        with self.assertRaises(ConfigError):
+            load_config(path)
+
     def test_invalid_port_range(self) -> None:
         path = self.write("[tgws]\nport = 70000\n")
         with self.assertRaises(ConfigError):

@@ -217,6 +217,14 @@ def load_config(path: str | Path | None = None) -> Config:
 
     if tgws.port < 1 or tgws.port > 65535:
         raise ConfigError(f"[tgws] port: недопустимый порт {tgws.port}")
+    if general.log_level not in {"debug", "info", "warn", "error"}:
+        raise ConfigError(f"[general] log_level: недопустимое значение {general.log_level!r}")
+    if general.language not in {"ru", "en"}:
+        raise ConfigError(f"[general] language: недопустимое значение {general.language!r}")
+    if guard.window_seconds <= 0:
+        raise ConfigError("[guard] window_seconds должен быть больше 0")
+    if guard.error_threshold <= 0:
+        raise ConfigError("[guard] error_threshold должен быть больше 0")
 
     return Config(
         general=general,

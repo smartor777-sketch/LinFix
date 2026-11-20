@@ -134,11 +134,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Сначала разбор аргументов: --help и проверка действий должны работать
+    # без root. Привилегии проверяются перед выполнением.
+    args = build_parser().parse_args(argv)
+
     if not util.is_root():
         print("netfix-helper: требуются права root (запускайте через pkexec/sudo)", file=sys.stderr)
         return 4
 
-    args = build_parser().parse_args(argv)
     try:
         validate_action(args.action)
         if args.action == "domains.merge":
@@ -149,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {"ok": False, "error": str(exc)}
         print(json.dumps(payload, ensure_ascii=False) if args.json else f"ошибка: {exc}", file=sys.stderr)
         return 2
-    except util.NetfixError as exc:
+    except (util.NetfixError, OSError) as exc:
         payload = {"ok": False, "error": str(exc)}
         print(json.dumps(payload, ensure_ascii=False) if args.json else f"ошибка: {exc}", file=sys.stderr)
         return 1
