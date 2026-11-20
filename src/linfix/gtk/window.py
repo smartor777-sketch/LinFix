@@ -34,8 +34,14 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.statusbar = Gtk.Statusbar()
         self.statusbar.set_hexpand(True)
 
+        self.scrolled = Gtk.ScrolledWindow()
+        self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.scrolled.set_hexpand(True)
+        self.scrolled.set_vexpand(True)
+        self.scrolled.add(self.notebook)
+
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        main_box.pack_start(self.notebook, True, True, 0)
+        main_box.pack_start(self.scrolled, True, True, 0)
         main_box.pack_start(self.statusbar, False, False, 0)
         self.add(main_box)
         # Поведение: минимизируется (type hint NORMAL даёт кнопку minimize),

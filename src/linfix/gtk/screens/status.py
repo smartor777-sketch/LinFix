@@ -107,7 +107,7 @@ class StatusScreen:
                     ),
                 ),
             )
-        common.pack(self.buttons, common.button(_("Подключить Telegram"), lambda _: self.connect_telegram()))
+        common.pack(self.buttons, common.button(_("Подключить Telegram"), lambda _: self.open_telegram()))
 
     def refresh(self) -> None:
         def job():
@@ -175,6 +175,23 @@ class StatusScreen:
             "port": str(data.get("port", 1080)),
             "secret": str(data.get("secret", "")),
         }
+
+    def open_telegram(self) -> None:
+        """Открыть tg://proxy-ссылку в настройках Telegram (по стилю NetFix SPEC 9.4)."""
+
+        link = api.connect_telegram(self.app.cfg)
+        if not link:
+            common.message(self.app, _("Конфиг TgWsProxy не найден"))
+            return
+        try:
+            Gtk.show_uri(Gdk.Screen.get_default(), link, Gdk.CURRENT_TIME)
+            common.toast(self.app, _("Открыта ссылка для настройки Telegram"))
+        except Exception as exc:  # noqa: BLE001 — fallback в буфер
+            clipboard = Gtk.Clipboard.get_for_display(
+                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+            )
+            clipboard.set_text(link, len(link))
+            common.toast(self.app, _("Ссылка скопирована"))
 
     def copy_link(self) -> None:
         link = api.connect_telegram(self.app.cfg)
