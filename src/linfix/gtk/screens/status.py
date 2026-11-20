@@ -18,6 +18,8 @@ class StatusScreen:
     def __init__(self, app) -> None:
         self.app = app
         self.box = common.screen_box(_("Статус"))
+        self.zapret_info = zapret.detect_zapret(app.cfg.zapret.service)
+        self.has_zapret = self.zapret_info.found
 
         self.zapret_card = common.Card(_("Zapret"))
         for key, text in (
@@ -70,6 +72,24 @@ class StatusScreen:
         common.pack(self.buttons, common.button(_("Перезапустить"), lambda _: self.app.run_op(api.restart_zapret, on_done=lambda _: self.refresh())))
         common.pack(self.buttons, common.button(_("Перезапустить TgWsProxy"), lambda _: self.app.run_op(api.restart_tgws, on_done=lambda _: self.refresh())))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
+        common.pack(
+            self.buttons,
+            common.button(
+                _("Остановить TgWsProxy"),
+                lambda _: self.app.run_op(api.stop_tgws, on_done=lambda _: self.refresh()),
+            ),
+        )
+        if self.has_zapret:
+            common.pack(
+                self.buttons,
+                common.button(
+                    _("Остановить Zapret2"),
+                    lambda _: self.app.run_op(
+                        lambda: api.stop_zapret(self.app.cfg),
+                        on_done=lambda _: self.refresh(),
+                    ),
+                ),
+            )
         common.pack(self.buttons, common.button(_("Подключить Telegram"), lambda _: self.connect_telegram()))
 
     def refresh(self) -> None:

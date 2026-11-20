@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from . import cfdomains, doctor, helper, state, tgws, util, zapret
@@ -89,6 +90,45 @@ def get_domains(
 # ---------------------------------------------------------------------------
 # GUI helpers: restart, guard, links, tgws config
 # ---------------------------------------------------------------------------
+
+
+def stop_zapret(cfg: Config, *, check: bool = True) -> tuple[int, str]:
+    """Остановить zapret (root через helper; без root — честное сообщение)."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.found:
+        return EXIT_NOT_INSTALLED, "zapret не найден"
+
+    service = info.service or cfg.zapret.service
+    try:
+        code, payload = util.run_helper("zapret.stop", ["--service", service])
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, str(exc)
+    if code != 0:
+        return code, str(payload.get("error") or payload.get("state") or "ошибка остановки")
+
+    if check:
+        is_active = util.run(["systemctl", "is-active", service], check=False, timeout=10)
+        active = (is_active.stdout or "").strip() == "active"
+        if active:
+            return EXIT_ERROR, f"служба {service} не остановлена"
+        # Дайте время на выход процесса и проверьте его наличие.
+        time.sleep(0.5)
+        if zapret.find_nfqws_processes():
+            return EXIT_ERROR, f"процесс nfqws/nfqws2 всё ещё запущен"
+    return EXIT_OK, f"{service} остановлена"
+
+
+def stop_tgws(cfg: Config) -> tuple[int, str]:
+    """Остановить TgWsProxy (user-служба)."""
+
+    cp = util.run(["systemctl", "--user", "stop", tgws.UNIT_NAME], check=False, timeout=30)
+    if cp.returncode != 0:
+        return EXIT_ERROR, f"не удалось остановить tgwsproxy: {(cp.stderr or cp.stdout or '').strip()}"
+    state = util.run(["systemctl", "--user", "is-active", tgws.UNIT_NAME], check=False, timeout=10)
+    if (state.stdout or "").strip() == "active":
+        return EXIT_ERROR, "tgwsproxy не остановлена"
+    return EXIT_OK, "tgwsproxy остановлена"
 
 
 def restart_zapret(cfg: Config, *, check: bool = True) -> tuple[int, str]:

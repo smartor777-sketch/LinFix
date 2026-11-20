@@ -6,7 +6,7 @@
 
 - Пакет `src/linfix/gtk/`: `app`, `window`, `screens/{status,setup,domains,doctor,settings,logs}`,
   `tray`, `worker`, `i18n`, `icons`, `screens/common.py`.
-- Скрины (SPEC 14): Статус (карточки Zapret/TgWsProxy/Домены/Telegram + кнопки Перезапустить/Подключить Telegram),
+- Скрины (SPEC 14): Статус (карточки Zapret/TgWsProxy/Домены/Telegram + кнопки Перезапустить/Подключить Telegram/Остановить TgWsProxy/Остановить Zapret2),
   Настройка (мастер), Домены (таблица + TLS-тест), Диагностика (полный вывод doctor + копирование отчёта),
   Настройки (TgWsProxy config, guard, autostart), Логи (journalctl + proxy.log).
 - Tray: Ayatana (Cinnamon/Mint), XApp fallback по коду; Ayatana: зелёная/жёлтая/красная иконки, menu items:

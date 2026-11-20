@@ -290,3 +290,7 @@ msgstr "никогда"
 
 msgid "Автозапуск Zapret2"
 msgstr "Автозапуск Zapret2"
+msgid "Остановить TgWsProxy"
+msgstr "Остановить TgWsProxy"
+msgid "Остановить Zapret2"
+msgstr "Остановить Zapret2"

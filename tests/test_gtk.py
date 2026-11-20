@@ -111,6 +111,10 @@ class AppTests(unittest.TestCase):
         self.assertEqual(set(screen.telegram_card.rows), {"connections", "status"})
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
+        labels = [b.get_label() for b in screen.buttons.get_children()]
+        self.assertIn("Остановить TgWsProxy", labels)
+        if screen.has_zapret:
+            self.assertIn("Остановить Zapret2", labels)
         connect_btn = next(
             (b for b in screen.buttons.get_children() if b.get_label() == "Подключить Telegram"),
             None,

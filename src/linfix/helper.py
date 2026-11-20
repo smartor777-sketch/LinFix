@@ -39,6 +39,7 @@ ALLOWED_ACTIONS = {
     "profile.set",
     "tgws.install",
     "zapret.set_enabled",
+    "zapret.stop",
     "zapret.restart",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -404,6 +405,30 @@ def action_tgws_install(args: argparse.Namespace) -> tuple[int, dict[str, object
     }
 
 
+def action_zapret_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.service:
+        raise HelperError("zapret.stop: требуется --service")
+    service = validate_service(args.service)
+
+    completed = util.run(["systemctl", "stop", service], check=False, timeout=20)
+    status_cp = util.run(["systemctl", "is-active", service], check=False, timeout=10)
+    active = (status_cp.stdout or "").strip() == "active"
+
+    journal = ""
+    if completed.returncode != 0 or active:
+        tail = util.run(["journalctl", "-u", service, "-n", "50", "--no-pager"], check=False, timeout=15)
+        journal = (tail.stdout or "")[-4000:]
+
+    payload = {
+        "ok": not active and completed.returncode == 0,
+        "service": service,
+        "state": (status_cp.stdout or "").strip() or "unknown",
+        "returncode": completed.returncode,
+        "journal": journal,
+    }
+    return (0 if payload["ok"] else 5), payload
+
+
 def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.set_enabled: требуется --service")
@@ -507,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_guard(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
+        elif args.action == "zapret.stop":
+            code, payload = action_zapret_stop(args)
         elif args.action == "profile.set":
             code, payload = action_profile_set(args)
         elif args.action == "profile.clear":
