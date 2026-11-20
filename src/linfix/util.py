@@ -256,6 +256,22 @@ def _parse_helper_payload(stdout: str, stderr: str) -> dict[str, object]:
     return {}
 
 
+def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
+    """Запуск helper из рабочей копии, когда пакет ещё не установлен.
+
+    Исходники лежат рядом с пакетом (`src/linfix/...`), поэтому root-процессу
+    нужно явно передать PYTHONPATH. Эскалация — pkexec (GUI-диалог), иначе sudo.
+    """
+
+    src_root = str(Path(__file__).resolve().parent.parent)
+    inner = [sys.executable, "-m", "linfix.helper", action, *[str(item) for item in args]]
+    if which("pkexec"):
+        return ["pkexec", "env", f"PYTHONPATH={src_root}", *inner]
+    if which("sudo"):
+        return ["sudo", "env", f"PYTHONPATH={src_root}", *inner]
+    raise NetfixError("нет pkexec/sudo для привилегированной операции")
+
+
 def run_helper(
     action: str,
     args: Sequence[str],
@@ -272,21 +288,19 @@ def run_helper(
         cmd = helper_command() + [action, *[str(item) for item in args]]
     else:
         installed = None
-        for candidate in (which("linfix-helper"), "/usr/libexec/linfix-helper"):
+        for candidate in (
+            which("linfix-helper"),
+            "/usr/libexec/linfix-helper",
+            "/usr/local/libexec/linfix-helper",
+        ):
             if candidate and Path(candidate).exists():
                 installed = candidate
                 break
         if installed is None:
-            if action.startswith("domains."):
-                example = "sudo linfix domains update"
-            elif action.startswith("tgws."):
-                example = "sudo linfix tgws install"
-            else:
-                example = "sudo linfix"
-            raise NetfixError(
-                f"linfix-helper не установлен. Запустите через sudo: {example}"
-            )
-        if which("pkexec"):
+            # Пакет не установлен — работаем из рабочей копии (dev-режим):
+            # pkexec/sudo запускает тот же модуль с PYTHONPATH на src/.
+            cmd = _dev_helper_command(action, args)
+        elif which("pkexec"):
             cmd = ["pkexec", installed, action, *[str(item) for item in args]]
         elif which("sudo"):
             cmd = ["sudo", installed, action, *[str(item) for item in args]]
