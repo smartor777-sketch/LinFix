@@ -60,10 +60,19 @@ class AppTests(unittest.TestCase):
         app.do_activate()
         self.assertIsNotNone(app.window)
         self.assertIsNotNone(app.tray)
-        self.assertEqual(app.window.notebook.get_n_pages(), 6)
+        self.assertEqual(app.window.notebook.get_n_pages(), 8)
         self.assertEqual(
             sorted(app.window.screens),
-            ["doctor", "domains", "logs", "settings", "setup", "status"],
+            [
+                "doctor",
+                "domains",
+                "hostlist",
+                "logs",
+                "settings",
+                "setup",
+                "sitecheck",
+                "status",
+            ],
         )
         status = app.window.screens["status"]
         self.assertEqual(status.zapret_card.title_label.get_text(), "Zapret")
@@ -96,7 +105,16 @@ class AppTests(unittest.TestCase):
         tab_labels = [b.get_label() for b in app.window.tab_bar.get_children()]
         self.assertEqual(
             tab_labels,
-            ["Статус", "Мастер настройки", "Домены", "Диагностика", "Настройки", "Логи"],
+            [
+                "Статус",
+                "Мастер настройки",
+                "Домены",
+                "Списки",
+                "Сайты",
+                "Диагностика",
+                "Настройки",
+                "Логи",
+            ],
         )
         self.assertEqual(
             [key for key, b in app.window._tab_buttons.items() if b.get_style_context().has_class("active")],

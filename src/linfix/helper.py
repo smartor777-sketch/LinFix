@@ -35,6 +35,9 @@ DEFAULT_ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
 ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
+    "hostlist.import",
+    "hostlist.load_source",
+    "hostlist.remove",
     "domains.merge",
     "profile.apply",
     "profile.clear",
@@ -543,6 +546,85 @@ def action_zapret_restart(args: argparse.Namespace) -> tuple[int, dict[str, obje
     return (0 if active else 5), payload
 
 
+
+def action_hostlist_import(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Добавить домены в пользовательский блок hostlist."""
+
+    from . import hostlist as hostlist_mod
+
+    if not args.hostlist:
+        raise HelperError("hostlist.import: требуется --hostlist")
+    target = validate_path(args.hostlist, must_exist=False)
+
+    domains: list[str] = list(args.domain or [])
+    if args.list_file:
+        source = Path(args.list_file)
+        if not source.is_file():
+            raise HelperError(f"файл списка не найден: {source}")
+        domains.extend(hostlist_mod.parse_list_text(source.read_text(encoding="utf-8", errors="replace")))
+    if args.url:
+        text = hostlist_mod.fetch_list(args.url, timeout=args.timeout)
+        domains.extend(hostlist_mod.parse_list_text(text))
+    if not domains:
+        raise HelperError("hostlist.import: нет доменов (--domain / --list-file / --url)")
+
+    result = hostlist_mod.add_domains(target, domains)
+    restarted = False
+    if result.added and args.restart_on_change and args.service:
+        service = validate_service(args.service)
+        completed = util.run(["systemctl", "restart", service], check=False, timeout=40)
+        restarted = completed.returncode == 0
+
+    return 0, {
+        "ok": True,
+        "hostlist": str(target),
+        "added": result.added,
+        "skipped": result.skipped,
+        "total": result.total,
+        "restarted": restarted,
+    }
+
+
+def action_hostlist_remove(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Удалить домены из блоков LinFix (чужие строки не трогаем)."""
+
+    from . import hostlist as hostlist_mod
+
+    if not args.hostlist:
+        raise HelperError("hostlist.remove: требуется --hostlist")
+    if not args.domain:
+        raise HelperError("hostlist.remove: требуется хотя бы один --domain")
+    target = validate_path(args.hostlist, must_exist=False)
+
+    result = hostlist_mod.remove_domains(target, list(args.domain))
+    restarted = False
+    if result.added and args.restart_on_change and args.service:
+        service = validate_service(args.service)
+        completed = util.run(["systemctl", "restart", service], check=False, timeout=40)
+        restarted = completed.returncode == 0
+
+    return 0, {
+        "ok": True,
+        "hostlist": str(target),
+        "removed": result.added,
+        "total": result.total,
+        "restarted": restarted,
+    }
+
+
+def action_hostlist_load_source(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Запустить штатный скрипт-источник zapret (get_antizapret и т.п.)."""
+
+    from . import hostlist as hostlist_mod
+
+    if not args.script:
+        raise HelperError("hostlist.load_source: требуется --script")
+    directory = Path(args.ipset_dir or "/opt/zapret2/ipset")
+    if not directory.is_dir():
+        raise HelperError(f"каталог ipset не найден: {directory}")
+    return hostlist_mod.load_source(args.script, directory)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linfix-helper",
@@ -573,6 +655,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--uuid", help="для profile.*")
     parser.add_argument("--name", help="для profile.set")
     parser.add_argument("--strategy", default=profiles.GENERAL, help="для profile.set")
+    parser.add_argument("--list-file", default="", help="файл со списком доменов")
+    parser.add_argument("--ipset-dir", default="/opt/zapret2/ipset", help="каталог ipset zapret")
+    parser.add_argument("--script", default="", help="скрипт-источник zapret")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -592,6 +677,12 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_domains_merge(args)
         elif args.action == "domains.apply":
             code, payload = action_domains_apply(args)
+        elif args.action == "hostlist.import":
+            code, payload = action_hostlist_import(args)
+        elif args.action == "hostlist.remove":
+            code, payload = action_hostlist_remove(args)
+        elif args.action == "hostlist.load_source":
+            code, payload = action_hostlist_load_source(args)
         elif args.action == "tgws.install":
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":

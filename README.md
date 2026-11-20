@@ -29,6 +29,12 @@
   TgWsProxy, порт и telegram-ссылка в одном экране.
 - **Домены** — обновление списка CF-доменов с GitHub, точечная проверка TLS,
   добавление в hostlist с бэкапом и откатом при неудачном рестарте.
+- **Списки** — весь hostlist zapret: свои домены, импорт по URL или из файла,
+  готовые источники (`get_antizapret`, `get_reestr`, `get_refilter`).
+  Чужие строки LinFix не перезаписывает — правит только свои блоки.
+- **Сайты** — проверка любого домена с объяснением причины: блокировка SNI,
+  блокировка TLS на IP, «дыра» PMTU, только HTTP, DNS. Если причина —
+  блокировка SNI, домен добавляется в hostlist одной кнопкой.
 - **Диагностика** — отчёт по системе: NFQUEUE, nftables, службы, hostlist,
   TLS до CF-доменов, VPN/TUN, guard.
 - **Настройки** — порт, хост, verbose, размер лога, режим TgWsProxy
@@ -36,8 +42,37 @@
 - **Логи** — journalctl обеих служб + хвост `proxy.log`, с поиском.
 - **Трей** — цвет иконки отражает состояние, меню управляет службами.
 
-## Guard: защита от шторма соединений
+## Проверка сайтов и MTU
 
+Раздел **«Сайты»** объясняет, почему домен не открывается, вместо гадания:
+
+| Вердикт | Что это | Поможет ли zapret |
+|---|---|---|
+| `ok` | сайт открывается | — |
+| `sni` | режут имя домена | **да** (добавить в hostlist) |
+| `tls_ip` | режут TLS на IP при любом SNI | нет |
+| `http_only` | HTTPS режется, HTTP работает | нет |
+| `ip_block` | TCP не устанавливается | нет |
+| `pmtu` | TLS проходит, но данные застревают | нет — проблема MTU |
+| `dns` | имя не резолвится | нет |
+
+Для `sni` внизу есть кнопка «Добавить в hostlist» — домен уходит в
+пользовательский блок и zapret перезапускается.
+
+**Про `pmtu` (частый случай).** Если TLS-хендшейк проходит, а загрузка
+встаёт после ~20 КБ — это «чёрная дыра» PMTU: интерфейс заявляет MTU 1500,
+а провайдер пропускает 1492. Лечится на стороне системы:
+
+```bash
+# посмотреть фактический MTU до сервера
+ping -4 -M do -s 1464 -c 1 1.1.1.1   # проходит
+ping -4 -M do -s 1472 -c 1 1.1.1.1   # не проходит → MTU 1492
+
+sudo sysctl -w net.ipv4.tcp_mtu_probing=1   # временно
+# или уменьшить MTU Wi-Fi: ip link set wlo1 mtu 1492
+```
+
+## Guard: защита от шторма соединений
 Если CF-путь Telegram отваливается, клиент в цикле переподключается, и
 TgWsProxy забивает канал соединениями — в итоге тормозит весь трафик, а не
 только Telegram. **Guard** останавливает прокси в этом сценарии.
@@ -60,7 +95,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.1.10_all.deb
+sudo apt install ./linfix_0.2.0_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
@@ -74,7 +109,7 @@ sudo apt install ./linfix_0.1.10_all.deb
 ```bash
 git clone https://github.com/smartor777-sketch/LinFix.git
 cd LinFix
-make test     # 204 теста
+make test     # 231 тест
 make gui      # запуск панели без установки
 make deb      # → dist/linfix_<version>_all.deb
 ```
@@ -141,7 +176,7 @@ src/linfix/            api.py, cli.py, helper.py, tgws.py, zapret.py, …
 src/linfix/gtk/        GTK3-панель: окно, экраны, трей
 packaging/debian/      control, обёртки, postinst/prerm, сборка .deb
 data/                  polkit policy, systemd user-юниты, иконки
-tests/                 204 unit-теста (stdlib unittest)
+tests/                 231 unit-тест (stdlib unittest)
 ```
 
 ## Лицензия
