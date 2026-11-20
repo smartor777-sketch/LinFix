@@ -74,7 +74,9 @@ class AppTests(unittest.TestCase):
         self.assertTrue(settings.port_entry.get_text())
         self.assertTrue(hasattr(settings, "zapret2_switch"))
         settings_labels = [
-            b.get_label() for b in settings.services_box.get_children() if isinstance(b, Gtk.Button)
+            child.get_child().get_label()
+            for child in settings.services_box.get_children()
+            if isinstance(child, Gtk.FlowBoxChild)
         ]
         for label in (
             "Перезапустить",
@@ -89,7 +91,14 @@ class AppTests(unittest.TestCase):
         self.assertTrue(hasattr(settings, "open_telegram"))
         self.assertTrue(app.window.tab_bar)
         tab_labels = [b.get_label() for b in app.window.tab_bar.get_children()]
-        self.assertEqual(tab_labels, ["Статус", "Настройка", "Домены", "Диагностика", "Настройки", "Логи"])
+        self.assertEqual(
+            tab_labels,
+            ["Статус", "Мастер настройки", "Домены", "Диагностика", "Настройки", "Логи"],
+        )
+        self.assertEqual(
+            [key for key, b in app.window._tab_buttons.items() if b.get_style_context().has_class("active")],
+            ["status"],
+        )
         setup = app.window.screens["setup"]
         self.assertTrue(setup.step_label.get_text())
         logs = app.window.screens["logs"]

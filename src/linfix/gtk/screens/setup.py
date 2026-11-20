@@ -12,7 +12,7 @@ from . import common
 class SetupScreen:
     def __init__(self, app) -> None:
         self.app = app
-        self.box = common.screen_box(_("Настройка"))
+        self.box = common.screen_box(_("Мастер настройки"))
 
         self.step_label = common.label(_("Проверка системы"), css_class="screen-title")
         self.desc = common.label(_("Описание шагов: 1 — система, 2 — TgWsProxy, 3 — домены, 4 — автозапуск"))

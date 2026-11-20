@@ -9,12 +9,34 @@ from .screens import DoctorScreen, DomainsScreen, LogsScreen, SettingsScreen, Se
 
 PAGES: list[tuple[str, str]] = [
     ("status", _("Статус")),
-    ("setup", _("Настройка")),
+    ("setup", _("Мастер настройки")),
     ("domains", _("Домены")),
     ("doctor", _("Диагностика")),
     ("settings", _("Настройки")),
     ("logs", _("Логи")),
 ]
+
+# Активная вкладка должна быть визуально очевидна, иначе легко спутать
+# соседние разделы («Мастер настройки» и «Настройки»).
+_TAB_CSS = b"""
+.tab-button.active {
+    background-image: none;
+    background-color: #3584e4;
+    color: #ffffff;
+    font-weight: bold;
+}
+"""
+
+
+def _install_tab_css() -> None:
+    screen = Gdk.Screen.get_default()
+    if screen is None:
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_data(_TAB_CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
 
 
 class NetFixWindow(Gtk.ApplicationWindow):
@@ -22,6 +44,7 @@ class NetFixWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title=_("LinFix — статус"), default_width=800, default_height=560)
         self.app = app
         self._restoring = False
+        _install_tab_css()
         self.notebook = Gtk.Notebook()
         self.screens: dict[str, object] = {}
 
@@ -56,6 +79,7 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self._tab_buttons: dict[str, Gtk.Button] = {}
         for index, (key, label) in enumerate(PAGES):
             btn = Gtk.Button(label=label)
+            btn.get_style_context().add_class("tab-button")
             btn.connect("clicked", lambda _b, i=index: self.notebook.set_current_page(i))
             self._tab_buttons[key] = btn
             self.tab_bar.pack_start(btn, False, False, 0)
@@ -134,3 +158,6 @@ class NetFixWindow(Gtk.ApplicationWindow):
             btn = self._tab_buttons.get(PAGES[index][0])
             if btn is not None:
                 btn.get_style_context().add_class("active")
+                # Фокус следует за активной вкладкой, чтобы рамка фокуса
+                # не подсвечивала соседний раздел.
+                btn.grab_focus()

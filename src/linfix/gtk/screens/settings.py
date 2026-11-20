@@ -45,22 +45,33 @@ class SettingsScreen:
         self.box.pack_start(self.grid, False, False, 0)
 
         # Кнопки управления службами (перенесены из «Статус»).
-        self.services_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
-        common.pack(
-            self.services_box,
-            common.button(_("Перезапустить"), lambda _: self._run_op(lambda: api.restart_zapret(self.app.cfg))),
+        # FlowBox переносит кнопки на новую строку, если окно узкое —
+        # иначе ряд шире окна и правые кнопки уходят за край.
+        self.services_box = Gtk.FlowBox()
+        self.services_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.services_box.set_max_children_per_line(10)
+        self.services_box.set_min_children_per_line(1)
+        self.services_box.set_homogeneous(False)
+        self.services_box.set_column_spacing(6)
+        self.services_box.set_row_spacing(6)
+        self.services_box.set_margin_top(8)
+        self.services_box.set_halign(Gtk.Align.FILL)
+        self.services_box.set_hexpand(True)
+
+        def add_service(text: str, handler) -> None:
+            self.services_box.add(common.button(text, handler))
+
+        add_service(_("Перезапустить"), lambda _: self._run_op(lambda: api.restart_zapret(self.app.cfg)))
+        add_service(
+            _("Перезапустить TgWsProxy"), lambda _: self._run_op(lambda: api.restart_tgws(self.app.cfg))
         )
-        common.pack(
-            self.services_box,
-            common.button(_("Перезапустить TgWsProxy"), lambda _: self._run_op(lambda: api.restart_tgws(self.app.cfg))),
+        add_service(_("Остановить TgWsProxy"), lambda _: self._run_op(api.stop_tgws))
+        add_service(
+            _("Остановить Zapret2"), lambda _: self._run_op(lambda: api.stop_zapret(self.app.cfg))
         )
-        common.pack(self.services_box, common.button(_("Остановить TgWsProxy"), lambda _: self._run_op(api.stop_tgws)))
-        common.pack(
-            self.services_box,
-            common.button(_("Остановить Zapret2"), lambda _: self._run_op(lambda: api.stop_zapret(self.app.cfg))),
-        )
-        common.pack(self.services_box, common.button(_("Подключить Telegram"), lambda _: self.open_telegram()))
-        common.pack(self.box, self.services_box)
+        add_service(_("Подключить Telegram"), lambda _: self.open_telegram())
+        # fill=True по горизонтали в вертикальном Box — на всю ширину окна.
+        self.box.pack_start(self.services_box, False, True, 0)
 
         # Telegram: ссылка (перенесена из «Статус»).
         self.link_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=12)
