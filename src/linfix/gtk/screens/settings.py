@@ -74,7 +74,7 @@ class SettingsScreen:
         add_service(
             _("Перезапустить TgWsProxy"), lambda _: self._run_op(lambda: api.restart_tgws(self.app.cfg))
         )
-        add_service(_("Остановить TgWsProxy"), lambda _: self._run_op(api.stop_tgws))
+        add_service(_("Остановить TgWsProxy"), lambda _: self._run_op(lambda: api.stop_tgws(self.app.cfg)))
         add_service(
             _("Остановить Zapret2"), lambda _: self._run_op(lambda: api.stop_zapret(self.app.cfg))
         )
@@ -99,7 +99,32 @@ class SettingsScreen:
         self._refresh_link()
 
     def _run_op(self, fn) -> None:
-        self.app.run_op(fn, on_done=lambda _: self._refresh_link())
+        self.app.run_op(
+            fn,
+            on_done=self._op_done,
+            on_error=self._op_error,
+        )
+
+    def _op_done(self, result) -> None:
+        """Показать результат операции: успех, ошибка или строка-детали."""
+
+        code, detail = 0, ""
+        if isinstance(result, tuple):
+            code = result[0] if result else 0
+            if len(result) > 1:
+                payload = result[1]
+                detail = str(payload.get("error") or "") if isinstance(payload, dict) else str(payload or "")
+        if code != 0:
+            common.message(self.app, detail or _("Операция завершилась с ошибкой"))
+        elif detail:
+            common.toast(self.app, detail)
+        self.load()
+        self._refresh_link()
+
+    def _op_error(self, exc: Exception) -> None:
+        common.message(self.app, _("Ошибка: {detail}").format(detail=exc))
+        self.load()
+        self._refresh_link()
 
     def on_shown(self) -> None:
         """При входе на вкладку подтянуть актуальный конфиг (мог измениться из CLI)."""
