@@ -31,6 +31,7 @@ class NetFixApp(Gtk.Application):
         if self.tray is None:
             self.tray = Tray(self, tray_icon_path("ok"), tooltip="LinFix")
         self.window.present()
+        self.window.set_skip_taskbar_hint(False)
 
     def show(self) -> None:
         self.do_activate()

@@ -46,12 +46,25 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.set_keep_above(True)
         self.set_focus_on_map(True)
         self.connect("delete-event", self._on_delete_event)
+        self.connect("window-state-event", self._on_window_state_event)
         self.show_all()
 
     def _on_delete_event(self, _widget, _event) -> bool:
         # Закрытие (X) прячет окно, трей остаётся живым.
         self.hide()
         return True
+
+    def _on_window_state_event(self, _widget, event) -> bool:
+        # Минимизация — скрываем окно в трей.
+        state = event.get_state()
+        if isinstance(state, tuple):
+            state_mask = state[0] if state else 0
+        else:
+            state_mask = state
+        if state_mask & Gdk.WindowState.ICONIFIED:
+            self.hide()
+            return True
+        return False
 
     def set_page(self, key: str) -> None:
         for index, (name, _label) in enumerate(PAGES):

@@ -56,6 +56,10 @@ class StatusScreen:
         for key, text in (
             ("connections", _("Соединения:")),
             ("status", _("Статус:")),
+            ("server", _("Сервер:")),
+            ("port", _("Порт:")),
+            ("secret", _("Секрет:")),
+            ("link", _("Ссылка для Telegram")),
         ):
             self.telegram_card.add(key, text)
 
@@ -65,6 +69,19 @@ class StatusScreen:
         common.pack(self.box, self.domains_card)
         common.pack(self.box, self.telegram_card)
         common.pack(self.box, self.buttons)
+
+        self.link_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=12)
+        self.link_entry = common.entry()
+        self.link_entry.set_editable(False)
+        self.link_entry.set_placeholder_text(_("tg://proxy?server=127.0.0.1&port=1080&secret=dd…"))
+        common.pack_expand(self.link_box, self.link_entry)
+        common.pack(
+            self.link_box,
+            common.button(_("Копировать ссылку"), lambda _: self.copy_link()),
+        )
+        common.pack(self.link_box, common.button(_("QR"), lambda _: self.print_qr()))
+        common.pack(self.box, self.link_box)
+
         self._build_buttons()
         self.refresh()
 
@@ -97,7 +114,13 @@ class StatusScreen:
             status = api.get_status(self.app.cfg)
             info = status.zapret
             connections = len(zapret.listening_addresses(self.app.cfg.tgws.port))
+            link = api.connect_telegram(self.app.cfg)
+            telegram_settings = self._telegram_settings()
             return {
+                "link": link or "",
+                "server": telegram_settings["server"],
+                "port": telegram_settings["port"],
+                "secret": telegram_settings["secret"] or "—",
                 "service": info.service or "—",
                 "active": _("active") if info.active else _("inactive"),
                 "pid": str(info.pid or "—"),
@@ -137,8 +160,47 @@ class StatusScreen:
             self.domains_card.set("updated", data["domains_updated"])
             self.telegram_card.set("connections", data["connections"])
             self.telegram_card.set("status", data["telegram_status"])
+            self.telegram_card.set("server", data["server"])
+            self.telegram_card.set("port", data["port"])
+            self.telegram_card.set("secret", data["secret"])
+            self.link_entry.set_text(data["link"] or "")
 
         run_in_thread(job, on_done=apply_data)
+
+    def _telegram_settings(self) -> dict[str, str]:
+        path = tgws.find_config_path()
+        data = tgws.load_json_config(path) if path is not None else {}
+        return {
+            "server": str(data.get("host", "127.0.0.1")),
+            "port": str(data.get("port", 1080)),
+            "secret": str(data.get("secret", "")),
+        }
+
+    def copy_link(self) -> None:
+        link = api.connect_telegram(self.app.cfg)
+        if link:
+            clipboard = Gtk.Clipboard.get_for_display(
+                Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+            )
+            clipboard.set_text(link, len(link))
+            common.toast(self.app, _("Ссылка скопирована"))
+        else:
+            common.message(self.app, _("Конфиг TgWsProxy не найден"))
+
+    def print_qr(self) -> None:
+        link = api.connect_telegram(self.app.cfg)
+        if not link:
+            common.message(self.app, _("Конфиг TgWsProxy не найден"))
+            return
+        try:
+            import qrcode
+        except ImportError:
+            common.message(self.app, _("Установите python3-qrcode для QR"))
+            return
+        code = qrcode.QRCode(border=2)
+        code.add_data(link)
+        code.make()
+        code.print_ascii()
 
     def connect_telegram(self) -> None:
         link = api.connect_telegram(self.app.cfg)

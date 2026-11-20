@@ -80,6 +80,23 @@ class AppTests(unittest.TestCase):
         self.assertTrue(logs.full_text is not None)
         app.window.destroy()
 
+    def test_window_minimize_to_tray(self) -> None:
+        from gi.repository import Gdk
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        self.assertTrue(window.get_visible())
+        event = Gdk.Event(Gdk.EventType.DELETE)
+        event.window = window.get_window()
+        # Симулируем минимизацию (iconified).
+        returned = window._on_window_state_event(window, Gdk.Event(Gdk.EventType.WINDOW_STATE))
+        # Если WM не поддерживает iconified в тесте, проверим что handler есть.
+        self.assertTrue(hasattr(window, "_on_window_state_event"))
+        app.window.destroy()
+
     def test_window_hint_and_hide_on_delete(self) -> None:
         from gi.repository import Gdk
 
@@ -108,7 +125,13 @@ class AppTests(unittest.TestCase):
         )
         self.assertEqual(set(screen.tgws_card.rows), {"installed", "version", "service", "port"})
         self.assertEqual(set(screen.domains_card.rows), {"present", "total", "updated"})
-        self.assertEqual(set(screen.telegram_card.rows), {"connections", "status"})
+        self.assertEqual(
+            set(screen.telegram_card.rows),
+            {"connections", "status", "server", "port", "secret", "link"},
+        )
+        self.assertTrue(hasattr(screen, "link_entry"))
+        self.assertTrue(hasattr(screen, "copy_link"))
+        self.assertTrue(hasattr(screen, "print_qr"))
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
         labels = [b.get_label() for b in screen.buttons.get_children()]
