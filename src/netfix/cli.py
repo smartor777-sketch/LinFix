@@ -228,6 +228,9 @@ def cmd_logs(cfg: Config, args: argparse.Namespace) -> int:
     unit = info.service or cfg.zapret.service
 
     if args.follow:
+        if util.which("journalctl") is None:
+            print("journalctl не найден", file=sys.stderr)
+            return EXIT_ERROR
         os.execvp("journalctl", ["journalctl", "-u", unit, "-f"])
 
     sections: list[tuple[str, list[str]]] = [

@@ -320,6 +320,8 @@ def merge_hostlist_file(
         # сохраниться, иначе merge перепишет весь файл в LF.
         with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
             text = handle.read()
+        # BOM не должен попасть в hostlist (SPEC 8.3).
+        text = text.lstrip("\ufeff")
     else:
         text = ""
 

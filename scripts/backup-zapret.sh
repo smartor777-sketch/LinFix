@@ -43,7 +43,9 @@ copy "$SRC/ipset/zapret-hosts-rut.txt"
     echo "source: $SRC"
     echo "--- sha256 ---"
     for file in "$DST"/*; do
-        [ -f "$file" ] && sha256sum "$file" | sed "s#$DST/##"
+        [ -f "$file" ] || continue
+        [ "$(basename "$file")" = "MANIFEST.txt" ] && continue
+        sha256sum "$file" | sed "s#$DST/##"
     done
 } > "$DST/MANIFEST.txt"
 
