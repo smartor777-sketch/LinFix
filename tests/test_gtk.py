@@ -92,6 +92,7 @@ class AppTests(unittest.TestCase):
         self.assertEqual(set(screen.domains_card.rows), {"present", "total", "updated"})
         self.assertEqual(set(screen.telegram_card.rows), {"connections", "status"})
         self.assertTrue(screen.buttons.get_children())
+        self.assertTrue(screen.box.get_visible())
         app.window.destroy()
 
 

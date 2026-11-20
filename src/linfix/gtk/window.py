@@ -38,6 +38,7 @@ class NetFixWindow(Gtk.ApplicationWindow):
         main_box.pack_start(self.notebook, True, True, 0)
         main_box.pack_start(self.statusbar, False, False, 0)
         self.add(main_box)
+        self.show_all()
 
     def set_page(self, key: str) -> None:
         for index, (name, _label) in enumerate(PAGES):
