@@ -218,6 +218,16 @@ def enable_autostart(cfg: Config, *, start: bool = True) -> tuple[int, dict[str,
     return EXIT_OK, {"ok": all(enabled.values()) and all(started.values()), "enabled": enabled, "started": started}
 
 
+def set_zapret2_autostart(enabled: bool) -> tuple[int, dict[str, object]]:
+    """Включить/выключить автозапуск zapret2 (systemd, root) через helper."""
+
+    code, payload = util.run_helper(
+        "zapret.set_enabled",
+        ["--service", "zapret2", "--enabled", "on" if enabled else "off"],
+    )
+    return code, payload
+
+
 def update_domains(
     cfg: Config, *, offline: bool = False, force: bool = False
 ) -> tuple[int, dict[str, object]]:

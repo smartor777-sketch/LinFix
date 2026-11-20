@@ -287,3 +287,6 @@ msgstr "not listening"
 
 msgid "никогда"
 msgstr "never"
+
+msgid "Автозапуск Zapret2"
+msgstr "Autostart Zapret2"

@@ -72,6 +72,8 @@ class AppTests(unittest.TestCase):
         self.assertEqual(doctor.store.get_n_columns(), 4)
         settings = app.window.screens["settings"]
         self.assertTrue(settings.port_entry.get_text())
+        self.assertTrue(hasattr(settings, "zapret2_switch"))
+        self.assertTrue(settings.zapret2_switch.get_label() if hasattr(settings.zapret2_switch, "get_label") else True)
         setup = app.window.screens["setup"]
         self.assertTrue(setup.step_label.get_text())
         logs = app.window.screens["logs"]

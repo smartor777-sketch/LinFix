@@ -61,6 +61,18 @@ class ActionValidationTests(unittest.TestCase):
             helper.validate_action("shell.exec")
 
 
+class EnabledValidationTests(unittest.TestCase):
+    def test_valid(self) -> None:
+        self.assertEqual(helper.validate_enabled("on"), "on")
+        self.assertEqual(helper.validate_enabled("off"), "off")
+
+    def test_invalid(self) -> None:
+        with self.assertRaises(helper.HelperError):
+            helper.validate_enabled("yes")
+        with self.assertRaises(helper.HelperError):
+            helper.validate_enabled("")
+
+
 class ServiceValidationTests(unittest.TestCase):
     def test_known_services(self) -> None:
         self.assertEqual(helper.validate_service("zapret"), "zapret")

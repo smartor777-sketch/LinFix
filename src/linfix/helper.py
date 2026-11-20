@@ -38,6 +38,7 @@ ALLOWED_ACTIONS = {
     "profile.clear",
     "profile.set",
     "tgws.install",
+    "zapret.set_enabled",
     "zapret.restart",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -69,6 +70,12 @@ def validate_path(raw: str, *, must_exist: bool = False) -> Path:
 def validate_service(raw: str) -> str:
     if raw not in ALLOWED_SERVICES:
         raise HelperError(f"недопустимая служба: {raw}")
+    return raw
+
+
+def validate_enabled(raw: str) -> str:
+    if raw not in {"on", "off"}:
+        raise HelperError(f"недопустимое значение: {raw} (ожидается on|off)")
     return raw
 
 
@@ -397,6 +404,27 @@ def action_tgws_install(args: argparse.Namespace) -> tuple[int, dict[str, object
     }
 
 
+def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    if not args.service:
+        raise HelperError("zapret.set_enabled: требуется --service")
+    if not args.enabled:
+        raise HelperError("zapret.set_enabled: требуется --enabled on|off")
+    service = validate_service(args.service)
+    enabled = validate_enabled(args.enabled)
+
+    command = ["systemctl", "enable" if enabled == "on" else "disable", service]
+    completed = util.run(command, check=False, timeout=20)
+    status_cp = util.run(["systemctl", "is-enabled", service], check=False, timeout=10)
+    active = (status_cp.stdout or "").strip()
+    payload = {
+        "ok": completed.returncode == 0,
+        "service": service,
+        "enabled": active == "enabled",
+        "state": active,
+    }
+    return (0 if payload["ok"] else 5), payload
+
+
 def action_zapret_restart(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.restart: требуется --service")
@@ -453,6 +481,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--name", help="для profile.set")
     parser.add_argument("--strategy", default=profiles.GENERAL, help="для profile.set")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--service", help="служба для zapret.set_enabled")
+    parser.add_argument("--enabled", choices=["on", "off"], help="для zapret.set_enabled")
     return parser
 
 
@@ -475,6 +505,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":
             code, payload = action_config_guard(args)
+        elif args.action == "zapret.set_enabled":
+            code, payload = action_zapret_set_enabled(args)
         elif args.action == "profile.set":
             code, payload = action_profile_set(args)
         elif args.action == "profile.clear":
@@ -525,6 +557,7 @@ def main(argv: list[str] | None = None) -> int:
         if payload.get("journal"):
             print(payload["journal"], file=sys.stderr)
     return code
+
 
 
 if __name__ == "__main__":  # pragma: no cover
