@@ -170,7 +170,13 @@ def _zapret_checks(info: zapret.ZapretInfo) -> list[Check]:
 
 
 def _hostlist_args_check(info: zapret.ZapretInfo) -> Check:
-    """Голый путь hostlist в конфиге ломает весь HTTPS — это частая причина."""
+    """Профиль с путём без ``--hostlist=`` nfqws2 игнорирует.
+
+    Это не поломка и не «применяется ко всем сайтам»: правило просто не
+    работает. Раньше здесь был FAIL с советом «добавьте --hostlist=», но
+    включение такого профиля ломало TLS — поэтому теперь это WARN с честным
+    объяснением.
+    """
 
     bare = zapret.find_bare_hostlist_args(info.cmdline)
     if not bare:
@@ -184,11 +190,12 @@ def _hostlist_args_check(info: zapret.ZapretInfo) -> Check:
     return Check(
         "zapret.hostlist_args",
         "Аргументы hostlist",
-        FAIL,
-        f"без --hostlist: {names}. Такой профиль применяется ко всем TLS-сайтам "
-        "и ломает HTTPS",
-        "Исправить в «Диагностика → Починить конфиг zapret» или добавить "
-        "--hostlist= перед путём в config",
+        WARN,
+        f"профиль игнорируется: {names} указан без --hostlist=. Правило не "
+        "работает, остальные профили действуют как обычно",
+        "Менять не нужно. Включать такой профиль вручную опасно: он может "
+        "ломать TLS. Если понадобится — сначала blockcheck2.sh и проверка "
+        "CF-доменов",
     )
 
 

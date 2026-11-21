@@ -12,7 +12,12 @@ from ..i18n import _
 from ..worker import run_in_thread
 from . import common
 
-SOURCE_LABELS = {"cf": _("CF (прокси)"), "user": _("свои"), "other": _("из zapret")}
+#: CF-домены критичны для TgWsProxy — их удаление требует двойного подтверждения.
+SOURCE_LABELS = {
+    "cf": _("CF (прокси) — нужен Telegram"),
+    "user": _("свои"),
+    "other": _("из zapret"),
+}
 
 
 class HostlistScreen:
@@ -145,9 +150,14 @@ class HostlistScreen:
         if not domains:
             common.message(self.app, _("Выберите домены в таблице"))
             return
+        chosen = set(domains)
         removable = [
             entry.domain for entry in self._entries
-            if entry.domain in set(domains) and entry.source in {"cf", "user"}
+            if entry.domain in chosen and entry.source in {"cf", "user"}
+        ]
+        critical = [
+            entry.domain for entry in self._entries
+            if entry.domain in chosen and entry.source == "cf"
         ]
         if not removable:
             common.message(
@@ -155,6 +165,44 @@ class HostlistScreen:
                 _("Выбраны домены из чужого списка zapret — их LinFix не меняет"),
             )
             return
+
+        # Удаление CF-домена ломает Telegram-прокси: спрашиваем отдельно и
+        # настойчиво, чтобы нельзя было сделать это «случайно».
+        if critical:
+            first = Gtk.MessageDialog(
+                transient_for=self.app.window,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK_CANCEL,
+                text=_("Вы удаляете домены TgWsProxy ({n})").format(n=len(critical)),
+            )
+            first.format_secondary_text(
+                _(
+                    "Без них zapret перестанет маскировать SNI этих доменов, и "
+                    "Telegram-прокси не сможет подключиться.\n\n{list}\n\n"
+                    "Удалять только если вы точно знаете, зачем."
+                ).format(list="\n".join(critical[:8]))
+            )
+            if first.run() != Gtk.ResponseType.OK:
+                first.destroy()
+                return
+            first.destroy()
+
+            second = Gtk.MessageDialog(
+                transient_for=self.app.window,
+                flags=Gtk.DialogFlags.MODAL,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK_CANCEL,
+                text=_("Точно удалить? Telegram-прокси сломается"),
+            )
+            second.format_secondary_text(
+                _("Это второй и последний вопрос. Отмена — безопасный выбор.")
+            )
+            confirmed = second.run() == Gtk.ResponseType.OK
+            second.destroy()
+            if not confirmed:
+                return
+
         self._run(api.remove_from_hostlist, removable)
 
     def _run(self, fn, domains: list[str]) -> None:
