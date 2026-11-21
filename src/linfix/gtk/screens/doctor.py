@@ -40,7 +40,7 @@ class DoctorScreen:
         )
         common.pack(self.buttons, self.pick_button)
         # Краткая информация по стратегиям: текущая + результат подбора.
-        self.strat_label = common.label(_("Текущая: —"), css_class="")
+        self.strat_label = common.label(_("Текущая: —"), css_class="strategy-info")
         common.pack(self.buttons, self.strat_label)
         # Кнопка «отменить и восстановить» — видна во время прогона подбора.
         self.cancel_button = common.button(
@@ -205,10 +205,21 @@ class DoctorScreen:
                 )
             elif error:
                 text += "  |  " + _("Подобрано: ошибка")
-            self.strat_label.set_text(text)
+            label = self.strat_label
+            for cls in ("strategy-best", "strategy-none", "strategy-error"):
+                label.get_style_context().remove_class(cls)
+            if best_args:
+                label.get_style_context().add_class("strategy-best")
+            elif error:
+                label.get_style_context().add_class("strategy-error")
+            elif not current:
+                label.get_style_context().add_class("strategy-none")
+            label.set_text(text)
 
         def failed(_exc: Exception) -> None:
             self.strat_label.set_text(_("Текущая: —"))
+            for cls in ("strategy-best", "strategy-none", "strategy-error"):
+                self.strat_label.get_style_context().remove_class(cls)
 
         run_in_thread(job, on_done=done, on_error=failed)
 
