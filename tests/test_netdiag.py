@@ -166,6 +166,48 @@ class BlockcheckTests(unittest.TestCase):
         self.assertEqual(strategies[0].score, 1.0)
         self.assertIn("multisplit", strategies[0].args)
 
+    def test_normalize_strips_prefixes(self) -> None:
+        from linfix import blockcheck
+
+        raw = "curl_test_https_tls12 ipv4 rutracker.org : nfqws2 --filter-tcp=443 --lua-desync=multisplit:pos=1"
+        self.assertEqual(
+            blockcheck.normalize_args(raw),
+            "--filter-tcp=443 --lua-desync=multisplit:pos=1",
+        )
+        self.assertEqual(blockcheck.normalize_args("nfqws2 --filter-tcp=443"), "--filter-tcp=443")
+        self.assertEqual(blockcheck.normalize_args("curl_test... nfqws2 not working"), "")
+
+    def test_parse_coverage_lines_real_output(self) -> None:
+        from linfix import blockcheck
+
+        text = (
+            "* COVERAGE\n"
+            "2/2 : curl_test_https_tls12 ipv4 : nfqws2 --filter-tcp=443 --lua-desync=multisplit:pos=1\n"
+            "1/2 : curl_test_https_tls13 ipv4 : tpws --hostlist=x --lua-desync=fake:blob=fake_default_tls\n"
+            "0/2 : curl_test_http_basic ipv4 : nfqws2 not working\n"
+        )
+        strategies = blockcheck.parse_output(text)
+        self.assertEqual(
+            [s.args for s in strategies],
+            [
+                "--filter-tcp=443 --lua-desync=multisplit:pos=1",
+                "--hostlist=x --lua-desync=fake:blob=fake_default_tls",
+            ],
+        )
+        self.assertEqual(strategies[0].success, 2)
+
+    def test_parse_found_report_lines(self) -> None:
+        from linfix import blockcheck
+
+        text = (
+            "!!!!! curl_test_https_tls12: working strategy found for ipv4 rutracker.org : "
+            "nfqws2 --filter-tcp=443 --lua-desync=tcpseg:pos=0,1:ip_id=rnd !!!!\n"
+            "!!!!! curl_test_https_tls12 ipv4 rutracker.org : nfqws2 not working\n"
+        )
+        strategies = blockcheck.parse_output(text)
+        self.assertEqual(len(strategies), 1)
+        self.assertEqual(strategies[0].args, "--filter-tcp=443 --lua-desync=tcpseg:pos=0,1:ip_id=rnd")
+
     def test_desync_only(self) -> None:
         from linfix import blockcheck
 

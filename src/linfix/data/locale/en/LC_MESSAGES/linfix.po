@@ -305,3 +305,21 @@ msgstr "strategy search in progress"
 
 msgid "Подбор стратегии уже идёт — дождитесь окончания замеров."
 msgstr "A strategy search is already running — wait for the measurements to finish."
+
+msgid "Подбираю стратегию… (прошло ~{n} минут)"
+msgstr "Strategy search… (elapsed ~{n} min)"
+
+msgid "Подбираю стратегию… ожидаем завершения прогона"
+msgstr "Strategy search… waiting for the scan to finish"
+
+msgid "Стратегии не найдены и прогон не завершён (проверены не все варианты)"
+msgstr "No strategies found and the scan did not finish (not all variants checked)"
+
+msgid "Прогон не завершён — проверены не все варианты"
+msgstr "The scan did not finish — not all variants were checked"
+
+msgid "Обычно занимает 15–35 минут: тесты прогоняются долго, зависит от вашего провайдера."
+msgstr "Usually takes 15–35 minutes: tests run long and vary by provider."
+
+msgid "Запустится штатный blockcheck2.sh из zapret. Он подберёт стратегии, которые обходят вашего провайдера.\n\nzapret на время замеров будет ОСТАНОВЛЕН и включён обратно — это обязательно, иначе он вмешивается в замеры.\n\nОбычно занимает 15–35 минут: тесты прогоняются долго, зависит от вашего провайдера.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
+msgstr "The standard blockcheck2.sh from zapret will run. It will pick strategies that bypass your provider.\n\nzapret will be STOPPED during measurements and turned back on — mandatory, otherwise it interferes with measurements.\n\nUsually takes 15–35 minutes: tests run long, depends on your provider.\n\nThe search changes nothing in the config: you will just see a list of working strategies."

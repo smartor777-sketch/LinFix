@@ -952,7 +952,7 @@ def pick_strategy(
     *,
     domains: list[str] | None = None,
     level: str = "quick",
-    timeout: float = 900.0,
+    timeout: float = 2100.0,
 ) -> tuple[int, dict[str, object]]:
     """Подобрать рабочую стратегию desync через blockcheck2 (root через helper).
 

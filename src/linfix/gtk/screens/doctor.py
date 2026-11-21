@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from gi.repository import Gdk, Gtk
+import time
+
+from gi.repository import GLib, Gdk, Gtk
 
 from ... import api, netdiag, tgws, zapret
 from ..i18n import _
@@ -73,6 +75,9 @@ class DoctorScreen:
         self.profile_scrolled = self.profile_tree
         self.profile_note = common.label("", wrap=True)
 
+        self._pick_start: float | None = None
+        self._pick_timer: int | None = None
+
         common.pack(self.box, self.buttons)
         common.pack(self.box, self.verdict_label)
         common.pack(self.box, self.net_hint)
@@ -84,6 +89,18 @@ class DoctorScreen:
         self.last_report = None
         self.refresh()
         self.refresh_profiles()
+
+    def _stop_pick_timer(self) -> None:
+        if self._pick_timer is not None:
+            GLib.source_remove(self._pick_timer)
+            self._pick_timer = None
+
+    def _tick_pick(self) -> bool:
+        base = self._pick_start or time.monotonic()
+        self.verdict_label.set_text(
+            _("Подбираю стратегию… (прошло ~{n} минут)").format(n=int((time.monotonic() - base) // 60))
+        )
+        return True
 
     def pick_strategy(self) -> None:
         """Подобрать рабочую стратегию desync через blockcheck2.
@@ -115,7 +132,8 @@ class DoctorScreen:
                 "стратегии, которые обходят вашего провайдера.\n\n"
                 "zapret на время замеров будет ОСТАНОВЛЕН и включён обратно — "
                 "это обязательно, иначе он вмешивается в замеры.\n\n"
-                "Занимает от 1 до 10 минут в зависимости от уровня.\n\n"
+                "Обычно занимает 15–35 минут: тесты прогоняются долго, "
+                "зависит от вашего провайдера.\n\n"
                 "Подбор ничего не меняет в конфиге: вы просто увидите список "
                 "рабочих стратегий."
             )
@@ -131,23 +149,36 @@ class DoctorScreen:
             return
 
         self.pick_button.set_sensitive(False)
-        self.verdict_label.set_text(_("Подбираю стратегию… это может занять несколько минут"))
+        self.verdict_label.set_text(
+            _("Подбираю стратегию… ожидаем завершения прогона")
+        )
+        self._pick_start = time.monotonic()
+        self._pick_timer = GLib.timeout_add_seconds(10, self._tick_pick)
 
         def job():
-            return api.pick_strategy(self.app.cfg, level="quick", timeout=900)
+            return api.pick_strategy(self.app.cfg, level="quick", timeout=2100)
 
         def done(result) -> None:
+            self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
             code, payload = result
             strategies = payload.get("strategies") or []
             best = payload.get("best")
+            timed_out = "прерван" in str(payload.get("error") or "")
             if not strategies:
                 message = str(payload.get("error") or _("см. Логи"))
-                common.message(self.app, _("Стратегии не найдены.\n\n{err}").format(err=message))
+                if timed_out:
+                    header = _(
+                        "Стратегии не найдены и прогон не завершён "
+                        "(проверены не все варианты)"
+                    )
+                else:
+                    header = _("Стратегии не найдены.")
+                common.message(self.app, f"{header}\n\n{message}")
                 self.verdict_label.set_text(
-                    _("Стратегии не нужны: {note}").format(note=message)
-                    if payload.get("works_without_bypass")
-                    else _("Стратегии не найдены")
+                    _("Прогон не завершён — проверены не все варианты")
+                    if timed_out
+                    else _("Стратегии не нужны: {note}").format(note=message)
                 )
                 return
             lines = [
@@ -160,9 +191,12 @@ class DoctorScreen:
                     f"{mark} {item['success']}/{item['total']}: {item['args'][:110]}"
                 )
             lines.append("")
-            if payload.get("error"):
-                # Например, прогон прерван по таймауту: найденные стратегии
-                # рабочие, но проверены не все варианты.
+            if timed_out:
+                # Даже если стратегии есть, они могли провериться
+                # не все варианты: добавляем честную оговорку.
+                lines.append(str(payload["error"]))
+                lines.append("")
+            if payload.get("error") and not timed_out:
                 lines.append(str(payload["error"]))
                 lines.append("")
             lines.append(
@@ -179,6 +213,7 @@ class DoctorScreen:
             )
 
         def failed(exc: Exception) -> None:
+            self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
             common.message(self.app, _("Ошибка подбора: {err}").format(err=exc))
 
