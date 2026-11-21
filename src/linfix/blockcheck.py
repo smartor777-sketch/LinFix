@@ -13,8 +13,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import signal
+import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +28,11 @@ from . import util
 SCAN_LEVELS = ("veryquick", "quick", "standard", "force")
 
 RESULT_RE = re.compile(r"^(\d+)/(\d+)\s*:\s*(.+)$")
+
+#: Маркер активного прогона. Создаёт helper (root), читает GUI и CLI.
+#: Нужен, чтобы никто не поднял zapret посреди замеров: иначе результаты
+#: недостоверны, а пользователь остаётся без обхода дольше нужного.
+DEFAULT_LOCK = Path("/run/linfix/blockcheck.lock")
 
 
 class BlockcheckError(util.NetfixError):
@@ -93,6 +102,106 @@ def parse_output(text: str) -> list[Strategy]:
 DEFAULT_REPEATS = 2
 
 
+def lock_file(path: Path | None = None) -> Path:
+    """Путь к маркеру прогона (в тестах подменяется на временный)."""
+
+    return Path(path) if path is not None else DEFAULT_LOCK
+
+
+def pid_alive(pid: int) -> bool:
+    """Жив ли процесс. PermissionError означает «жив, но чужой»."""
+
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def read_lock(path: Path | None = None) -> dict[str, object]:
+    try:
+        data = json.loads(lock_file(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_lock(path: Path | None = None, **fields: object) -> Path:
+    """Создать маркер прогона от имени текущего процесса."""
+
+    target = lock_file(path)
+    payload = {"pid": os.getpid(), "started": time.time(), **fields}
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Атомарно: GUI не должен прочитать недописанный JSON и решить,
+        # что подбор уже закончился.
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except OSError:
+        # Маркер не критичен: сам подбор от этого не ломается.
+        pass
+    return target
+
+
+def clear_lock(path: Path | None = None) -> None:
+    try:
+        lock_file(path).unlink()
+    except OSError:
+        pass
+
+
+def running(path: Path | None = None) -> dict[str, object]:
+    """Идёт ли подбор стратегии прямо сейчас.
+
+    Возвращает данные маркера, только если создавший его процесс жив:
+    после kill helper'а маркер остаётся, но считать его активным нельзя.
+    """
+
+    data = read_lock(path)
+    try:
+        pid = int(data.get("pid") or 0)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return {}
+    return data if pid_alive(pid) else {}
+
+
+def stray_processes() -> list[int]:
+    """Процессы blockcheck2.sh, работающие без живого маркера.
+
+    Такое бывает, если helper убили по внешнему таймауту: сам helper уже
+    мёртв, а его дочерние оболочки ещё завершают тесты.
+    """
+
+    cp = util.run(
+        ["pgrep", "-f", r"^sh .*/blockcheck2\.sh$"],
+        check=False,
+        timeout=5,
+    )
+    result: list[int] = []
+    for line in (cp.stdout or "").split():
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        if pid != os.getpid():
+            result.append(pid)
+    return result
+
+
+def scan_in_progress() -> bool:
+    """Подбор идёт или хотя бы оставил после себя процессы."""
+
+    return bool(running()) or bool(stray_processes())
+
+
 def build_env(
     install_dir: str | Path,
     domains: list[str],
@@ -130,6 +239,28 @@ def build_env(
     return env
 
 
+def _stop_group(proc: subprocess.Popen[str], grace: float = 10.0) -> None:
+    """Остановить всю группу blockcheck2: shell и его nfqws2-тесты.
+
+    subprocess.run убивает только прямого потомка, а blockcheck2 запускает
+    проверочные nfqws2 в своей группе. Без killpg они переживают таймаут и
+    продолжают трогать nft-правила, пока идёт следующий прогон.
+    """
+
+    def kill(sig: int) -> None:
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    kill(signal.SIGTERM)
+    try:
+        proc.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        pass
+    kill(signal.SIGKILL)
+
+
 def run_blockcheck(
     install_dir: str | Path,
     *,
@@ -147,18 +278,47 @@ def run_blockcheck(
         raise BlockcheckError(f"blockcheck2.sh не найден: {path}")
 
     env = build_env(install_dir, domains, level, repeats=repeats)
-    completed = util.run(
-        ["sh", str(path)],
-        check=False,
-        timeout=timeout,
-        env=env,
-    )
-    output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
+    try:
+        proc = subprocess.Popen(
+            ["sh", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            # Своя сессия: таймаут должен гасить всю группу, а не только sh.
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise BlockcheckError(f"не удалось запустить blockcheck2: {exc}") from exc
+
+    timed_out = False
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _stop_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            # Кто-то из внуков всё ещё держит пайп — не ждём его вечно.
+            stdout = stderr = ""
+            for stream in (proc.stdout, proc.stderr):
+                try:
+                    stream.close()  # type: ignore[union-attr]
+                except (OSError, ValueError):
+                    pass
+
+    output = ((stdout or "") + "\n" + (stderr or "")).strip()
     result = BlockcheckResult(domains=domains, level=level, output=output[-6000:])
     result.strategies = parse_output(output)
     result.works_without_bypass = "working without bypass" in output.lower()
-    if completed.returncode != 0 and not result.strategies:
-        result.error = f"blockcheck2 завершился с кодом {completed.returncode}"
+    if timed_out:
+        result.error = (
+            f"blockcheck2 прерван по таймауту {timeout:g} с — "
+            "проверочные процессы остановлены, zapret возвращён в работу"
+        )
+    elif proc.returncode != 0 and not result.strategies:
+        result.error = f"blockcheck2 завершился с кодом {proc.returncode}"
         tail = output.strip().splitlines()[-3:]
         if tail:
             result.error += ": " + " ".join(tail)[:300]
@@ -170,6 +330,12 @@ def check_readiness(cfg) -> tuple[bool, str]:
 
     from . import zapret
 
+    if running():
+        return False, "подбор стратегии уже идёт — дождитесь окончания"
+    stray = stray_processes()
+    if stray:
+        pids = ", ".join(str(pid) for pid in stray[:3])
+        return False, f"остались процессы blockcheck2.sh ({pids}) — дождитесь их завершения"
     info = zapret.detect_zapret(cfg.zapret.service)
     if not info.install_dir:
         return False, "zapret не установлен"

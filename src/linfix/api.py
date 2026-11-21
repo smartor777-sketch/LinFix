@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from . import cfdomains, doctor, guard, helper, state, tgws, util, zapret
+from . import blockcheck, cfdomains, doctor, guard, helper, state, tgws, util, zapret
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load_config
 
 # Exit codes, идентичные cli (SPEC 6).
@@ -23,6 +23,7 @@ EXIT_USAGE = 2
 EXIT_NOT_INSTALLED = 3
 EXIT_NO_RIGHTS = 4
 EXIT_CHECK_FAILED = 5
+EXIT_BLOCKED = 6
 
 #: Источник zapret2 для автоустановки (клон + install_easy.sh).
 ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
@@ -187,12 +188,27 @@ def start_tgws(cfg: Config) -> tuple[int, str]:
 def start_zapret(cfg: Config) -> tuple[int, str]:
     """Запустить zapret2 (root через helper)."""
 
+    if blockcheck.running():
+        return (
+            EXIT_BLOCKED,
+            "идёт подбор стратегии (blockcheck2): zapret включится сам, когда замеры закончатся",
+        )
+
     info = zapret.detect_zapret(cfg.zapret.service)
     service = info.service or cfg.zapret.service
 
     is_active = util.run(["systemctl", "is-active", service], check=False, timeout=10)
     if (is_active.stdout or "").strip() == "active":
         return EXIT_OK, f"{service} уже запущен"
+
+    # Осиротевшие оболочки blockcheck2 (helper убили по таймауту) тоже
+    # вмешиваются в трафик: пока они живы, стартовать zapret нельзя.
+    if blockcheck.stray_processes():
+        return (
+            EXIT_BLOCKED,
+            "завершаются процессы blockcheck2.sh — дождитесь их окончания, "
+            "затем включите zapret вручную",
+        )
 
     try:
         code, payload = util.run_helper("zapret.restart", ["--service", service])
@@ -1263,6 +1279,10 @@ def _ensure_zapret_running(cfg: Config, was_active: bool) -> None:
     """Если zapret был включён до операции, вернуть его в работу."""
 
     if not was_active:
+        return
+    # Пока идёт подбор, поднимать zapret нельзя: он испортит замеры.
+    # Если helper убили, маркер мёртв и страховка сработает как обычно.
+    if blockcheck.running() or blockcheck.stray_processes():
         return
     info = zapret.detect_zapret(cfg.zapret.service)
     if info.active:

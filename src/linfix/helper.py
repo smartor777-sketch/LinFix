@@ -790,24 +790,36 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
         util.run(["systemctl", "is-active", service], check=False, timeout=10).stdout or ""
     ).strip() == "active"
 
+    # Маркер ставим ДО остановки службы, а снимаем после её возврата:
+    # всё это время GUI/CLI обязаны считать, что идёт подбор, и не
+    # поднимать zapret (иначе замеры испорчены).
+    blockcheck.write_lock(
+        service=service,
+        level=level,
+        domains=domains,
+        install_dir=str(install_dir),
+    )
     stopped = False
-    if was_active:
-        util.run(["systemctl", "stop", service], check=False, timeout=30)
-        stopped = True
-
     try:
-        result = blockcheck.run_blockcheck(
-            install_dir,
-            domains=domains,
-            level=level,
-            # Должно быть меньше внешнего таймаута вызывающего, иначе helper
-            # убьют раньше, чем он успеет вернуть zapret обратно.
-            timeout=min(max(args.timeout, 120.0), 900.0),
-            repeats=max(1, int(args.repeats or 2)),
-        )
+        if was_active:
+            util.run(["systemctl", "stop", service], check=False, timeout=30)
+            stopped = True
+
+        try:
+            result = blockcheck.run_blockcheck(
+                install_dir,
+                domains=domains,
+                level=level,
+                # Должно быть меньше внешнего таймаута вызывающего, иначе helper
+                # убьют раньше, чем он успеет вернуть zapret обратно.
+                timeout=min(max(args.timeout, 120.0), 900.0),
+                repeats=max(1, int(args.repeats or 2)),
+            )
+        finally:
+            if stopped:
+                util.run(["systemctl", "start", service], check=False, timeout=60)
     finally:
-        if stopped:
-            util.run(["systemctl", "start", service], check=False, timeout=60)
+        blockcheck.clear_lock()
 
     best = result.best
     return 0, {

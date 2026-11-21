@@ -263,8 +263,10 @@ class AppTests(unittest.TestCase):
                 "linfix.gtk.screens.settings.util.run",
                 return_value=SimpleNamespace(stdout="disabled", returncode=0),
             ),
-            patch("linfix.gtk.screens.settings.api.start_tgws") as start_tgws,
-            patch("linfix.gtk.screens.settings.api.start_zapret") as start_zapret,
+            patch("linfix.gtk.screens.settings.api.start_tgws", return_value=(0, "ok")) as start_tgws,
+            patch(
+                "linfix.gtk.screens.settings.api.start_zapret", return_value=(0, "ok")
+            ) as start_zapret,
         ):
             settings.save()
         start_tgws.assert_called_once_with(app.cfg)

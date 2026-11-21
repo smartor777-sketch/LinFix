@@ -91,6 +91,15 @@ class DoctorScreen:
         Пользователь должен понимать: zapret на время замеров остановится.
         """
 
+        from ... import blockcheck
+
+        if blockcheck.scan_in_progress():
+            common.message(
+                self.app,
+                _("Подбор стратегии уже идёт — дождитесь окончания замеров."),
+            )
+            return
+
         ok, reason = api.blockcheck_status(self.app.cfg)
 
         dialog = Gtk.MessageDialog(
@@ -151,6 +160,11 @@ class DoctorScreen:
                     f"{mark} {item['success']}/{item['total']}: {item['args'][:110]}"
                 )
             lines.append("")
+            if payload.get("error"):
+                # Например, прогон прерван по таймауту: найденные стратегии
+                # рабочие, но проверены не все варианты.
+                lines.append(str(payload["error"]))
+                lines.append("")
             lines.append(
                 _(
                     "Скопируйте нужную строку и вставьте в NFQWS2_OPT файла "
