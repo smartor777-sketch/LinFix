@@ -28,6 +28,11 @@ from . import util
 SCAN_LEVELS = ("veryquick", "quick", "standard", "force")
 
 RESULT_RE = re.compile(r"^(\d+)/(\d+)\s*:\s*(.+)$")
+#: Строка успешного отчёта blockcheck2:
+#: ``curl_test_https_tls12 ipv4 rutracker.org : nfqws2 --filter-tcp=443 …``
+REPORT_RE = re.compile(r"^\S+ ipv\d \S+ : (.+)$")
+#: Строка «найдена рабочая стратегия» (один домен, без блока COVERAGE).
+FOUND_RE = re.compile(r"working strategy found for ipv\d \S+ : (.+?)\s*!+\s*$")
 
 #: Маркер активного прогона. Создаёт helper (root), читает GUI и CLI.
 #: Нужен, чтобы никто не поднял zapret посреди замеров: иначе результаты
@@ -79,20 +84,57 @@ def script_path(install_dir: str | Path) -> Path:
     return Path(install_dir) / "blockcheck2.sh"
 
 
-def parse_output(text: str) -> list[Strategy]:
-    """Достать стратегии из вывода blockcheck2."""
+def normalize_args(raw: str) -> str:
+    """Оставить только параметры стратегии, начиная с первого ``--``.
 
-    seen: set[str] = set()
-    result: list[Strategy] = []
+    blockcheck2 печатает строку вида
+    ``2/2 : curl_test_https_tls12 ipv4 : nfqws2 --filter-tcp=443 …``.
+    В конфиг zapret вставляется только хвост ``--filter-tcp=443 …``;
+    служебный префикс (тест, IP-версия, демон) пользователю не нужен.
+    """
+
+    text = raw.strip().rstrip("!").strip()
+    pos = text.find("--")
+    if pos < 0:
+        return ""
+    if pos > 0 and not text[pos - 1].isspace():
+        return ""
+    return text[pos:].strip()
+
+
+def parse_output(text: str) -> list[Strategy]:
+    """Достать стратегии из вывода blockcheck2.
+
+    Поддерживаются три формата: блок ``COVERAGE`` (``N/M : …``), строки
+    отчёта (``curl_test… ipv4 domain : nfqws2 …``) и сообщения
+    ``working strategy found`` для одного домена.
+    """
+
+    found: dict[str, Strategy] = {}
+
+    def add(success: int, total: int, raw: str) -> None:
+        args = normalize_args(raw)
+        if not args:
+            return
+        previous = found.get(args)
+        if previous is None or (success / total) > (previous.success / previous.total):
+            found[args] = Strategy(success, total, args)
+
     for line in text.splitlines():
-        match = RESULT_RE.match(line.strip())
-        if not match:
+        stripped = line.strip()
+        match = RESULT_RE.match(stripped)
+        if match:
+            add(int(match.group(1)), int(match.group(2)), match.group(3))
             continue
-        success, total, args = int(match.group(1)), int(match.group(2)), match.group(3).strip()
-        if args in seen:
+        match = FOUND_RE.search(stripped)
+        if match:
+            add(1, 1, match.group(1))
             continue
-        seen.add(args)
-        result.append(Strategy(success, total, args))
+        match = REPORT_RE.match(stripped)
+        if match:
+            add(1, 1, match.group(1))
+
+    result = list(found.values())
     result.sort(key=lambda item: (item.score, item.success), reverse=True)
     return result
 

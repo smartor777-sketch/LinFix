@@ -812,7 +812,7 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
                 level=level,
                 # Должно быть меньше внешнего таймаута вызывающего, иначе helper
                 # убьют раньше, чем он успеет вернуть zapret обратно.
-                timeout=min(max(args.timeout, 120.0), 900.0),
+                timeout=min(max(args.timeout, 120.0), 2100.0),
                 repeats=max(1, int(args.repeats or 2)),
             )
         finally:
