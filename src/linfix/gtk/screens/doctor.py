@@ -9,7 +9,7 @@ import time
 
 from gi.repository import GLib, Gdk, Gtk
 
-from ... import api, blockcheck, netdiag, tgws, zapret
+from ... import api, blockcheck, netdiag, tgws, util, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -137,9 +137,25 @@ class DoctorScreen:
         return zapret_state, tgws_state
 
     def _cancel_strategy_selection(self) -> None:
-        """«Отмена подбора»: проверить и поднять zapret/TgWsProxy, если нужны."""
+        """«Отмена подбора»: остановить скан при необходимости + проверить/поднять службы."""
 
         def job():
+            if blockcheck.running() or blockcheck.stray_processes():
+                try:
+                    util.run_helper(
+                        "zapret.blockcheck_stop",
+                        ["--service", self.app.cfg.zapret.service],
+                        timeout=150,
+                    )
+                except Exception:  # noqa: BLE001 — не блокировать UI
+                    pass
+                # Helper возвращает замеряемый helper в работу: дождёмся,
+                # пока маркер уйдёт и zapret вернётся.
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    if not (blockcheck.running() or blockcheck.stray_processes()):
+                        break
+                    time.sleep(0.5)
             return self._services_state()
 
         def done(result):
