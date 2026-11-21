@@ -26,8 +26,11 @@ class DoctorScreen:
         self.scrolled = common.scrolled(self.tree)
 
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
-        self.fix_button = common.button(_("Починить конфиг zapret"), lambda _: self.fix_config())
-        # no_show_all: иначе show_all() окна покажет кнопку, когда она не нужна.
+        # Не «починить», а «обезвредить»: правка проверяется тестом CF-пути
+        # и автоматически откатывается при ухудшении.
+        self.fix_button = common.button(
+            _("Обезвредить профиль zapret"), lambda _: self.fix_config()
+        )
         self.fix_button.set_no_show_all(True)
         self.fix_button.set_visible(False)
         common.pack(self.buttons, self.fix_button)
@@ -50,25 +53,59 @@ class DoctorScreen:
         self.fix_button.set_visible(broken)
 
     def fix_config(self) -> None:
-        """Добавить --hostlist= перед голыми путями списков в config zapret."""
+        """Обезвредить профиль zapret: закомментировать, проверить, откатить при регрессии."""
 
         self.fix_button.set_sensitive(False)
 
         def job():
-            return api.fix_zapret_hostlist_args(self.app.cfg)
+            return api.neutralize_zapret_hostlist_args(self.app.cfg)
 
         def done(result) -> None:
             self.fix_button.set_sensitive(True)
             code, payload = result
+            before = payload.get("before") or {}
+            after = payload.get("after") or {}
+            cf_line = (
+                _("CF-путь: было {b}/{bt}, стало {a}/{at}").format(
+                    b=before.get("ok", "?"),
+                    bt=before.get("total", "?"),
+                    a=after.get("ok", "?"),
+                    at=after.get("total", "?"),
+                )
+                if after
+                else ""
+            )
+            if payload.get("rolled_back"):
+                common.message(
+                    self.app,
+                    _("{error}\n\n{cf}").format(
+                        error=payload.get("error") or _("Правка отменена"), cf=cf_line
+                    ),
+                )
+                return
             if code != api.EXIT_OK or payload.get("ok") is False:
-                common.message(self.app, str(payload.get("error") or _("Не удалось исправить конфиг")))
+                common.message(
+                    self.app,
+                    _("{error}\n\n{cf}").format(
+                        error=payload.get("error") or _("Не удалось исправить конфиг"),
+                        cf=cf_line,
+                    ),
+                )
                 return
             if not payload.get("changed"):
-                common.toast(self.app, _("Конфиг уже в порядке"))
+                common.toast(self.app, _("Профиль уже в безопасном виде"))
             else:
-                common.toast(
+                common.message(
                     self.app,
-                    _("Исправлено строк: {n}").format(n=len(payload.get("lines") or [])),
+                    _(
+                        "Профиль обезврежен (строк: {n}).\n\n{cf}\n\n"
+                        "Строки закомментированы, а не включены: включение такого "
+                        "профиля ломает TLS. Бэкап: {backup}"
+                    ).format(
+                        n=len(payload.get("lines") or []),
+                        cf=cf_line,
+                        backup=payload.get("backup") or "—",
+                    ),
                 )
             self.refresh()
 

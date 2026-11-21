@@ -38,7 +38,8 @@ ALLOWED_ACTIONS = {
     "config.guard",
     "domains.apply",
     "mtu.set",
-    "zapret.fix_hostlist_args",
+    "zapret.neutralize_hostlist_args",
+    "zapret.restore_config",
     "sysctl.set",
     "hostlist.import",
     "hostlist.load_source",
@@ -696,12 +697,13 @@ def action_mtu_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
 
 
 
-def action_zapret_fix_hostlist_args(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
-    """Добавить --hostlist= перед голыми путями списков в config zapret.
+def action_zapret_neutralize_hostlist_args(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Обезвредить профили, где hostlist передан без ``--hostlist=``.
 
-    nfqws2 понимает только ``--hostlist=path``: голый путь игнорируется,
-    профиль становится «для всех TLS», и desync ломает каждый HTTPS-сайт.
-    Правим только такие токены, остальной файл не трогаем.
+    Раньше такой профиль молча игнорировался. Просто добавить ``--hostlist=``
+    нельзя: профиль включается и может ломать TLS (проверено на практике).
+    Безопасный вариант — закомментировать строку целиком: поведение остаётся
+    прежним, но в конфиге больше нет неоднозначности.
     """
 
     config_path = Path(args.config_path or "/opt/zapret2/config")
@@ -709,33 +711,33 @@ def action_zapret_fix_hostlist_args(args: argparse.Namespace) -> tuple[int, dict
         raise HelperError(f"конфиг zapret не найден: {config_path}")
 
     original = config_path.read_text(encoding="utf-8", errors="replace")
-    changed_lines: list[str] = []
     result_lines: list[str] = []
+    commented: list[str] = []
     for line in original.splitlines():
         stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped and not stripped.startswith("-"):
+        if not stripped or stripped.startswith("#"):
             result_lines.append(line)
             continue
-        tokens = line.split()
-        new_tokens: list[str] = []
-        edited = False
-        for token in tokens:
-            if (
-                token.startswith("-")
-                or "=" in token
-                or not (token.endswith(".txt") or token.endswith(".gz"))
-            ):
-                new_tokens.append(token)
-                continue
-            new_tokens.append(f"--hostlist={token}")
-            edited = True
-        if edited:
-            result_lines.append(" ".join(new_tokens))
-            changed_lines.append(stripped)
+        tokens = stripped.split()
+        if "--hostlist=" in stripped or "--hostlist-exclude=" in stripped:
+            result_lines.append(line)
+            continue
+        bare = [
+            token
+            for token in tokens
+            if not token.startswith("-")
+            and "=" not in token
+            and (token.endswith(".txt") or token.endswith(".gz"))
+        ]
+        if bare:
+            indent = line[: len(line) - len(line.lstrip())]
+            result_lines.append(f"{indent}# linfix: профиль без --hostlist обезврежен")
+            result_lines.append(f"{indent}# {stripped}")
+            commented.append(stripped)
         else:
             result_lines.append(line)
 
-    if not changed_lines:
+    if not commented:
         return 0, {"ok": True, "changed": False, "path": str(config_path), "lines": []}
 
     backup = util.backup_file(config_path)
@@ -745,8 +747,21 @@ def action_zapret_fix_hostlist_args(args: argparse.Namespace) -> tuple[int, dict
         "changed": True,
         "path": str(config_path),
         "backup": str(backup) if backup else None,
-        "lines": changed_lines,
+        "lines": commented,
     }
+
+
+def action_zapret_restore_config(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Вернуть конфиг zapret из бэкапа (автооткат после неудачной правки)."""
+
+    if not args.backup:
+        raise HelperError("zapret.restore_config: требуется --backup")
+    backup = Path(args.backup)
+    if not backup.is_file():
+        raise HelperError(f"бэкап не найден: {backup}")
+    target = Path(args.config_path or "/opt/zapret2/config")
+    util.restore_file(backup, target)
+    return 0, {"ok": True, "restored": str(target), "from": str(backup)}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -798,6 +813,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="разрешить mtu.set увеличивать MTU интерфейса",
     )
     parser.add_argument("--config-path", default="/opt/zapret2/config", help="config zapret")
+    parser.add_argument("--backup", default="", help="бэкап для zapret.restore_config")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -827,8 +843,10 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_sysctl_set(args)
         elif args.action == "mtu.set":
             code, payload = action_mtu_set(args)
-        elif args.action == "zapret.fix_hostlist_args":
-            code, payload = action_zapret_fix_hostlist_args(args)
+        elif args.action == "zapret.neutralize_hostlist_args":
+            code, payload = action_zapret_neutralize_hostlist_args(args)
+        elif args.action == "zapret.restore_config":
+            code, payload = action_zapret_restore_config(args)
         elif args.action == "tgws.install":
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":
