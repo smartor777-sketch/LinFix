@@ -962,12 +962,19 @@ def pick_strategy(
     for domain in domains or ["rutracker.org", "telegram.org"]:
         args.extend(["--domain", domain])
 
+    was_active = info.active
     try:
-        code, payload = util.run_helper("zapret.blockcheck", args, timeout=timeout + 180)
+        code, payload = util.run_helper("zapret.blockcheck", args, timeout=timeout + 300)
     except util.NetfixError as exc:
+        _ensure_zapret_running(cfg, was_active)
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
     except util.CommandError as exc:
+        _ensure_zapret_running(cfg, was_active)
         return EXIT_ERROR, {"ok": False, "error": f"подбор стратегии: {exc}"}
+
+    # Страховка: helper мог быть убит по таймауту и не успеть вернуть службу.
+    if was_active:
+        _ensure_zapret_running(cfg, was_active)
 
     if code != 0:
         return code, payload
@@ -1252,95 +1259,17 @@ def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Подбор стратегии desync (blockcheck2)
-# ---------------------------------------------------------------------------
+def _ensure_zapret_running(cfg: Config, was_active: bool) -> None:
+    """Если zapret был включён до операции, вернуть его в работу."""
 
-
-def blockcheck_status(cfg: Config) -> tuple[bool, str]:
-    """Можно ли запускать подбор стратегии прямо сейчас."""
-
-    from . import blockcheck
-
-    return blockcheck.check_readiness(cfg)
-
-
-def pick_strategy(
-    cfg: Config,
-    *,
-    domains: list[str] | None = None,
-    level: str = "quick",
-    timeout: float = 900.0,
-) -> tuple[int, dict[str, object]]:
-    """Остановить zapret и подобрать рабочую стратегию desync.
-
-    Останавливать приходится: работающий zapret вмешивается в замеры.
-    После подбора служба возвращается в прежнее состояние.
-    """
-
-    from . import blockcheck
-
+    if not was_active:
+        return
     info = zapret.detect_zapret(cfg.zapret.service)
-    if not info.install_dir:
-        return EXIT_NOT_INSTALLED, {"ok": False, "error": "zapret не установлен"}
-
-    ready, reason = blockcheck.check_readiness(cfg)
-    was_active = info.active
+    if info.active:
+        return
     service = info.service or cfg.zapret.service
-
-    if not info.active and not blockcheck.script_path(info.install_dir).is_file():
-        return EXIT_NOT_INSTALLED, {"ok": False, "error": reason}
-
-    stopped = False
-    if was_active:
-        try:
-            code, payload = util.run_helper("zapret.stop", ["--service", service], timeout=120)
-        except util.NetfixError as exc:
-            return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
-        if code != 0:
-            return code, {
-                "ok": False,
-                "error": str(payload.get("error") or "не удалось остановить zapret для замеров"),
-            }
-        stopped = True
-
-    target_domains = domains or ["rutracker.org", "telegram.org"]
     try:
-        result = blockcheck.run_blockcheck(
-            info.install_dir, domains=target_domains, level=level, timeout=timeout
-        )
-    finally:
-        if stopped:
-            # Всегда возвращаем службу в работу, даже если подбор упал.
-            util.run_helper("zapret.restart", ["--service", service], timeout=120)
-
-    best = result.best
-    note = ""
-    if not best and result.works_without_bypass:
-        note = (
-            "эти домены открываются без обхода — у вашего провайдера они не "
-            "блокируются, подбирать стратегию не нужно"
-        )
-    return (
-        EXIT_OK if best else EXIT_CHECK_FAILED,
-        {
-            "ok": bool(best),
-            "works_without_bypass": result.works_without_bypass,
-            "note": note,
-            "domains": result.domains,
-            "level": result.level,
-            "restarted": stopped,
-            "strategies": [
-                {"success": item.success, "total": item.total, "args": item.args}
-                for item in result.strategies[:10]
-            ],
-            "best": (
-                {"success": best.success, "total": best.total, "args": best.args}
-                if best
-                else None
-            ),
-            "error": result.error
-            or note
-            or ("" if best else "рабочих стратегий не найдено"),
-        },
-    )
+        util.run_helper("zapret.restart", ["--service", service], timeout=150)
+    except (util.NetfixError, util.CommandError):
+        # Молча: это страховка, основной результат уже сформирован.
+        pass

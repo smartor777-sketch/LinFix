@@ -88,10 +88,27 @@ def parse_output(text: str) -> list[Strategy]:
     return result
 
 
+#: Сколько раз повторять каждый тест. При REPEATS=1 параллельный режим
+#: в blockcheck2 не включается вообще, при 2+ — попытки идут одновременно.
+DEFAULT_REPEATS = 2
+
+
 def build_env(
-    install_dir: str | Path, domains: list[str], level: str, *, ipv: str = "4"
+    install_dir: str | Path,
+    domains: list[str],
+    level: str,
+    *,
+    ipv: str = "4",
+    repeats: int = DEFAULT_REPEATS,
 ) -> dict[str, str]:
-    """Переменные окружения для неинтерактивного запуска."""
+    """Переменные окружения для неинтерактивного запуска.
+
+    ``REPEATS`` — ключевой параметр скорости: blockcheck2 включает
+    параллельный режим только когда повторов больше одного (``PARALLEL``
+    без этого просто игнорируется). Каждый вариант стратегии проверяется
+    ``repeats`` раз одновременно, поэтому 2 повтора почти не удлиняют
+    прогон, но отсекают нестабильные стратегии.
+    """
 
     env = dict(os.environ)
     env.update(
@@ -104,7 +121,8 @@ def build_env(
             "IPVS": ipv,
             "ENABLE_HTTP": "1",
             "BATCH": "1",
-            "PARALLEL": "1",
+            "REPEATS": str(max(1, repeats)),
+            "PARALLEL": "1" if repeats > 1 else "0",
             # не даём скрипту что-то скачивать и надолго зависать
             "PACE": "0",
         }
@@ -118,6 +136,7 @@ def run_blockcheck(
     domains: list[str],
     level: str = "quick",
     timeout: float = 600.0,
+    repeats: int = DEFAULT_REPEATS,
 ) -> BlockcheckResult:
     """Запустить blockcheck2 и разобрать найденные стратегии (нужен root)."""
 
@@ -127,7 +146,7 @@ def run_blockcheck(
     if not path.is_file():
         raise BlockcheckError(f"blockcheck2.sh не найден: {path}")
 
-    env = build_env(install_dir, domains, level)
+    env = build_env(install_dir, domains, level, repeats=repeats)
     completed = util.run(
         ["sh", str(path)],
         check=False,

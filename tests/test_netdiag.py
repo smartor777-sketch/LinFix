@@ -223,3 +223,27 @@ class BlockcheckBypassTests(unittest.TestCase):
             result = blockcheck.run_blockcheck("/opt/zapret2", domains=["rutracker.org"])
         self.assertTrue(result.works_without_bypass)
         self.assertEqual(result.strategies, [])
+
+
+class ParallelTests(unittest.TestCase):
+    def test_repeats_enable_parallel(self) -> None:
+        """PARALLEL в blockcheck2 работает только при REPEATS > 1."""
+
+        from linfix import blockcheck
+
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick")
+        self.assertEqual(env["REPEATS"], "2")
+        self.assertEqual(env["PARALLEL"], "1")
+
+    def test_single_repeat_disables_parallel(self) -> None:
+        from linfix import blockcheck
+
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", repeats=1)
+        self.assertEqual(env["REPEATS"], "1")
+        self.assertEqual(env["PARALLEL"], "0")
+
+    def test_zero_repeats_clamped(self) -> None:
+        from linfix import blockcheck
+
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", repeats=0)
+        self.assertEqual(env["REPEATS"], "1")
