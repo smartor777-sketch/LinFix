@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 import tempfile
 import unittest
 from pathlib import Path
@@ -217,6 +218,62 @@ class TgwsInstallActionTests(unittest.TestCase):
     def test_bad_sha_rejected(self) -> None:
         with self.assertRaises(helper.HelperError):
             helper.action_tgws_install(self.args(sha256="abc"))
+
+
+class ZapretBlockcheckStopTests(unittest.TestCase):
+    def _args(self) -> SimpleNamespace:
+        return SimpleNamespace(service="zapret2", install_dir="/opt/zapret2")
+
+    def test_stop_and_start_when_inactive(self) -> None:
+        """Прибить процессы замеров и поднять zapret, если он выключен."""
+
+        from linfix import blockcheck
+
+        active = mock.Mock(returncode=0, stdout="inactive", stderr="")
+        with mock.patch.object(
+            blockcheck, "stray_processes", side_effect=[[11, 12], [], []]
+        ), mock.patch.object(helper.os, "kill") as kill, mock.patch.object(
+            helper.util, "run", return_value=active
+        ) as run:
+            code, payload = helper.action_zapret_blockcheck_stop(self._args())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["stopped"], [11, 12])
+        kill.assert_any_call(11, signal.SIGTERM)
+        kill.assert_any_call(12, signal.SIGTERM)
+        starts = [c for c in run.call_args_list if "start" in c.args[0]]
+        self.assertTrue(starts, f"expected systemctl start, got {run.call_args_list}")
+
+    def test_no_stray_no_start_when_active(self) -> None:
+        """Нет замеров и запущен zapret — ничего не делать."""
+
+        from linfix import blockcheck
+
+        active = mock.Mock(returncode=0, stdout="active", stderr="")
+        with mock.patch.object(
+            blockcheck, "stray_processes", side_effect=[[], []]
+        ), mock.patch.object(helper.os, "kill") as kill, mock.patch.object(
+            helper.util, "run", return_value=active
+        ) as run:
+            code, payload = helper.action_zapret_blockcheck_stop(self._args())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["stopped"], [])
+        kill.assert_not_called()
+        starts = [c for c in run.call_args_list if "start" in c.args[0]]
+        self.assertFalse(starts)
+
+    def test_no_stray_but_inactive_starts(self) -> None:
+        from linfix import blockcheck
+
+        inactive = mock.Mock(returncode=0, stdout="inactive", stderr="")
+        with mock.patch.object(
+            blockcheck, "stray_processes", side_effect=[[], []]
+        ), mock.patch.object(helper.os, "kill"), mock.patch.object(
+            helper.util, "run", return_value=inactive
+        ) as run:
+            code, _ = helper.action_zapret_blockcheck_stop(self._args())
+        self.assertEqual(code, 0)
+        starts = [c for c in run.call_args_list if "start" in c.args[0]]
+        self.assertTrue(starts)
 
 
 class ZapretInstallEasyTests(unittest.TestCase):

@@ -769,11 +769,7 @@ def action_zapret_restore_config(args: argparse.Namespace) -> tuple[int, dict[st
 
 
 def action_zapret_blockcheck_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
-    """Прервать идущий blockcheck2 (подбор стратегий).
-
-    Прибивает процессы замеров, дожидается конца прогона и возвращает
-    zapret2, если он был выключен подбором.
-    """
+    """Прервать идущий blockcheck2 (подбор стратегий) и вернуть zapret."""
 
     from . import blockcheck
 
@@ -782,6 +778,7 @@ def action_zapret_blockcheck_stop(args: argparse.Namespace) -> tuple[int, dict[s
     if not (install_dir / "blockcheck2.sh").is_file():
         raise HelperError(f"blockcheck2.sh не найден в {install_dir}")
 
+    # 1. Прибить процессы замеров (самая неприятная вызов — «убить скан»).
     stopped: list[int] = []
     for pid in blockcheck.stray_processes():
         if pid <= 0:
@@ -802,17 +799,13 @@ def action_zapret_blockcheck_stop(args: argparse.Namespace) -> tuple[int, dict[s
                 pass
         time.sleep(1.0)
 
-    was_active = (
+    # 2. Служба могла всё ещё вернуться самой (helper-хозяин скана),
+    #    старт повторно безопаснее всего — системный майдемов не создан.
+    active = (
         util.run(["systemctl", "is-active", service], check=False, timeout=10).stdout or ""
-    ).strip() == "active"
-    if was_active and not blockcheck.stray_processes():
-        # Маркер пока снимается тем же helper-процессом, который был прерван;
-        # если он жив, не трогаем zapret — иначе результаты не запишутся.
-        running = blockcheck.running()
-        if running and running.get("pid") == os.getpid():
-            pass
-        elif not running:
-            util.run(["systemctl", "start", service], check=False, timeout=60)
+    ).strip()
+    if active != "active":
+        util.run(["systemctl", "start", service], check=False, timeout=60)
 
     return 0, {"ok": True, "stopped": stopped}
 
