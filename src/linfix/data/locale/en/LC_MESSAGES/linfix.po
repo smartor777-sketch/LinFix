@@ -323,3 +323,18 @@ msgstr "Usually takes 15–35 minutes: tests run long and vary by provider."
 
 msgid "Запустится штатный blockcheck2.sh из zapret. Он подберёт стратегии, которые обходят вашего провайдера.\n\nzapret на время замеров будет ОСТАНОВЛЕН и включён обратно — это обязательно, иначе он вмешивается в замеры.\n\nОбычно занимает 15–35 минут: тесты прогоняются долго, зависит от вашего провайдера.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
 msgstr "The standard blockcheck2.sh from zapret will run. It will pick strategies that bypass your provider.\n\nzapret will be STOPPED during measurements and turned back on — mandatory, otherwise it interferes with measurements.\n\nUsually takes 15–35 minutes: tests run long, depends on your provider.\n\nThe search changes nothing in the config: you will just see a list of working strategies."
+
+msgid "Отмена подбора"
+msgstr "Cancel strategy search"
+
+msgid "Подбор отменён.\n\nZapret2: {zap}\nTgWsProxy: {tg}"
+msgstr "Strategy search cancelled.\n\nZapret2: {zap}\nTgWsProxy: {tg}"
+
+msgid "подбор (zapret вернётся автоматически)"
+msgstr "search in progress (zapret returns automatically)"
+
+msgid "не запустился: {msg}"
+msgstr "failed to start: {msg}"
+
+msgid "Ошибка при отмене подбора: {err}"
+msgstr "Error cancelling the strategy search: {err}"
