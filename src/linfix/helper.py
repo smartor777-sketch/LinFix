@@ -573,7 +573,8 @@ def action_hostlist_import(args: argparse.Namespace) -> tuple[int, dict[str, obj
     if not domains:
         raise HelperError("hostlist.import: нет доменов (--domain / --list-file / --url)")
 
-    result = hostlist_mod.add_domains(target, domains)
+    section = getattr(args, "section", "user") or "user"
+    result = hostlist_mod.add_domains(target, domains, target_section=section)
     restarted = False
     if result.added and args.restart_on_change and args.service:
         service = validate_service(args.service)
@@ -781,6 +782,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--list-file", default="", help="файл со списком доменов")
     parser.add_argument("--ipset-dir", default="/opt/zapret2/ipset", help="каталог ipset zapret")
     parser.add_argument("--script", default="", help="скрипт-источник zapret")
+    parser.add_argument(
+        "--section",
+        choices=["cf", "user"],
+        default="user",
+        help="в какой блок hostlist добавлять домены",
+    )
     parser.add_argument("--key", default="", help="sysctl-ключ")
     parser.add_argument("--value", default="", help="значение sysctl")
     parser.add_argument("--interface", default="", help="сетевой интерфейс для mtu.set")

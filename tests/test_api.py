@@ -173,3 +173,18 @@ class EnableAutostartTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CfDomainsTests(unittest.TestCase):
+    def test_reads_state_domains(self) -> None:
+        from linfix import state as state_mod
+
+        state_info = SimpleNamespace(domains=("a.co.uk", "b.co.uk"), domains_updated_at="now")
+        with patch("linfix.api.state.load_state", return_value=state_info), patch(
+            "linfix.api.hostlist_path", return_value="/tmp/hl.txt"
+        ), patch("linfix.hostlist.cf_domains", return_value=["a.co.uk"]):
+            code, payload = api.get_cf_domains(Config())
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertEqual(payload["domains"], ["a.co.uk", "b.co.uk"])
+        self.assertEqual(payload["missing"], ["b.co.uk"])
+        self.assertEqual(payload["in_hostlist"], 1)

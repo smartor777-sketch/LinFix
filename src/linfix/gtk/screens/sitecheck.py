@@ -43,9 +43,13 @@ class SiteCheckScreen:
 
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
         self.add_button = common.button(_("Добавить в hostlist"), lambda _: self.add_to_hostlist())
+        self.exclude_button = common.button(
+            _("Исключить из hostlist"), lambda _: self.exclude_from_hostlist()
+        )
         self.add_button.set_sensitive(False)
         self.mtu_button = common.button(_("Починить MTU"), lambda _: self.fix_mtu())
         common.pack(self.buttons, self.add_button)
+        common.pack(self.buttons, self.exclude_button)
         common.pack(self.buttons, self.mtu_button)
 
         common.pack(self.box, self.entry_row)
@@ -225,14 +229,62 @@ class SiteCheckScreen:
             if result.advice:
                 lines.append("")
                 lines.append(f"{_('Что делать:')} {result.advice}")
-            if result.status == "sni":
-                self.add_button.set_sensitive(True)
+            self.add_button.set_sensitive(result.status == "sni")
+            self.exclude_button.set_sensitive(result.status == "desync")
             self.buffer.set_text("\n".join(lines))
             self._update_mtu_button()
 
         def failed(exc: Exception) -> None:
             self.check_button.set_sensitive(True)
             self.result.set_text(_("Ошибка проверки: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def exclude_from_hostlist(self) -> None:
+        """Убрать домен из hostlist — если desync ломает именно его."""
+
+        if self._last is None:
+            return
+        host = self._last.host
+
+        confirm = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=_("Исключить {host} из hostlist zapret?").format(host=host),
+        )
+        confirm.format_secondary_text(
+            _(
+                "zapret перестанет применять desync к этому домену. Если он есть "
+                "в списке CF-доменов TgWsProxy, прокси может перестать работать "
+                "через него. Служба будет перезапущена."
+            )
+        )
+        response = confirm.run()
+        confirm.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        self.exclude_button.set_sensitive(False)
+
+        def job():
+            return api.remove_from_hostlist(self.app.cfg, [host])
+
+        def done(result) -> None:
+            self.exclude_button.set_sensitive(True)
+            code, payload = result
+            if code != api.EXIT_OK or payload.get("ok") is False:
+                common.message(self.app, str(payload.get("error") or _("Ошибка")))
+                return
+            common.toast(
+                self.app,
+                _("Исключено: {n}").format(n=len(payload.get("removed") or [])),
+            )
+            self.run_check()
+
+        def failed(exc: Exception) -> None:
+            self.exclude_button.set_sensitive(True)
+            common.message(self.app, _("Ошибка: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
 

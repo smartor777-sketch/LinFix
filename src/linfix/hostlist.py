@@ -166,8 +166,10 @@ def write_hostlist(path: str | Path, *, other: list[str], cf: list[str], user: l
     return backup
 
 
-def add_domains(path: str | Path, domains: list[str]) -> ImportResult:
-    """Добавить домены в пользовательский блок (чужие строки не трогаем)."""
+def add_domains(
+    path: str | Path, domains: list[str], *, target_section: str = "user"
+) -> ImportResult:
+    """Добавить домены в блок CF или пользовательский (чужие строки не трогаем)."""
 
     target = Path(path)
     other, cf, user = _split_sections(target)
@@ -185,8 +187,18 @@ def add_domains(path: str | Path, domains: list[str]) -> ImportResult:
         known.add(domain)
         added.append(domain)
     if added:
-        write_hostlist(target, other=other, cf=cf, user=user + added)
+        if target_section == "cf":
+            write_hostlist(target, other=other, cf=cf + added, user=user)
+        else:
+            write_hostlist(target, other=other, cf=cf, user=user + added)
     return ImportResult(added, skipped, len(other) + len(cf) + len(user) + len(added))
+
+
+def cf_domains(path: str | Path) -> list[str]:
+    """Домены из блока CF (список для TgWsProxy)."""
+
+    _other, cf, _user = _split_sections(Path(path))
+    return sorted(set(cf))
 
 
 def remove_domains(path: str | Path, domains: list[str]) -> ImportResult:

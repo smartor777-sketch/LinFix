@@ -77,7 +77,18 @@ class AppTests(unittest.TestCase):
         status = app.window.screens["status"]
         self.assertEqual(status.zapret_card.title_label.get_text(), "Zapret")
         domains = app.window.screens["domains"]
-        self.assertEqual(domains.store.get_n_columns(), 3)
+        # колонки: галочка + домен + статус + детали
+        self.assertEqual(domains.store.get_n_columns(), 4)
+        self.assertEqual(
+            [b.get_label() for b in domains.buttons.get_children()],
+            [
+                "Обновить и проверить",
+                "Тест TLS выбранных",
+                "Тест всего списка",
+                "Добавить домен",
+                "Удалить выбранные",
+            ],
+        )
         doctor = app.window.screens["doctor"]
         self.assertEqual(doctor.store.get_n_columns(), 4)
         settings = app.window.screens["settings"]
