@@ -408,3 +408,29 @@ class LogsLayoutTests(unittest.TestCase):
             "поиск и «Обновить» должны быть над логом",
         )
         app.window.destroy()
+
+
+class ProfileTableLayoutTests(unittest.TestCase):
+    def test_profile_table_has_height(self) -> None:
+        """Таблица профилей не должна схлопываться до двух строк."""
+
+        from linfix.gtk.app import NetFixApp
+        import time
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.resize(900, 720)
+        window.set_page("doctor")
+        for _ in range(60):
+            while Gtk.events_pending():
+                Gtk.main_iteration()
+            time.sleep(0.01)
+
+        screen = window.screens["doctor"]
+        # Высота задана на ScrolledWindow, а не на TreeView: иначе GTK
+        # просит минимум и видно только две строки.
+        self.assertGreaterEqual(screen.profile_scrolled.get_min_content_height(), 150)
+        self.assertGreaterEqual(screen.profile_scrolled.get_allocation().height, 150)
+        self.assertGreater(screen.profile_store.iter_n_children(None), 0)
+        window.destroy()

@@ -35,12 +35,16 @@ class DoctorScreen:
             self.profile_store,
             [_("Протокол"), _("Статус"), _("Действует на"), _("Стратегия")],
         )
-        self.profile_tree.set_size_request(-1, 150)
+        # Высоту задаём самому ScrolledWindow: size_request на TreeView внутри
+        # него не влияет — окно прокрутки всё равно просит минимум и
+        # показывает две строки.
+        self.profile_scrolled = common.scrolled(self.profile_tree)
+        self.profile_scrolled.set_min_content_height(200)
         self.profile_note = common.label("", wrap=True)
 
         common.pack(self.box, self.buttons)
         common.pack(self.box, self.profile_note)
-        common.pack(self.box, common.scrolled(self.profile_tree))
+        common.pack(self.box, self.profile_scrolled)
         common.pack_expand(self.box, self.scrolled)
         self.last_report = None
         self.refresh()
