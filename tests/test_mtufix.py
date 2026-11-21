@@ -84,3 +84,18 @@ class InterfaceMtuTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncreaseTests(unittest.TestCase):
+    def test_default_never_increases(self) -> None:
+        with mock.patch.object(mtufix.util, "run_helper", return_value=(5, {"ok": False})) as helper:
+            mtufix.set_interface_mtu("wlo1", 1500)
+        args = helper.call_args.args[1]
+        self.assertNotIn("--allow-increase", args)
+
+    def test_increase_adds_flag(self) -> None:
+        with mock.patch.object(mtufix.util, "run_helper", return_value=(0, {"ok": True})) as helper, \
+             mock.patch.object(mtufix, "read_state", return_value=mtufix.MtuState("wlo1", 1500, 0, None, None)):
+            code, payload = mtufix.set_interface_mtu("wlo1", 1500, increase=True)
+        self.assertEqual(code, 0)
+        self.assertIn("--allow-increase", helper.call_args.args[1])

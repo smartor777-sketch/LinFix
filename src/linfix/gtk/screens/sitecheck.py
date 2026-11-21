@@ -45,9 +45,6 @@ class SiteCheckScreen:
         self.add_button = common.button(_("Добавить в hostlist"), lambda _: self.add_to_hostlist())
         self.add_button.set_sensitive(False)
         self.mtu_button = common.button(_("Починить MTU"), lambda _: self.fix_mtu())
-        # no_show_all: иначе show_all() окна снова покажет кнопку.
-        self.mtu_button.set_no_show_all(True)
-        self.mtu_button.set_visible(False)
         common.pack(self.buttons, self.add_button)
         common.pack(self.buttons, self.mtu_button)
 
@@ -61,60 +58,124 @@ class SiteCheckScreen:
         self._last: sitecheck.SiteCheck | None = None
 
     def on_shown(self) -> None:
+        # MTU-кнопка всегда видима; обновляем только подпись.
         self._update_mtu_button()
 
     def _update_mtu_button(self) -> None:
         """Кнопка MTU полезна и при «медленно»: причину мог не увидеть тест."""
 
         result = self._last
+        # Кнопка нужна при любом результате: MTU — самостоятельная настройка,
+        # а не только реакция на вердикт.
         mtu = (result.suggested_mtu if result else None) or 1492
-        if result is not None and result.status in {"pmtu", "slow"}:
-            self.mtu_button.set_label(_("Починить MTU (→{mtu})").format(mtu=mtu))
-            self.mtu_button.set_visible(True)
-        else:
-            self.mtu_button.set_visible(False)
+        self.mtu_button.set_label(_("Починить MTU (→{mtu})").format(mtu=mtu))
+        self.mtu_button.set_visible(True)
 
     def fix_mtu(self) -> None:
-        """Исправить «чёрную дыру» PMTU: probing или MTU интерфейса."""
+        """Диалог исправления MTU: probing, авто-значение или ручной ввод."""
 
         result = self._last
-        if result is None or result.status not in {"pmtu", "slow"}:
-            return
-        target_mtu = result.suggested_mtu or 1492
-        state = mtufix.read_state(result.ip)
+        state = mtufix.read_state(result.ip if result else None)
+        suggested = (result.suggested_mtu if result else None) or 1492
+        current = state.interface_mtu or 1500
 
-        dialog = Gtk.MessageDialog(
-            transient_for=self.app.window,
-            flags=Gtk.DialogFlags.MODAL,
-            message_type=Gtk.MessageType.QUESTION,
-            buttons=Gtk.ButtonsType.NONE,
-            text=_("Как исправить MTU?"),
+        dialog = Gtk.Dialog(title=_("MTU и PMTU"), transient_for=self.app.window)
+        dialog.add_buttons(_("Отмена"), Gtk.ResponseType.CANCEL)
+        dialog.set_default_size(520, 300)
+
+        box = dialog.get_content_area()
+        box.set_spacing(10)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+
+        box.pack_start(
+            common.label(_("Сейчас: {state}").format(state=mtufix.describe(state))), False, False, 0
         )
-        dialog.format_secondary_text(
-            _(
-                "Сейчас: {state}.\n\n"
-                "1) tcp_mtu_probing — ядро само подберёт MTU (мягко, обратимо, "
-                "но помогает не всегда).\n"
-                "2) Уменьшить MTU интерфейса до {mtu} — действует сразу; сбросится "
-                "при переподключении Wi-Fi, если не закрепить в NetworkManager."
-            ).format(state=mtufix.describe(state), mtu=target_mtu)
+        box.pack_start(
+            common.label(
+                _(
+                    "Меньший MTU помогает при «чёрной дыре» PMTU. "
+                    "Значение можно задать вручную — например, 1480 или 1400."
+                ),
+                wrap=True,
+            ),
+            False,
+            False,
+            0,
         )
-        probe_button = dialog.add_button(_("Включить tcp_mtu_probing"), 1)
-        set_button = dialog.add_button(_("Уменьшить MTU до {mtu}").format(mtu=target_mtu), 2)
-        if state.interface is None:
-            set_button.set_sensitive(False)
-        dialog.add_button(_("Отмена"), Gtk.ResponseType.CANCEL)
-        dialog.show_all()
+
+        mtu_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        common.pack(mtu_row, common.label(_("MTU:")))
+        mtu_entry = common.entry()
+        mtu_entry.set_text(str(suggested))
+        mtu_entry.set_width_chars(6)
+        common.pack(mtu_row, mtu_entry)
+        if state.interface:
+            common.pack(
+                mtu_row,
+                common.label(_("интерфейс: {iface}").format(iface=state.interface)),
+            )
+        box.pack_start(mtu_row, False, False, 0)
+
+        probe_button = common.button(_("Включить tcp_mtu_probing"), lambda _: None)
+        box.pack_start(probe_button, False, False, 0)
+
+        hint = common.label(
+            _("Диапазон 576…1500. Обычный MTU — 1500; для Wi-Fi/PPPoE часто 1492 или 1400."),
+            wrap=True,
+        )
+        box.pack_start(hint, False, False, 0)
+
+        apply_button = dialog.add_button(_("Применить MTU"), 2)
+        restore_button = dialog.add_button(_("Вернуть 1500"), 3)
+        # Возврат к стандартному MTU нужен, чтобы любой эксперимент был обратим.
+        restore_button.set_sensitive(current < 1500)
+        box.show_all()
+
+        action = {"kind": None}
+
+        def on_probe(_button) -> None:
+            action["kind"] = "probe"
+            dialog.response(1)
+
+        probe_button.connect("clicked", on_probe)
+
         response = dialog.run()
+        text = mtu_entry.get_text().strip()
         dialog.destroy()
 
-        if response == 1:
-            self._run_mtu_fix(lambda: mtufix.enable_probing(), _("tcp_mtu_probing=1"))
-        elif response == 2 and state.interface:
+        if action["kind"] == "probe":
+            self._run_mtu_fix(lambda: mtufix.enable_probing(), "tcp_mtu_probing=1")
+            return
+        if response == 3:
             self._run_mtu_fix(
-                lambda: mtufix.set_interface_mtu(state.interface, target_mtu),
-                _("MTU {iface} → {mtu}").format(iface=state.interface, mtu=target_mtu),
+                lambda: mtufix.set_interface_mtu(state.interface, 1500, increase=True)
+                if state.interface
+                else (2, {"ok": False, "error": _("интерфейс не определён")}),
+                "MTU → 1500",
             )
+            return
+        if response != 2:
+            return
+        if not state.interface:
+            common.message(self.app, _("Не удалось определить сетевой интерфейс"))
+            return
+        try:
+            value = int(text)
+        except ValueError:
+            common.message(self.app, _("MTU должен быть числом"))
+            return
+        if value == current:
+            common.toast(self.app, _("MTU уже {mtu}").format(mtu=value))
+            return
+        self._run_mtu_fix(
+            lambda: mtufix.set_interface_mtu(
+                state.interface, value, increase=value > current
+            ),
+            _("MTU {iface} → {mtu}").format(iface=state.interface, mtu=value),
+        )
 
     def _run_mtu_fix(self, fn, label: str) -> None:
         self.mtu_button.set_sensitive(False)
