@@ -56,6 +56,8 @@ class BlockcheckResult:
     strategies: list[Strategy] = field(default_factory=list)
     output: str = ""
     error: str = ""
+    #: Сайт открывается без обхода — подбирать нечего.
+    works_without_bypass: bool = False
 
     @property
     def best(self) -> Strategy | None:
@@ -135,6 +137,7 @@ def run_blockcheck(
     output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
     result = BlockcheckResult(domains=domains, level=level, output=output[-6000:])
     result.strategies = parse_output(output)
+    result.works_without_bypass = "working without bypass" in output.lower()
     if completed.returncode != 0 and not result.strategies:
         result.error = f"blockcheck2 завершился с кодом {completed.returncode}"
         tail = output.strip().splitlines()[-3:]

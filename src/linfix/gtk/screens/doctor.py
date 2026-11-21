@@ -118,13 +118,13 @@ class DoctorScreen:
             strategies = payload.get("strategies") or []
             best = payload.get("best")
             if not strategies:
-                common.message(
-                    self.app,
-                    _("Рабочих стратегий не найдено.\n\n{err}").format(
-                        err=payload.get("error") or _("см. Логи")
-                    ),
+                message = str(payload.get("error") or _("см. Логи"))
+                common.message(self.app, _("Стратегии не найдены.\n\n{err}").format(err=message))
+                self.verdict_label.set_text(
+                    _("Стратегии не нужны: {note}").format(note=message)
+                    if payload.get("works_without_bypass")
+                    else _("Стратегии не найдены")
                 )
-                self.verdict_label.set_text(_("Стратегии не найдены"))
                 return
             lines = [
                 _("Найдено стратегий: {n}").format(n=len(strategies)),

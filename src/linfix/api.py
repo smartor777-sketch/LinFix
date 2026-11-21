@@ -981,10 +981,18 @@ def pick_strategy(
             util.run_helper("zapret.restart", ["--service", service], timeout=120)
 
     best = result.best
+    note = ""
+    if not best and result.works_without_bypass:
+        note = (
+            "эти домены открываются без обхода — у вашего провайдера они не "
+            "блокируются, подбирать стратегию не нужно"
+        )
     return (
         EXIT_OK if best else EXIT_CHECK_FAILED,
         {
             "ok": bool(best),
+            "works_without_bypass": result.works_without_bypass,
+            "note": note,
             "domains": result.domains,
             "level": result.level,
             "restarted": stopped,
@@ -997,6 +1005,8 @@ def pick_strategy(
                 if best
                 else None
             ),
-            "error": result.error or ("" if best else "рабочих стратегий не найдено"),
+            "error": result.error
+            or note
+            or ("" if best else "рабочих стратегий не найдено"),
         },
     )

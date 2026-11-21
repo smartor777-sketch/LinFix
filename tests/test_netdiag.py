@@ -205,3 +205,21 @@ class BlockcheckTests(unittest.TestCase):
             ok, reason = blockcheck.check_readiness(cfg)
         self.assertFalse(ok)
         self.assertIn("остановить", reason)
+
+
+class BlockcheckBypassTests(unittest.TestCase):
+    def test_detects_working_without_bypass(self) -> None:
+        from linfix import blockcheck
+        from unittest import mock
+
+        output = (
+            "* SUMMARY\n"
+            "curl_test_https_tls12 ipv4 rutracker.org : working without bypass\n"
+        )
+        completed = mock.Mock(returncode=0, stdout=output, stderr="")
+        with mock.patch.object(blockcheck.util, "run", return_value=completed), \
+             mock.patch.object(blockcheck, "script_path") as path_mock:
+            path_mock.return_value.is_file.return_value = True
+            result = blockcheck.run_blockcheck("/opt/zapret2", domains=["rutracker.org"])
+        self.assertTrue(result.works_without_bypass)
+        self.assertEqual(result.strategies, [])
