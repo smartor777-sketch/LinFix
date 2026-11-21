@@ -22,8 +22,11 @@ class DoctorScreen:
         self.tree = common.table_from_store(
             self.store,
             [_("Проверка"), _("Статус"), _("Детали"), _("Подсказка")],
+            tooltip_column=2,
         )
-        self.scrolled = common.scrolled(self.tree)
+        # Без внутренней прокрутки: высота по числу строк, прокручивается
+        # страница целиком. Иначе таблица обрезается на середине.
+        self.scrolled = self.tree
 
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         self.net_button = common.button(
@@ -43,17 +46,28 @@ class DoctorScreen:
         self.net_tree = common.table_from_store(
             self.net_store,
             [_("Проверка"), _("Статус"), _("Детали")],
+            tooltip_column=2,
         )
         # Без ScrolledWindow: TreeView запрашивает высоту по числу строк,
         # внешняя прокрутка страницы уже есть.
         self.net_scrolled = self.net_tree
+        # Пока проверка не запущена, пустая таблица с одним заголовком
+        # выглядит как поломка — показываем подсказку вместо неё.
+        self.net_scrolled.set_no_show_all(True)
+        self.net_scrolled.set_visible(False)
         self.reco_label = common.label("", wrap=True)
+        self.net_hint = common.label(
+            _("Нажмите «Сетевая диагностика», чтобы проверить DC Telegram, "
+              "DNS, SNI и скорость медиа"),
+            wrap=True,
+        )
 
         # Профили desync — только просмотр: какие правила реально работают.
         self.profile_store = Gtk.ListStore(str, str, str, str)
         self.profile_tree = common.table_from_store(
             self.profile_store,
             [_("Протокол"), _("Статус"), _("Действует на"), _("Стратегия")],
+            tooltip_column=3,
         )
         # Высота по контенту: без внутренней прокрутки.
         self.profile_scrolled = self.profile_tree
@@ -61,11 +75,12 @@ class DoctorScreen:
 
         common.pack(self.box, self.buttons)
         common.pack(self.box, self.verdict_label)
+        common.pack(self.box, self.net_hint)
         common.pack(self.box, self.net_scrolled)
         common.pack(self.box, self.reco_label)
         common.pack(self.box, self.profile_note)
         common.pack(self.box, self.profile_scrolled)
-        common.pack_expand(self.box, self.scrolled)
+        common.pack(self.box, self.scrolled)
         self.last_report = None
         self.refresh()
         self.refresh_profiles()
@@ -172,6 +187,8 @@ class DoctorScreen:
             self.net_button.set_sensitive(True)
             emoji, title, detail = report.verdict
             self.verdict_label.set_text(f"{emoji} {title}\n{detail}")
+            self.net_hint.set_visible(False)
+            self.net_scrolled.set_visible(True)
             self.net_store.clear()
             for title_row, status, details in report.as_rows():
                 self.net_store.append(
