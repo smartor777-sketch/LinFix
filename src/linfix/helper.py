@@ -800,8 +800,9 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
             install_dir,
             domains=domains,
             level=level,
-            # blockcheck2 сам по себе медленный: минута на veryquick — мало.
-            timeout=max(args.timeout, 600.0),
+            # Должно быть меньше внешнего таймаута вызывающего, иначе helper
+            # убьют раньше, чем он успеет вернуть zapret обратно.
+            timeout=min(max(args.timeout, 120.0), 900.0),
         )
     finally:
         if stopped:

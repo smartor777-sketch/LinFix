@@ -238,3 +238,30 @@ class CfPathCheckTests(unittest.TestCase):
         self.assertEqual(code, api.EXIT_OK)
         self.assertTrue(payload["ok"])
         self.assertFalse(payload.get("rolled_back", False))
+
+
+class StrategySafetyTests(unittest.TestCase):
+    def test_restores_zapret_after_helper_failure(self) -> None:
+        """Если helper убит по таймауту, zapret должен вернуться в работу."""
+
+        info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=True)
+        inactive = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=False)
+        with patch("linfix.api.zapret.detect_zapret", side_effect=[info, inactive]), patch(
+            "linfix.api.util.run_helper", side_effect=util.NetfixError("timeout")
+        ) as helper:
+            code, payload = api.pick_strategy(Config(), level="quick", timeout=10)
+
+        self.assertEqual(code, api.EXIT_NO_RIGHTS)
+        self.assertFalse(payload["ok"])
+        # Последний вызов helper — восстановление службы.
+        self.assertEqual(helper.call_args_list[-1].args[0], "zapret.restart")
+
+    def test_does_not_touch_zapret_if_it_was_stopped(self) -> None:
+        info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=False)
+        with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.util.run_helper",
+            side_effect=util.NetfixError("boom"),
+        ) as helper:
+            api.pick_strategy(Config(), level="quick", timeout=10)
+        actions = [call.args[0] for call in helper.call_args_list]
+        self.assertNotIn("zapret.restart", actions)

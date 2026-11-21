@@ -137,7 +137,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.4.8_all.deb
+sudo apt install ./linfix_0.4.9_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
@@ -203,6 +203,16 @@ linfix setup                   # мастер настройки в термин
   `linfix tgws config --log-max-mb 10`.
 - «Настройки → Очистить логи» удаляет `proxy.log` и его бэкап.
 - `journalctl` ограничен системно (`SystemMaxUse`, по умолчанию 500 МБ).
+
+## Кириллица в пути
+
+Клонируйте в путь без не-ASCII символов: `~/LinFix`, а не `~/Документы/LinFix`.
+`pkexec` на части polkit-сборок падает на не-ASCII аргументах
+(`g_variant_new_string: assertion 'g_utf8_validate' failed`), из-за чего
+привилегированные действия не запускаются.
+
+LinFix умеет обходить это (создаёт ASCII-обёртку во `/tmp`), но лучше просто
+не создавать проблему — в ASCII-пути работает обычная ветка через `PYTHONPATH`.
 
 ## Безопасность
 
