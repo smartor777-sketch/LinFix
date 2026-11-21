@@ -484,3 +484,25 @@ class DoctorTablesTests(unittest.TestCase):
                     renderer.get_property("ellipsize"), Pango.EllipsizeMode.NONE
                 )
         app.window.destroy()
+
+
+class WindowTitleTests(unittest.TestCase):
+    def test_title_contains_version_and_section(self) -> None:
+        from linfix import __version__ as version
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+
+        self.assertEqual(window.get_title(), f"LinFix v{version} — Статус")
+
+        window.set_page("settings")
+        self.assertEqual(window.get_title(), f"LinFix v{version} — Настройки")
+
+        window.set_page("hostlist")
+        self.assertEqual(window.get_title(), f"LinFix v{version} — Списки")
+
+        window.set_page("status")
+        self.assertEqual(window.get_title(), f"LinFix v{version} — Статус")
+        window.destroy()
