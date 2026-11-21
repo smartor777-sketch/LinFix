@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, Gtk
 
-from ... import api, zapret
+from ... import api, netdiag, tgws, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -26,8 +26,23 @@ class DoctorScreen:
         self.scrolled = common.scrolled(self.tree)
 
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
+        self.net_button = common.button(
+            _("Сетевая диагностика"), lambda _: self.run_network_diag()
+        )
+        common.pack(self.buttons, self.net_button)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
+
+        # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
+        self.verdict_label = common.label("", wrap=True, css_class="screen-title")
+        self.net_store = Gtk.ListStore(str, str, str)
+        self.net_tree = common.table_from_store(
+            self.net_store,
+            [_("Проверка"), _("Статус"), _("Детали")],
+        )
+        self.net_scrolled = common.scrolled(self.net_tree)
+        self.net_scrolled.set_min_content_height(180)
+        self.reco_label = common.label("", wrap=True)
 
         # Профили desync — только просмотр: какие правила реально работают.
         self.profile_store = Gtk.ListStore(str, str, str, str)
@@ -43,12 +58,47 @@ class DoctorScreen:
         self.profile_note = common.label("", wrap=True)
 
         common.pack(self.box, self.buttons)
+        common.pack(self.box, self.verdict_label)
+        common.pack(self.box, self.net_scrolled)
+        common.pack(self.box, self.reco_label)
         common.pack(self.box, self.profile_note)
         common.pack(self.box, self.profile_scrolled)
         common.pack_expand(self.box, self.scrolled)
         self.last_report = None
         self.refresh()
         self.refresh_profiles()
+
+    def run_network_diag(self) -> None:
+        """Проверить сеть до Telegram: DC, DNS, DPI, медиа — с вердиктом."""
+
+        self.net_button.set_sensitive(False)
+        self.verdict_label.set_text(_("Проверяется… это занимает до 20 секунд"))
+
+        def job():
+            return netdiag.run_network_diagnostics(
+                proxy_running=bool(tgws.service_state() == "active"),
+                zapret_running=bool(zapret.detect_zapret(self.app.cfg.zapret.service).active),
+                timeout=2.5,
+            )
+
+        def done(report) -> None:
+            self.net_button.set_sensitive(True)
+            emoji, title, detail = report.verdict
+            self.verdict_label.set_text(f"{emoji} {title}\n{detail}")
+            self.net_store.clear()
+            for title_row, status, details in report.as_rows():
+                self.net_store.append(
+                    [title_row, common.status_label(status).get_text(), details]
+                )
+            self.reco_label.set_text(
+                _("Что делать:\n") + "\n".join(f"• {tip}" for tip in report.recommendations)
+            )
+
+        def failed(exc: Exception) -> None:
+            self.net_button.set_sensitive(True)
+            self.verdict_label.set_text(_("Ошибка диагностики: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
 
     def refresh_profiles(self) -> None:
         """Показать профили zapret: активные и игнорируемые."""
