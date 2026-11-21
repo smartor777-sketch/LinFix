@@ -832,7 +832,7 @@ def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
             print(f"{report.status.upper()}: {report.detail}")
             if report.log_path:
                 print(f"Лог: {report.log_path}")
-        return EXIT_OK if report.status in {"ok", "warn", "disabled"} else EXIT_CHECK_FAILED
+        return EXIT_OK if report.status in {"ok", "warn", "disabled", "fallback"} else EXIT_CHECK_FAILED
 
     if args.state == "status":
         event = guard.load_event()
@@ -845,6 +845,7 @@ def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
             "last_trip": event.get("last_trip"),
             "last_detail": event.get("detail"),
             "last_status": event.get("status"),
+            "h2_disabled": event.get("h2_disabled", False),
         }
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -20,6 +20,18 @@ from . import cfdomains, state, tgws, util
 from .config import Config
 
 CF_FAILURE_RE = re.compile(r"CF proxy failed", re.IGNORECASE)
+# H2-путь к CF может открываться, но не отдавать заголовки ответа.
+# В verbose-режиме это видно как "phase=headers" и "down=0"; без него —
+# как серия "H2 ... request failed" с таймаутом/обрывом записи.
+H2_STALL_RE = re.compile(
+    r"H2 DETAIL CLOSE lane=\d+ \[[^\]]*phase=headers[^\]]*down=0\b",
+    re.IGNORECASE,
+)
+H2_FAILURE_RE = re.compile(
+    r"H2 .*?request failed: (?:ReadTimeout|WriteError|RemoteProtocolError|ConnectTimeout)",
+    re.IGNORECASE,
+)
+H2_STALL_MIN = 5
 
 
 @dataclass(frozen=True)
@@ -41,7 +53,7 @@ class Cursor:
 
 @dataclass(frozen=True)
 class GuardReport:
-    status: str  # ok | warn | disabled | tripped
+    status: str  # ok | warn | disabled | tripped | fallback
     detail: str
     failures: int
     threshold: int
@@ -49,6 +61,7 @@ class GuardReport:
     tls_ok: bool | None = None
     stopped: bool | None = None
     log_path: str | None = None
+    h2_disabled: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -56,6 +69,24 @@ class GuardReport:
 
 def count_cf_failures(lines: Iterable[str]) -> int:
     return sum(1 for line in lines if CF_FAILURE_RE.search(line))
+
+
+def count_h2_stalls(lines: Iterable[str]) -> int:
+    """Сколько H2-каналов закрылось, не получив заголовки ответа."""
+
+    return sum(1 for line in lines if H2_STALL_RE.search(line))
+
+
+def count_h2_failures(lines: Iterable[str]) -> int:
+    """Серия таймаутов H2-запросов — косвенный признак зависшего H2-пути."""
+
+    return sum(1 for line in lines if H2_FAILURE_RE.search(line))
+
+
+def should_disable_h2(stalls: int, h2_enabled: bool, *, failures: int = 0) -> bool:
+    """Отключать H2 только при серии подтверждённых зависаний."""
+
+    return h2_enabled and (stalls >= H2_STALL_MIN or failures >= H2_STALL_MIN)
 
 
 def should_trip(failures: int, threshold: int, tls_ok: bool) -> bool:
@@ -194,6 +225,79 @@ def _save_event(home: str | Path | None, report: GuardReport) -> None:
     )
 
 
+def _h2_enabled(home: str | Path | None) -> bool:
+    path = tgws.find_config_path(home)
+    if path is None:
+        return False
+    try:
+        return tgws.load_json_config(path).get("h2") is not False
+    except tgws.TgwsError:
+        return False
+
+
+def _disable_h2(home: str | Path | None, stalls: int, cf_failures: int, cfg: Config) -> GuardReport:
+    """Переключить TgWsProxy на WS-CF и вернуть отчёт без остановки службы."""
+
+    path = tgws.find_config_path(home)
+    detail_prefix = (
+        f"H2-путь к CF завис: {stalls} каналов без заголовков за окно. "
+    )
+    if path is None:
+        report = GuardReport(
+            "warn",
+            detail_prefix + "конфиг TgWsProxy не найден — H2 не отключён",
+            cf_failures,
+            cfg.guard.error_threshold,
+        )
+        _save_event(home, report)
+        return report
+
+    try:
+        data, backup, changed = tgws.update_config(path, {"h2": False})
+    except tgws.TgwsError as exc:
+        report = GuardReport(
+            "warn",
+            detail_prefix + f"не удалось отключить H2: {exc}",
+            cf_failures,
+            cfg.guard.error_threshold,
+        )
+        _save_event(home, report)
+        return report
+
+    restarted = util.run(
+        ["systemctl", "--user", "restart", tgws.UNIT_NAME], check=False, timeout=60
+    )
+    restart_ok = restarted.returncode == 0
+    detail = detail_prefix + (
+        "H2 отключён, медиа переключено на WS-CF."
+        if changed
+        else "H2 уже был отключён; перезапуск для сброса каналов."
+    )
+    if not restart_ok:
+        detail += " (не удалось перезапустить tgwsproxy — проверьте вручную)"
+    report = GuardReport(
+        "fallback",
+        detail,
+        cf_failures,
+        cfg.guard.error_threshold,
+        log_path=str(tgws.find_log_path(home) or ""),
+        h2_disabled=True,
+    )
+    payload = {
+        "last_trip": datetime.now().astimezone().isoformat(timespec="seconds"),
+        **report.to_dict(),
+        "backup": str(backup) if backup else None,
+        "restarted": restart_ok,
+        "h2_config": data.get("h2"),
+    }
+    util.atomic_write(
+        event_path(home),
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        mode=0o600,
+    )
+    return report
+
+
 def check_guard(
     cfg: Config,
     *,
@@ -219,6 +323,11 @@ def check_guard(
     save_cursor(cursor_file, new_cursor)
 
     failures = count_cf_failures(lines)
+    stalls = count_h2_stalls(lines)
+    h2_failures = count_h2_failures(lines)
+    if should_disable_h2(stalls, _h2_enabled(home), failures=h2_failures):
+        return _disable_h2(home, stalls + h2_failures, failures, cfg)
+
     threshold = cfg.guard.error_threshold
     if failures < threshold:
         return GuardReport(

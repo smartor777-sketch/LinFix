@@ -455,6 +455,15 @@ def _guard_check(cfg: Config) -> Check:
         return Check("guard", "Guard", WARN, "выключен", "linfix guard on")
 
     event = guard.load_event()
+    if event.get("h2_disabled"):
+        detail = str(event.get("detail", ""))[:90]
+        return Check(
+            "guard",
+            "Guard",
+            WARN,
+            f"{event.get('last_trip')}: {detail}",
+            "linfix tgws config --h2 on (когда CF снова отдаёт заголовки)",
+        )
     if event.get("last_trip"):
         detail = str(event.get("detail", ""))[:90]
         return Check(
