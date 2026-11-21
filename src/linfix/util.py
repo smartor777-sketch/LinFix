@@ -236,6 +236,12 @@ def helper_command() -> list[str]:
 
 
 def _parse_helper_payload(stdout: str, stderr: str) -> dict[str, object]:
+    """Разобрать JSON от helper.
+
+    Сначала stdout: там всегда ответ. В stderr может быть шум (GLib-CRITICAL
+    от pkexec окружения), и если разбирать его первым, ответ теряется.
+    """
+
     for stream in (stdout, stderr):
         text = (stream or "").strip()
         if not text:
@@ -243,17 +249,33 @@ def _parse_helper_payload(stdout: str, stderr: str) -> dict[str, object]:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            start = text.find("{")
-            end = text.rfind("}")
-            if start < 0 or end <= start:
-                continue
-            try:
-                payload = json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                continue
+            payload = None
+        if isinstance(payload, dict):
+            return payload
+        # Ответ может быть окружён шумом — ищем последний валидный объект.
+        for candidate in _json_objects(text):
+            payload = candidate
         if isinstance(payload, dict):
             return payload
     return {}
+
+
+def _json_objects(text: str) -> list[dict[str, object]]:
+    """Все корректные JSON-объекты в строке (с учётом вложенности)."""
+
+    decoder = json.JSONDecoder()
+    found: list[dict[str, object]] = []
+    index = text.find("{")
+    while index >= 0:
+        try:
+            obj, end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            index = text.find("{", index + 1)
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+        index = text.find("{", index + end)
+    return found
 
 
 def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
@@ -270,7 +292,6 @@ def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
         "linfix.helper",
         action,
         *[str(item) for item in args],
-        "--json",
     ]
     if which("pkexec"):
         return ["pkexec", "env", f"PYTHONPATH={src_root}", *inner]

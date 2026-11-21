@@ -938,6 +938,340 @@ def pick_strategy(
     level: str = "quick",
     timeout: float = 900.0,
 ) -> tuple[int, dict[str, object]]:
+    """Подобрать рабочую стратегию desync через blockcheck2 (root через helper).
+
+    blockcheck2 сам просит root и запускает sudo, а в GUI терминала нет —
+    поэтому запускаем его из helper, который уже root. Заодно это один
+    запрос пароля вместо двух.
+    """
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.install_dir:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "zapret не установлен"}
+
+    args = [
+        "--service",
+        info.service or cfg.zapret.service,
+        "--install-dir",
+        str(info.install_dir),
+        "--level",
+        level,
+        "--timeout",
+        str(timeout),
+    ]
+    for domain in domains or ["rutracker.org", "telegram.org"]:
+        args.extend(["--domain", domain])
+
+    try:
+        code, payload = util.run_helper("zapret.blockcheck", args, timeout=timeout + 180)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"подбор стратегии: {exc}"}
+
+    if code != 0:
+        return code, payload
+
+    best = payload.get("best")
+    note = ""
+    if not best and payload.get("works_without_bypass"):
+        note = (
+            "эти домены открываются без обхода — у вашего провайдера они не "
+            "блокируются, подбирать стратегию не нужно"
+        )
+    return EXIT_OK, {
+        **payload,
+        "ok": True,
+        "found": bool(best),
+        "note": note,
+        "error": note if not best and not payload.get("error") else payload.get("error", ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Hostlist zapret: свои списки, импорт, редактирование
+# ---------------------------------------------------------------------------
+
+
+def hostlist_path(cfg: Config) -> str | None:
+    """Путь к hostlist, в который можно писать."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    return zapret.hostlist_target(info, cfg.zapret.hostlist)
+
+
+def get_hostlist_entries(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Все домены hostlist с пометкой источника (cf/user/other)."""
+
+    from . import hostlist as hostlist_mod
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    entries = hostlist_mod.read_entries(path)
+    counts = {"cf": 0, "user": 0, "other": 0}
+    for entry in entries:
+        counts[entry.source] = counts.get(entry.source, 0) + 1
+    return EXIT_OK, {
+        "ok": True,
+        "hostlist": path,
+        "counts": counts,
+        "total": len(entries),
+        "entries": [{"domain": e.domain, "source": e.source} for e in entries],
+    }
+
+
+def add_to_hostlist(
+    cfg: Config, domains: list[str], *, restart: bool = True
+) -> tuple[int, dict[str, object]]:
+    """Добавить домены в hostlist (root через helper) с рестартом zapret."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--timeout", "30"]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def import_hostlist(
+    cfg: Config,
+    *,
+    url: str | None = None,
+    list_file: str | None = None,
+    restart: bool = True,
+) -> tuple[int, dict[str, object]]:
+    """Импортировать список доменов из URL или файла."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--timeout", "60"]
+    if url:
+        args.extend(["--url", url])
+    if list_file:
+        args.extend(["--list-file", list_file])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=300)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def remove_from_hostlist(
+    cfg: Config, domains: list[str], *, restart: bool = True
+) -> tuple[int, dict[str, object]]:
+    """Удалить домены из блоков LinFix с рестартом zapret."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.remove", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.remove: {exc}"}
+
+
+def hostlist_sources(cfg: Config) -> list[tuple[str, str]]:
+    """Скрипты-источники списков, доступные в установленном zapret."""
+
+    from . import hostlist as hostlist_mod
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.install_dir:
+        return []
+    return hostlist_mod.list_sources(Path(info.install_dir) / "ipset")
+
+
+def load_hostlist_source(cfg: Config, script: str) -> tuple[int, dict[str, object]]:
+    """Загрузить готовый список через штатный скрипт zapret (root)."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    directory = Path(info.install_dir) / "ipset" if info.install_dir else Path("/opt/zapret2/ipset")
+    try:
+        return util.run_helper(
+            "hostlist.load_source",
+            ["--script", script, "--ipset-dir", str(directory)],
+            timeout=900,
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.load_source: {exc}"}
+
+
+def zapret_hostlist_arg_problems(cfg: Config) -> list[str]:
+    """Строки конфига zapret, где hostlist передан без --hostlist."""
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    bare = list(zapret.find_bare_hostlist_args(info.cmdline))
+    if bare:
+        return bare
+    return zapret.config_hostlist_problems()
+
+
+def check_cf_path(limit: int = 3, timeout: float = 5.0) -> dict[str, object]:
+    """Быстрая проверка CF-пути: сколько доменов отвечает по TLS."""
+
+    try:
+        results = cfdomains.test_domains(limit=limit, timeout=timeout)
+    except Exception as exc:  # noqa: BLE001 — проверка не должна ронять UI
+        return {"ok": 0, "total": 0, "error": str(exc)}
+    ok = sum(1 for _host, alive, _detail in results if alive)
+    return {"ok": ok, "total": len(results), "results": results}
+
+
+def neutralize_zapret_hostlist_args(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Безопасно обезвредить профили zapret без ``--hostlist=``.
+
+    Порядок: замерить CF-путь → закомментировать строки → перезапустить
+    службу → замерить снова. Если стало хуже, вернуть конфиг из бэкапа.
+    """
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    service = info.service or cfg.zapret.service
+    base = Path(info.install_dir) if info.install_dir else Path("/opt/zapret2")
+    config_path = base / "config"
+
+    before = check_cf_path()
+    try:
+        code, payload = util.run_helper(
+            "zapret.neutralize_hostlist_args", ["--config-path", str(config_path)], timeout=120
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"правка конфига: {exc}"}
+
+    payload["before"] = before
+    if code != 0 or not payload.get("changed"):
+        return code, payload
+
+    restart = util.run(["systemctl", "restart", service], check=False, timeout=60)
+    payload["restarted"] = restart.returncode == 0
+    after = check_cf_path()
+    payload["after"] = after
+
+    before_ok = int(before.get("ok") or 0)
+    after_ok = int(after.get("ok") or 0)
+    if after_ok < before_ok:
+        # Регресс — откатываем автоматически, не оставляя пользователя
+        # со сломанной сетью.
+        backup = payload.get("backup")
+        if backup:
+            try:
+                restore_code, _restore = util.run_helper(
+                    "zapret.restore_config",
+                    ["--backup", str(backup), "--config-path", str(config_path)],
+                    timeout=120,
+                )
+            except (util.NetfixError, util.CommandError) as exc:
+                payload["ok"] = False
+                payload["rolled_back"] = False
+                payload["error"] = f"ухудшилось, а откат не удался: {exc}"
+                return EXIT_ERROR, payload
+            util.run(["systemctl", "restart", service], check=False, timeout=60)
+            payload["rolled_back"] = restore_code == 0
+            payload["ok"] = False
+            payload["error"] = (
+                f"после правки CF-путь стал хуже ({before_ok}/{before.get('total')} → "
+                f"{after_ok}/{after.get('total')}); конфиг возвращён назад"
+            )
+            return EXIT_CHECK_FAILED, payload
+
+    payload["ok"] = True
+    payload["improved"] = after_ok > before_ok
+    return EXIT_OK, payload
+
+
+def add_to_cf_domains(cfg: Config, domains: list[str], *, restart: bool = True) -> tuple[int, dict[str, object]]:
+    """Добавить домены в блок CF-доменов TgWsProxy в hostlist."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--section", "cf", "--timeout", "30"]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Список CF-доменов TgWsProxy: из state, иначе из блока hostlist."""
+
+    from . import hostlist as hostlist_mod
+
+    state_info = state.load_state()
+    path = hostlist_path(cfg)
+    in_hostlist = hostlist_mod.cf_domains(path) if path else []
+    stored = list(state_info.domains)
+    domains = stored or in_hostlist
+    present = set(in_hostlist)
+    missing = [domain for domain in domains if domain not in present]
+    return EXIT_OK, {
+        "ok": True,
+        "hostlist": path,
+        "source": "state" if stored else "hostlist",
+        "updated_at": state_info.domains_updated_at,
+        "domains": domains,
+        "missing": missing,
+        "in_hostlist": len(present),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Подбор стратегии desync (blockcheck2)
+# ---------------------------------------------------------------------------
+
+
+def blockcheck_status(cfg: Config) -> tuple[bool, str]:
+    """Можно ли запускать подбор стратегии прямо сейчас."""
+
+    from . import blockcheck
+
+    return blockcheck.check_readiness(cfg)
+
+
+def pick_strategy(
+    cfg: Config,
+    *,
+    domains: list[str] | None = None,
+    level: str = "quick",
+    timeout: float = 900.0,
+) -> tuple[int, dict[str, object]]:
     """Остановить zapret и подобрать рабочую стратегию desync.
 
     Останавливать приходится: работающий zapret вмешивается в замеры.

@@ -52,6 +52,7 @@ ALLOWED_ACTIONS = {
     "zapret.install_easy",
     "zapret.set_enabled",
     "zapret.stop",
+    "zapret.blockcheck",
     "zapret.restart",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -764,6 +765,68 @@ def action_zapret_restore_config(args: argparse.Namespace) -> tuple[int, dict[st
     return 0, {"ok": True, "restored": str(target), "from": str(backup)}
 
 
+
+def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Подобрать стратегии desync через blockcheck2 (root).
+
+    Helper уже root, поэтому blockcheck2 не пытается сам звать sudo —
+    в противном случае он падает с «a terminal is required to read the
+    password». Служба zapret останавливается на время замеров и
+    восстанавливается в любом случае.
+    """
+
+    from . import blockcheck
+
+    service = validate_service(args.service or "zapret2")
+    install_dir = Path(args.install_dir or "/opt/zapret2")
+    if not (install_dir / "blockcheck2.sh").is_file():
+        raise HelperError(f"blockcheck2.sh не найден в {install_dir}")
+    level = args.level or "quick"
+    if level not in blockcheck.SCAN_LEVELS:
+        raise HelperError(f"недопустимый уровень сканирования: {level}")
+    domains = list(args.domain or []) or ["rutracker.org", "telegram.org"]
+
+    was_active = (
+        util.run(["systemctl", "is-active", service], check=False, timeout=10).stdout or ""
+    ).strip() == "active"
+
+    stopped = False
+    if was_active:
+        util.run(["systemctl", "stop", service], check=False, timeout=30)
+        stopped = True
+
+    try:
+        result = blockcheck.run_blockcheck(
+            install_dir,
+            domains=domains,
+            level=level,
+            # blockcheck2 сам по себе медленный: минута на veryquick — мало.
+            timeout=max(args.timeout, 600.0),
+        )
+    finally:
+        if stopped:
+            util.run(["systemctl", "start", service], check=False, timeout=60)
+
+    best = result.best
+    return 0, {
+        "ok": True,
+        "stopped": stopped,
+        "domains": result.domains,
+        "level": result.level,
+        "works_without_bypass": result.works_without_bypass,
+        "strategies": [
+            {"success": item.success, "total": item.total, "args": item.args}
+            for item in result.strategies[:10]
+        ],
+        "best": (
+            {"success": best.success, "total": best.total, "args": best.args}
+            if best
+            else None
+        ),
+        "error": result.error,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linfix-helper",
@@ -812,6 +875,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="разрешить mtu.set увеличивать MTU интерфейса",
     )
+    parser.add_argument("--install-dir", default="", help="каталог zapret для blockcheck")
+    parser.add_argument("--level", default="", help="уровень blockcheck: veryquick…force")
     parser.add_argument("--config-path", default="/opt/zapret2/config", help="config zapret")
     parser.add_argument("--backup", default="", help="бэкап для zapret.restore_config")
     parser.add_argument("--json", action="store_true")
@@ -857,6 +922,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_zapret_install_easy(args)
         elif args.action == "zapret.stop":
             code, payload = action_zapret_stop(args)
+        elif args.action == "zapret.blockcheck":
+            code, payload = action_zapret_blockcheck(args)
         elif args.action == "profile.set":
             code, payload = action_profile_set(args)
         elif args.action == "profile.clear":
