@@ -354,5 +354,20 @@ msgstr "Picked: error"
 msgid "не задана"
 msgstr "not set"
 
+msgid " (по умолчанию)"
+msgstr " (default)"
+
 msgid "Текущая: —"
 msgstr "Current: —"
+
+msgid "глобально"
+msgstr "global"
+
+msgid "работает"
+msgstr "active"
+
+msgid "игнорируется"
+msgstr "ignored"
+
+msgid "Профили desync: {n} правил, из них глобальных {global_n}. «Глобальный» — путь записан без --hostlist=: nfqws2 применяет такое правило ко всем доменам, и оно перекрывает последующие. В строке «Текущая» показан именно первый сработавший профиль."
+msgstr "Desync profiles: {n} rules, {global_n} of them global. A \"global\" rule has a path without --hostlist=: nfqws2 applies it to all domains and it overrides the following rules. The \"Current\" line shows the first matching profile."

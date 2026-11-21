@@ -113,8 +113,10 @@ def table_from_store(
         renderer = Gtk.CellRendererText()
         renderer.set_property("wrap-mode", Pango.WrapMode.WORD_CHAR)
         renderer.set_property("wrap-width", 120)
-        # Без лишних вертикальных отступов: при переносе строки иначе
-        # получаются огромные «поля» и таблица раздувается.
+        # Небольшой горизонтальный отступ, чтобы текст не лип к левому краю
+        # ячейки. Вертикальный — без лишнего: при переносе строки он иначе
+        # раздувает таблицу.
+        renderer.set_property("xpad", 6)
         renderer.set_property("ypad", 4)
         column = Gtk.TreeViewColumn(column_title, renderer, text=index)
         column.set_expand(True)
@@ -154,7 +156,7 @@ def message(app, text: str) -> None:
     dialog.destroy()
 
 
-def screen_box(title: str, *children: Gtk.Widget, spacing: int = 12, margin: int = 12) -> Gtk.Box:
+def screen_box(title: str, *children: Gtk.Widget, spacing: int = 12, margin: int = 16) -> Gtk.Box:
     result = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=spacing)
     result.set_margin_top(margin)
     result.set_margin_bottom(margin)

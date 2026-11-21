@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import util
+from .cfdomains import is_valid_domain
 
 UNIT_NAME = "tgwsproxy"
 INSTALL_DIR = Path("/opt/tgwsproxy")
@@ -95,6 +96,10 @@ ALLOWED_CONFIG_KEYS = {
     "verbose",
     "pool_size",
     "log_max_mb",
+    # Списки доменов: TgWsProxy превращает их в --cfproxy-domain /
+    # --cfproxy-worker-domain при генерации user-юнита (см. cli_args).
+    "cfproxy_user_domain",
+    "cfproxy_worker_domain",
     # linfix_mode остаётся только для чтения старых конфигов (см. detect_mode).
     "linfix_mode",
 }
@@ -438,6 +443,18 @@ def _validate_config_value(key: str, value: object) -> None:
     elif key in {"cfproxy", "h2", "verbose"}:
         if not isinstance(value, bool):
             raise TgwsError(f"{key}: ожидается bool, получено {type(value).__name__}")
+    elif key in {"cfproxy_user_domain", "cfproxy_worker_domain"}:
+        if not isinstance(value, list) or not value:
+            raise TgwsError(f"{key}: ожидается непустой список доменов")
+        normalized: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not is_valid_domain(item.strip().lower()):
+                raise TgwsError(f"{key}: некорректный домен {item!r}")
+            domain = item.strip().lower()
+            if domain not in normalized:
+                normalized.append(domain)
+        # Возвращаем нормализованный список: cli_args добавит из него флаги.
+        return normalized
 
 
 def update_config(
@@ -450,8 +467,8 @@ def update_config(
     for key, value in changes.items():
         if key not in ALLOWED_CONFIG_KEYS:
             raise TgwsError(f"ключ {key} нельзя менять через linfix")
-        _validate_config_value(key, value)
-        data[key] = value
+        normalized = _validate_config_value(key, value)
+        data[key] = value if normalized is None else normalized
     after = json.dumps(data, sort_keys=True)
     if before == after:
         return data, None, False

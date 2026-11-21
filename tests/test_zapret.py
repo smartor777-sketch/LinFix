@@ -226,18 +226,21 @@ class ProfileTests(unittest.TestCase):
         path.write_text(self.CONFIG, encoding="utf-8")
         return path
 
-    def test_bare_profile_marked_inactive(self) -> None:
+    def test_bare_profile_is_global(self) -> None:
+        # Путь без --hostlist= не фильтрует домены: nfqws2 применяет такой
+        # профиль ко всем соединениям (подтверждено debug-логом).
         profiles = zapret.read_profiles(self._config())
         self.assertEqual(len(profiles), 2)
-        self.assertFalse(profiles[0]["active"])
+        self.assertTrue(profiles[0]["active"])
         self.assertEqual(profiles[0]["bare_hostlists"], ["zapret-hosts-rut.txt"])
         self.assertTrue(profiles[1]["active"])
         self.assertTrue(profiles[1]["uses_placeholder"])
 
-    def test_active_profile_skips_broken_one(self) -> None:
+    def test_active_profile_prefers_global(self) -> None:
+        # Глобальный профиль стоит первым и перекрывает профиль с <HOSTLIST>.
         profiles = zapret.read_profiles(self._config())
         chosen = zapret.active_profile_for(profiles, "kws2.pclead.co.uk")
-        self.assertEqual(chosen["desync"], ["multisplit:pos=1"])
+        self.assertEqual(chosen["desync"], ["tcpseg:pos=0,1:ip_id=rnd"])
 
     def test_http_profile_protocol(self) -> None:
         import tempfile

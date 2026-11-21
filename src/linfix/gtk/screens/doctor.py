@@ -39,9 +39,6 @@ class DoctorScreen:
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
         )
         common.pack(self.buttons, self.pick_button)
-        # Краткая информация по стратегиям: текущая + результат подбора.
-        self.strat_label = common.label(_("Текущая: —"), css_class="strategy-info")
-        common.pack(self.buttons, self.strat_label)
         # Кнопка «отменить и восстановить» — видна во время прогона подбора.
         self.cancel_button = common.button(
             _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
@@ -88,6 +85,11 @@ class DoctorScreen:
         self._pick_timer: int | None = None
 
         common.pack(self.box, self.buttons)
+        # Краткая информация по стратегиям — отдельной строкой под кнопками,
+        # а не между «Подобрать стратегию» и «Отмена подбора».
+        self.strat_label = common.label(_("Текущая: —"), css_class="strategy-info")
+        self.strat_label.set_margin_bottom(2)
+        common.pack(self.box, self.strat_label)
         common.pack(self.box, self.verdict_label)
         common.pack(self.box, self.net_hint)
         common.pack(self.box, self.net_scrolled)
@@ -96,6 +98,9 @@ class DoctorScreen:
         common.pack(self.box, self.profile_scrolled)
         common.pack(self.box, self.scrolled)
         self.last_report = None
+        # Результат подбора живёт только в памяти этого запуска GUI:
+        # старые ошибки blockcheck не должны видеть при следующем старте.
+        self._pick_result: blockcheck.BlockcheckResult | None = None
         self.refresh()
         self.refresh_profiles()
 
@@ -181,24 +186,31 @@ class DoctorScreen:
 
         def job():
             profiles = zapret.read_profiles()
-            active = [
-                p for p in profiles if p.get("active") and not p.get("uses_placeholder")
-            ]
+            # Показываем профиль, который nfqws2 реально выберет первым для
+            # домена из hostlist (отладочный лог подтвердил: «голый» rut-
+            # профиль перекрывает профиль с <HOSTLIST>).
+            effective = zapret.active_profile_for(profiles, "kws2.pclead.co.uk")
             current = " ".join(
-                str(t) for p in active for t in p.get("desync") or []
-            ).strip()
-            result = blockcheck.read_last_result()
+                str(t) for t in (effective.get("desync") or [])
+            ).strip() if effective else ""
+            is_default = bool(effective and effective.get("uses_placeholder"))
+            # Только результат текущего запуска: после перезапуска LinFix
+            # надпись «Подобрано: ошибка» больше не появляется.
+            result = self._pick_result
             best = result.best if result else None
             return (
                 current,
+                is_default,
                 len(result.strategies) if result else 0,
                 best.args if best else "",
                 result.error or "" if result else "",
             )
 
         def done(result):
-            current, count, best_args, error = result
+            current, is_default, count, best_args, error = result
             text = _("Текущая: {cur}").format(cur=current or _("не задана"))
+            if is_default:
+                text += _(" (по умолчанию)")
             if best_args:
                 text += "  |  " + _("Подобрано: {n} (лучшая: {best})").format(
                     n=count, best=best_args[:60]
@@ -276,6 +288,9 @@ class DoctorScreen:
 
         self.pick_button.set_sensitive(False)
         self.cancel_button.set_visible(True)
+        # Новый прогон: результат прошлого в этом запуске больше не актуален.
+        self._pick_result = None
+        self._refresh_strategy_info()
         self.verdict_label.set_text(
             _("Подбираю стратегию… ожидаем завершения прогона")
         )
@@ -290,6 +305,10 @@ class DoctorScreen:
             self.pick_button.set_sensitive(True)
             self.cancel_button.set_visible(False)
             code, payload = result
+            if code == api.EXIT_OK:
+                self._pick_result = blockcheck.result_from_payload(payload)
+            else:
+                self._pick_result = None
             strategies = payload.get("strategies") or []
             best = payload.get("best")
             timed_out = "прерван" in str(payload.get("error") or "")
@@ -400,23 +419,24 @@ class DoctorScreen:
             ignored = 0
             for profile in profiles:
                 active = bool(profile.get("active"))
-                if not active:
+                is_global = bool(profile.get("bare_hostlists"))
+                if is_global:
                     ignored += 1
                 strategy = ", ".join(profile.get("desync") or [])[:60]
                 self.profile_store.append(
                     [
                         str(profile.get("protocol") or "—"),
-                        _("работает") if active else _("игнорируется"),
+                        _("глобально") if is_global else _("работает") if active else _("игнорируется"),
                         str(profile.get("applies_to") or "—"),
                         strategy,
                     ]
                 )
             note = _(
-                "Профили desync: {n} правил, из них игнорируется {ignored}. "
-                "«Игнорируется» — путь к списку записан без --hostlist=: nfqws2 "
-                "такую строку не применяет. Это безопасно (правило не работает) "
-                "и ничего менять не нужно."
-            ).format(n=len(profiles), ignored=ignored)
+                "Профили desync: {n} правил, из них глобальных {global_n}. "
+                "«Глобальный» — путь записан без --hostlist=: nfqws2 применяет "
+                "такое правило ко всем доменам, и оно перекрывает последующие. "
+                "В строке «Текущая» показан именно первый сработавший профиль."
+            ).format(n=len(profiles), global_n=ignored)
             self.profile_note.set_text(note)
 
         run_in_thread(job, on_done=done)

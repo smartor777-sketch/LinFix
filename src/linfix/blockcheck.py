@@ -39,8 +39,9 @@ FOUND_RE = re.compile(r"working strategy found for ipv\d \S+ : (.+?)\s*!+\s*$")
 #: недостоверны, а пользователь остаётся без обхода дольше нужного.
 DEFAULT_LOCK = Path("/run/linfix/blockcheck.lock")
 
-#: Результат последнего прогона (strategies/best) для показа в GUI.
-#: Пишет helper (root), читает GUI как обычный пользователь.
+#: Старый файл результата оставлен только для совместимости тестов:
+#: в обычной работе helper ничего не сохраняет, а GUI держит результат
+#: подбора в памяти текущего запуска (см. result_from_payload).
 DEFAULT_LAST_RESULT = Path("/run/linfix/blockcheck-last.json")
 
 
@@ -204,8 +205,29 @@ def clear_lock(path: Path | None = None) -> None:
         pass
 
 
+def result_from_payload(payload: dict[str, object]) -> BlockcheckResult:
+    """Собрать результат подбора из ответа helper (без записи на диск)."""
+
+    strategies = [
+        Strategy(
+            success=int(item.get("success", 0)),
+            total=int(item.get("total", 0)),
+            args=str(item.get("args", "")),
+        )
+        for item in payload.get("strategies", [])
+        if isinstance(item, dict)
+    ]
+    return BlockcheckResult(
+        domains=[str(d) for d in payload.get("domains", [])],
+        level=str(payload.get("level", "")),
+        strategies=strategies,
+        error=str(payload.get("error") or ""),
+        works_without_bypass=bool(payload.get("works_without_bypass", False)),
+    )
+
+
 def last_result_path(path: Path | None = None) -> Path:
-    """Путь к файлу с результатом последнего прогона (подменяется в тестах)."""
+    """Путь к старому файлу результата (используется только в тестах)."""
 
     return Path(path) if path is not None else DEFAULT_LAST_RESULT
 

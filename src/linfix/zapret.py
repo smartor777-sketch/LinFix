@@ -422,12 +422,14 @@ def read_profiles(config_path: str | Path = "/opt/zapret2/config") -> list[dict[
                     if uses_placeholder
                     else "только свой список"
                     if hostlists
-                    else "весь трафик (нет --hostlist)"
+                    else "весь трафик (список без --hostlist не фильтрует)"
                     if bare
                     else "весь трафик"
                 ),
-                # «Голый» путь nfqws2 игнорирует — профиль фактически неактивен.
-                "active": not bare,
+                # nfqws2 применяет все профили. «Голый» путь не ограничивает
+                # домены, поэтому такой профиль работает глобально (это
+                # подтверждено debug-логом: он перехватил kws1.*.co.uk).
+                "active": True,
                 "raw": line,
             }
         )
@@ -435,11 +437,22 @@ def read_profiles(config_path: str | Path = "/opt/zapret2/config") -> list[dict[
 
 
 def active_profile_for(profiles: list[dict[str, object]], domain: str) -> dict[str, object] | None:
-    """Какой профиль первым совпадёт с доменом (учитывая порядок)."""
+    """Какой профиль первым совпадёт с доменом (учитывая порядок).
+
+    nfqws2 выбирает первое совпавшее правило. Профиль без фильтра по
+    hostlist (в том числе с «голым» путём без ``--hostlist=``) совпадает с
+    любым доменом и поэтому перекрывает последующие профили.
+    """
 
     for profile in profiles:
         if not profile.get("active"):
-            continue  # «голый» путь — правило не работает
+            continue
+        listed = list(profile.get("hostlists") or [])
+        if not listed and not profile.get("uses_placeholder"):
+            return profile  # глобальный профиль — совпадает с любым доменом
+    for profile in profiles:
+        if not profile.get("active"):
+            continue
         listed = list(profile.get("hostlists") or [])
         if listed and domain.lower().endswith(tuple(listed)):
             return profile
