@@ -107,6 +107,13 @@ class ConfigTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+        # Тесты режима не должны трогать реальный ~/.config/linfix/tgws-mode:
+        # иначе после make test пользовательский режим сбрасывается.
+        patcher = mock.patch.object(
+            tgws, "mode_file", return_value=self.root / "tgws-mode"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_default_config(self) -> None:
         data = tgws.default_config(1081, "127.0.0.1")
@@ -259,6 +266,28 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("--verbose", args)
         self.assertIn("--no-cfproxy", args)
         self.assertIn("--no-h2", args)
+
+    def test_cfproxy_domains_are_validated_and_entered_in_unit(self) -> None:
+        path, _ = tgws.ensure_config(create=True, home=self.root)
+        assert path is not None
+        updated, _, changed = tgws.update_config(
+            path, {"cfproxy_user_domain": [" Pclead.CO.UK ", "offshor.co.uk", "pclead.co.uk"]}
+        )
+        self.assertTrue(changed)
+        self.assertEqual(
+            updated["cfproxy_user_domain"], ["pclead.co.uk", "offshor.co.uk"]
+        )
+        args = tgws.cli_args(updated)
+        self.assertIn("--cfproxy-domain", args)
+        self.assertEqual(
+            [args[i + 1] for i, a in enumerate(args) if a == "--cfproxy-domain"],
+            ["pclead.co.uk", "offshor.co.uk"],
+        )
+
+        for bad in ([], "pclead.co.uk", ["not a domain"], [123], ["-bad.co.uk"]):
+            with self.subTest(bad=bad):
+                with self.assertRaises(tgws.TgwsError):
+                    tgws.update_config(path, {"cfproxy_user_domain": bad})
 
     def test_tray_unit_keeps_display(self) -> None:
         unit = tgws.render_unit("/opt/tgwsproxy/TgWsProxy", display=":7")

@@ -93,6 +93,22 @@ if __name__ == "__main__":
 
 
 class LastResultTests(unittest.TestCase):
+    def test_result_from_payload_is_session_only(self) -> None:
+        result = blockcheck.result_from_payload(
+            {
+                "domains": ["kws2.pclead.co.uk"],
+                "level": "quick",
+                "strategies": [{"success": 1, "total": 2, "args": "--lua-desync=fake"}],
+                "error": "таймаут",
+                "works_without_bypass": False,
+            }
+        )
+        self.assertEqual(result.domains, ["kws2.pclead.co.uk"])
+        self.assertEqual(result.level, "quick")
+        self.assertEqual(result.error, "таймаут")
+        self.assertEqual(len(result.strategies), 1)
+        self.assertEqual(result.best.args, "--lua-desync=fake")
+
     def test_save_read_roundtrip(self) -> None:
         from pathlib import Path
 
