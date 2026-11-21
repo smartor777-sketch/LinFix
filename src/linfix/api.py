@@ -823,3 +823,47 @@ def fix_zapret_hostlist_args(cfg: Config) -> tuple[int, dict[str, object]]:
         )
         payload["restarted"] = restart.returncode == 0
     return code, payload
+
+
+def add_to_cf_domains(cfg: Config, domains: list[str], *, restart: bool = True) -> tuple[int, dict[str, object]]:
+    """Добавить домены в блок CF-доменов TgWsProxy в hostlist."""
+
+    path = hostlist_path(cfg)
+    if not path:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "hostlist не определён"}
+    args = ["--hostlist", path, "--section", "cf", "--timeout", "30"]
+    for domain in domains:
+        args.extend(["--domain", domain])
+    if restart:
+        args.append("--restart-on-change")
+        info = zapret.detect_zapret(cfg.zapret.service)
+        args.extend(["--service", info.service or cfg.zapret.service])
+    try:
+        return util.run_helper("hostlist.import", args, timeout=120)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
+
+
+def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Список CF-доменов TgWsProxy: из state, иначе из блока hostlist."""
+
+    from . import hostlist as hostlist_mod
+
+    state_info = state.load_state()
+    path = hostlist_path(cfg)
+    in_hostlist = hostlist_mod.cf_domains(path) if path else []
+    stored = list(state_info.domains)
+    domains = stored or in_hostlist
+    present = set(in_hostlist)
+    missing = [domain for domain in domains if domain not in present]
+    return EXIT_OK, {
+        "ok": True,
+        "hostlist": path,
+        "source": "state" if stored else "hostlist",
+        "updated_at": state_info.domains_updated_at,
+        "domains": domains,
+        "missing": missing,
+        "in_hostlist": len(present),
+    }

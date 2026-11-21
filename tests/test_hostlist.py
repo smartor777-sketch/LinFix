@@ -109,3 +109,29 @@ class SourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CfSectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "hostlist.txt"
+        self.path.write_text(
+            "foreign.com\n# linfix: tgws cf domains (updated 2026-01-01)\npclead.co.uk\n",
+            encoding="utf-8",
+        )
+
+    def test_cf_domains_reads_only_cf_block(self) -> None:
+        self.assertEqual(hostlist.cf_domains(self.path), ["pclead.co.uk"])
+
+    def test_add_to_cf_section(self) -> None:
+        result = hostlist.add_domains(self.path, ["new.co.uk"], target_section="cf")
+        self.assertEqual(result.added, ["new.co.uk"])
+        self.assertIn("new.co.uk", hostlist.cf_domains(self.path))
+        self.assertIn("foreign.com", self.path.read_text(encoding="utf-8"))
+
+    def test_add_to_user_section_by_default(self) -> None:
+        hostlist.add_domains(self.path, ["mine.com"])
+        self.assertNotIn("mine.com", hostlist.cf_domains(self.path))
+        text = self.path.read_text(encoding="utf-8")
+        self.assertIn(hostlist.USER_MARKER, text)

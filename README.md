@@ -16,9 +16,9 @@
 |---|---|
 | ![Мастер](docs/screenshot-wizard.png) | ![Настройки](docs/screenshot-settings.png) |
 
-| Списки (hostlist) | Проверка сайта |
+| Домены TgWsProxy | Списки (hostlist) |
 |---|---|
-| ![Списки](docs/screenshot-hostlist.png) | ![Сайты](docs/screenshot-sitecheck.png) |
+| ![Домены](docs/screenshot-domains.png) | ![Списки](docs/screenshot-hostlist.png) |
 
 | Диагностика |
 |---|
@@ -31,8 +31,10 @@
   Пароль спрашивается только на привилегированных шагах (polkit/pkexec).
 - **Статус** — служба, процесс nfqws2, очередь/разметка, hostlist, домены,
   TgWsProxy, порт и telegram-ссылка в одном экране.
-- **Домены** — обновление списка CF-доменов с GitHub, точечная проверка TLS,
-  добавление в hostlist с бэкапом и откатом при неудачном рестарте.
+- **Домены** — список CF-доменов **именно для TgWsProxy** (Cloudflare-путь к
+  Telegram), а не список обхода zapret вообще. Обновление с GitHub, тест TLS
+  по отмеченным или по всему списку, добавление и удаление доменов прямо из
+  панели, с бэкапом hostlist и рестартом zapret.
 - **Списки** — весь hostlist zapret: свои домены, импорт по URL или из файла,
   готовые источники (`get_antizapret`, `get_reestr`, `get_refilter`).
   Чужие строки LinFix не перезаписывает — правит только свои блоки.
@@ -121,7 +123,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.2.4_all.deb
+sudo apt install ./linfix_0.3.0_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
