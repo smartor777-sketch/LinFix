@@ -338,3 +338,6 @@ msgstr "не запустился: {msg}"
 
 msgid "Ошибка при отмене подбора: {err}"
 msgstr "Ошибка при отмене подбора: {err}"
+
+msgid "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
+msgstr "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
