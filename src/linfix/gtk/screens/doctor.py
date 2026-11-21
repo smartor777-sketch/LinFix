@@ -39,6 +39,9 @@ class DoctorScreen:
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
         )
         common.pack(self.buttons, self.pick_button)
+        # Краткая информация по стратегиям: текущая + результат подбора.
+        self.strat_label = common.label(_("Текущая: —"), css_class="")
+        common.pack(self.buttons, self.strat_label)
         # Кнопка «отменить и восстановить» — видна во время прогона подбора.
         self.cancel_button = common.button(
             _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
@@ -160,6 +163,7 @@ class DoctorScreen:
 
         def done(result):
             zapret_state, tgws_state = result
+            self._refresh_strategy_info()
             common.toast(
                 self.app,
                 _("Отменено. Zapret2: {zap}, TgWsProxy: {tg}").format(
@@ -169,6 +173,42 @@ class DoctorScreen:
 
         def failed(exc: Exception) -> None:
             common.message(self.app, _("Ошибка при отмене подбора: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def _refresh_strategy_info(self) -> None:
+        """Показать текущую стратегию + результаты подбора (из последнего прогона)."""
+
+        def job():
+            profiles = zapret.read_profiles()
+            active = [
+                p for p in profiles if p.get("active") and not p.get("uses_placeholder")
+            ]
+            current = " ".join(
+                str(t) for p in active for t in p.get("desync") or []
+            ).strip()
+            result = blockcheck.read_last_result()
+            best = result.best if result else None
+            return (
+                current,
+                len(result.strategies) if result else 0,
+                best.args if best else "",
+                result.error or "" if result else "",
+            )
+
+        def done(result):
+            current, count, best_args, error = result
+            text = _("Текущая: {cur}").format(cur=current or _("не задана"))
+            if best_args:
+                text += "  |  " + _("Подобрано: {n} (лучшая: {best})").format(
+                    n=count, best=best_args[:60]
+                )
+            elif error:
+                text += "  |  " + _("Подобрано: ошибка")
+            self.strat_label.set_text(text)
+
+        def failed(_exc: Exception) -> None:
+            self.strat_label.set_text(_("Текущая: —"))
 
         run_in_thread(job, on_done=done, on_error=failed)
 
@@ -257,6 +297,7 @@ class DoctorScreen:
                     if timed_out
                     else _("Стратегии не нужны: {note}").format(note=message)
                 )
+                self._refresh_strategy_info()
                 return
             lines = [
                 _("Найдено стратегий: {n}").format(n=len(strategies)),
@@ -284,6 +325,7 @@ class DoctorScreen:
                 )
             )
             self.verdict_label.set_text("\n".join(lines))
+            self._refresh_strategy_info()
             common.toast(
                 self.app,
                 _("Найдено стратегий: {n}, zapret снова запущен").format(n=len(strategies)),
@@ -333,6 +375,8 @@ class DoctorScreen:
 
     def refresh_profiles(self) -> None:
         """Показать профили zapret: активные и игнорируемые."""
+
+        self._refresh_strategy_info()
 
         def job():
             return zapret.read_profiles()

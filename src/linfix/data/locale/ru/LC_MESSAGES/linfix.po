@@ -341,3 +341,18 @@ msgstr "Ошибка при отмене подбора: {err}"
 
 msgid "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
 msgstr "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
+
+msgid "Текущая: {cur}"
+msgstr "Текущая: {cur}"
+
+msgid "Подобрано: {n} (лучшая: {best})"
+msgstr "Подобрано: {n} (лучшая: {best})"
+
+msgid "Подобрано: ошибка"
+msgstr "Подобрано: ошибка"
+
+msgid "не задана"
+msgstr "не задана"
+
+msgid "Текущая: —"
+msgstr "Текущая: —"

@@ -39,6 +39,10 @@ FOUND_RE = re.compile(r"working strategy found for ipv\d \S+ : (.+?)\s*!+\s*$")
 #: недостоверны, а пользователь остаётся без обхода дольше нужного.
 DEFAULT_LOCK = Path("/run/linfix/blockcheck.lock")
 
+#: Результат последнего прогона (strategies/best) для показа в GUI.
+#: Пишет helper (root), читает GUI как обычный пользователь.
+DEFAULT_LAST_RESULT = Path("/run/linfix/blockcheck-last.json")
+
 
 class BlockcheckError(util.NetfixError):
     """Не удалось запустить подбор стратегии."""
@@ -198,6 +202,65 @@ def clear_lock(path: Path | None = None) -> None:
         lock_file(path).unlink()
     except OSError:
         pass
+
+
+def last_result_path(path: Path | None = None) -> Path:
+    """Путь к файлу с результатом последнего прогона (подменяется в тестах)."""
+
+    return Path(path) if path is not None else DEFAULT_LAST_RESULT
+
+
+def save_last_result(result: BlockcheckResult, path: Path | None = None) -> None:
+    """Записать результат прогона для показа в GUI (подбор «сейчас что было»)."""
+
+    target = last_result_path(path)
+    payload = {
+        "saved": time.time(),
+        "domains": result.domains,
+        "level": result.level,
+        "error": result.error or "",
+        "works_without_bypass": result.works_without_bypass,
+        "strategies": [
+            {"success": s.success, "total": s.total, "args": s.args}
+            for s in result.strategies[:10]
+        ],
+    }
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, target)
+        os.chmod(target, 0o644)
+    except OSError:
+        pass
+
+
+def read_last_result(path: Path | None = None) -> BlockcheckResult | None:
+    """Прочитать результат последнего прогона, если он есть."""
+
+    try:
+        data = json.loads(last_result_path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    strategies = [
+        Strategy(
+            success=int(item.get("success", 0)),
+            total=int(item.get("total", 0)),
+            args=str(item.get("args", "")),
+        )
+        for item in data.get("strategies", [])
+        if isinstance(item, dict)
+    ]
+    result = BlockcheckResult(
+        domains=[str(d) for d in data.get("domains", [])],
+        level=str(data.get("level", "")),
+        strategies=strategies,
+        error=str(data.get("error", "")),
+        works_without_bypass=bool(data.get("works_without_bypass", False)),
+    )
+    return result
 
 
 def running(path: Path | None = None) -> dict[str, object]:

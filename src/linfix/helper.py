@@ -865,6 +865,9 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
     finally:
         blockcheck.clear_lock()
 
+    # Сохраняем результат для показа в GUI (сколько стратегий, лучшая).
+    blockcheck.save_last_result(result)
+
     best = result.best
     return 0, {
         "ok": True,
