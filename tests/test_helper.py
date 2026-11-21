@@ -222,7 +222,11 @@ class TgwsInstallActionTests(unittest.TestCase):
 
 class ZapretBlockcheckStopTests(unittest.TestCase):
     def _args(self) -> SimpleNamespace:
-        return SimpleNamespace(service="zapret2", install_dir="/opt/zapret2")
+        # install_dir должен существовать и содержать blockcheck2.sh.
+        tmp = Path(tempfile.mkdtemp(prefix="linfix-bc-stop-"))
+        (tmp / "blockcheck2.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmp, ignore_errors=True))
+        return SimpleNamespace(service="zapret2", install_dir=tmp)
 
     def test_stop_and_start_when_inactive(self) -> None:
         """Прибить процессы замеров и поднять zapret, если он выключен."""
