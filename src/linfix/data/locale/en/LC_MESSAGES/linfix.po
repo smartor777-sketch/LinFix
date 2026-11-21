@@ -338,3 +338,6 @@ msgstr "failed to start: {msg}"
 
 msgid "Ошибка при отмене подбора: {err}"
 msgstr "Error cancelling the strategy search: {err}"
+
+msgid "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
+msgstr "Cancelled. Zapret2: {zap}, TgWsProxy: {tg}"

@@ -39,6 +39,12 @@ class DoctorScreen:
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
         )
         common.pack(self.buttons, self.pick_button)
+        # Кнопка «отменить и восстановить» — видна во время прогона подбора.
+        self.cancel_button = common.button(
+            _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
+        )
+        self.cancel_button.set_visible(False)
+        common.pack(self.buttons, self.cancel_button)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
 
@@ -102,38 +108,45 @@ class DoctorScreen:
         )
         return True
 
-    def _cancel_strategy_selection(self) -> None:
-        """«Отмена подбора»: проверить и поднять zapret/TgWsProxy, если они нужны."""
+    def _services_state(self) -> tuple[str, str]:
+        """Проверить состояние zapret/TgWsProxy и поднять их при необходимости."""
 
-        self.pick_button.set_sensitive(True)
+        busy = blockcheck.running() or bool(blockcheck.stray_processes())
+        info = zapret.detect_zapret(self.app.cfg.zapret.service)
+        if info.active:
+            zapret_state = _("active")
+        elif busy:
+            zapret_state = _("подбор (zapret вернётся автоматически)")
+        else:
+            code, message = api.start_zapret(self.app.cfg)
+            zapret_state = (
+                _("active")
+                if code == api.EXIT_OK
+                else _("не запустился: {msg}").format(msg=message)
+            )
+
+        if tgws.service_state() == "active":
+            tgws_state = _("active")
+        else:
+            code, message = api.start_tgws(self.app.cfg)
+            tgws_state = (
+                _("active")
+                if code == api.EXIT_OK
+                else _("не запустился: {msg}").format(msg=message)
+            )
+        return zapret_state, tgws_state
+
+    def _cancel_strategy_selection(self) -> None:
+        """«Отмена подбора»: проверить и поднять zapret/TgWsProxy, если нужны."""
 
         def job():
-            busy = blockcheck.running() or bool(blockcheck.stray_processes())
-            info = zapret.detect_zapret(self.app.cfg.zapret.service)
-            if info.active:
-                zapret_state = _("active")
-            elif busy:
-                zapret_state = _("подбор (zapret вернётся автоматически)")
-            else:
-                code, message = api.start_zapret(self.app.cfg)
-                zapret_state = (
-                    _("active") if code == api.EXIT_OK else _("не запустился: {msg}").format(msg=message)
-                )
-
-            if tgws.service_state() == "active":
-                tgws_state = _("active")
-            else:
-                code, message = api.start_tgws(self.app.cfg)
-                tgws_state = (
-                    _("active") if code == api.EXIT_OK else _("не запустился: {msg}").format(msg=message)
-                )
-            return zapret_state, tgws_state
+            return self._services_state()
 
         def done(result):
             zapret_state, tgws_state = result
-            common.message(
+            common.toast(
                 self.app,
-                _("Подбор отменён.\n\nZapret2: {zap}\nTgWsProxy: {tg}").format(
+                _("Отменено. Zapret2: {zap}, TgWsProxy: {tg}").format(
                     zap=zapret_state, tg=tgws_state
                 ),
             )
@@ -152,6 +165,7 @@ class DoctorScreen:
         from ... import blockcheck
 
         if blockcheck.scan_in_progress():
+            self.cancel_button.set_visible(True)
             common.message(
                 self.app,
                 _("Подбор стратегии уже идёт — дождитесь окончания замеров."),
@@ -187,12 +201,14 @@ class DoctorScreen:
         response = dialog.run()
         dialog.destroy()
         if response == 2:
+            self.cancel_button.set_visible(True)
             self._cancel_strategy_selection()
             return
         if response != 1:
             return
 
         self.pick_button.set_sensitive(False)
+        self.cancel_button.set_visible(True)
         self.verdict_label.set_text(
             _("Подбираю стратегию… ожидаем завершения прогона")
         )
@@ -205,6 +221,7 @@ class DoctorScreen:
         def done(result) -> None:
             self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
+            self.cancel_button.set_visible(False)
             code, payload = result
             strategies = payload.get("strategies") or []
             best = payload.get("best")
@@ -259,6 +276,7 @@ class DoctorScreen:
         def failed(exc: Exception) -> None:
             self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
+            self.cancel_button.set_visible(False)
             common.message(self.app, _("Ошибка подбора: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
