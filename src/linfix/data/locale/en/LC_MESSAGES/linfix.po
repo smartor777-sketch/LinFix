@@ -299,3 +299,9 @@ msgid "Остановить Zapret2"
 msgstr "Stop Zapret2"
 msgid "Развернуть панель"
 msgstr "Expand panel"
+
+msgid "идёт подбор стратегии"
+msgstr "strategy search in progress"
+
+msgid "Подбор стратегии уже идёт — дождитесь окончания замеров."
+msgstr "A strategy search is already running — wait for the measurements to finish."

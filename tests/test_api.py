@@ -32,6 +32,12 @@ class StartTgwsTests(unittest.TestCase):
 
 
 class StartZapretTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Не зависим от того, идёт ли blockcheck на машине разработчика.
+        patcher = patch("linfix.api.blockcheck.stray_processes", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_restart_fails_when_unit_missing(self) -> None:
         info = SimpleNamespace(found=False, service="zapret")
         with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
@@ -240,13 +246,63 @@ class CfPathCheckTests(unittest.TestCase):
         self.assertFalse(payload.get("rolled_back", False))
 
 
+class BlockcheckGuardTests(unittest.TestCase):
+    """Пока идёт подбор стратегии, zapret поднимать нельзя."""
+
+    def setUp(self) -> None:
+        patcher = patch("linfix.api.blockcheck.stray_processes", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_start_zapret_refuses_during_scan(self) -> None:
+        with patch("linfix.api.blockcheck.running", return_value={"pid": 123}), patch(
+            "linfix.api.blockcheck.stray_processes", return_value=[]
+        ), patch("linfix.api.zapret.detect_zapret") as detect, patch(
+            "linfix.api.util.run_helper"
+        ) as helper:
+            code, msg = api.start_zapret(Config())
+        self.assertEqual(code, api.EXIT_BLOCKED)
+        self.assertIn("подбор стратегии", msg)
+        detect.assert_not_called()
+        helper.assert_not_called()
+
+    def test_start_zapret_refuses_with_stray_processes(self) -> None:
+        info = SimpleNamespace(found=True, service="zapret2", active=False, install_dir="/opt/zapret2")
+        with patch("linfix.api.blockcheck.running", return_value={}), patch(
+            "linfix.api.blockcheck.stray_processes", return_value=[4242]
+        ), patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.util.run", return_value=_cp("inactive")
+        ), patch("linfix.api.util.run_helper") as helper:
+            code, msg = api.start_zapret(Config())
+        self.assertEqual(code, api.EXIT_BLOCKED)
+        self.assertIn("blockcheck2", msg)
+        helper.assert_not_called()
+
+    def test_ensure_does_not_restart_during_scan(self) -> None:
+        with patch("linfix.api.blockcheck.running", return_value={"pid": 123}), patch(
+            "linfix.api.blockcheck.stray_processes", return_value=[]
+        ), patch("linfix.api.zapret.detect_zapret") as detect, patch(
+            "linfix.api.util.run_helper"
+        ) as helper:
+            api._ensure_zapret_running(Config(), True)
+        detect.assert_not_called()
+        helper.assert_not_called()
+
+
 class StrategySafetyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        patcher = patch("linfix.api.blockcheck.stray_processes", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_restores_zapret_after_helper_failure(self) -> None:
         """Если helper убит по таймауту, zapret должен вернуться в работу."""
 
         info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=True)
         inactive = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=False)
         with patch("linfix.api.zapret.detect_zapret", side_effect=[info, inactive]), patch(
+            "linfix.api.blockcheck.running", return_value={}
+        ), patch("linfix.api.blockcheck.stray_processes", return_value=[]), patch(
             "linfix.api.util.run_helper", side_effect=util.NetfixError("timeout")
         ) as helper:
             code, payload = api.pick_strategy(Config(), level="quick", timeout=10)
@@ -259,9 +315,26 @@ class StrategySafetyTests(unittest.TestCase):
     def test_does_not_touch_zapret_if_it_was_stopped(self) -> None:
         info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=False)
         with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.blockcheck.running", return_value={}
+        ), patch("linfix.api.blockcheck.stray_processes", return_value=[]), patch(
             "linfix.api.util.run_helper",
             side_effect=util.NetfixError("boom"),
         ) as helper:
             api.pick_strategy(Config(), level="quick", timeout=10)
+        actions = [call.args[0] for call in helper.call_args_list]
+        self.assertNotIn("zapret.restart", actions)
+
+    def test_does_not_restart_while_scan_still_running(self) -> None:
+        """Внешний таймаут GUI не должен поднимать zapret посреди замеров."""
+
+        info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2", active=True)
+        with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.blockcheck.running", return_value={"pid": 123}
+        ), patch("linfix.api.blockcheck.stray_processes", return_value=[]), patch(
+            "linfix.api.util.run_helper", side_effect=util.NetfixError("timeout")
+        ) as helper:
+            code, _ = api.pick_strategy(Config(), level="quick", timeout=10)
+
+        self.assertEqual(code, api.EXIT_NO_RIGHTS)
         actions = [call.args[0] for call in helper.call_args_list]
         self.assertNotIn("zapret.restart", actions)

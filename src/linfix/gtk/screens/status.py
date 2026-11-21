@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from gi.repository import Gtk
 
-from ... import api, tgws, util, zapret
+from ... import api, blockcheck, tgws, util, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -82,12 +82,20 @@ class StatusScreen:
             info = status.zapret
             connections = len(zapret.listening_addresses(self.app.cfg.tgws.port))
             telegram_settings = self._telegram_settings()
+            if info.active:
+                zapret_state = _("active")
+            elif blockcheck.running():
+                # blockcheck2 штатно останавливает zapret на время замеров —
+                # не пугаем пользователя «inactive».
+                zapret_state = _("идёт подбор стратегии")
+            else:
+                zapret_state = _("inactive")
             return {
                 "server": telegram_settings["server"],
                 "port": telegram_settings["port"],
                 "secret": telegram_settings["secret"] or "—",
                 "service": info.service or "—",
-                "active": _("active") if info.active else _("inactive"),
+                "active": zapret_state,
                 "pid": str(info.pid or "—"),
                 "install_dir": info.install_dir or "—",
                 "qnum": str(info.qnum or "—"),

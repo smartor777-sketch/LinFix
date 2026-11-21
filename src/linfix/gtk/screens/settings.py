@@ -271,9 +271,19 @@ class SettingsScreen:
                 common.message(self.app, str(payload.get("error", _("Ошибка"))))
 
         # Автозапуск включён — поднимаем службы через systemd.
+        problems: list[str] = []
         if self.autostart_switch.get_active():
-            api.start_tgws(self.app.cfg)
+            code, message = api.start_tgws(self.app.cfg)
+            if code != api.EXIT_OK:
+                problems.append(message)
         if self.zapret2_switch.get_active():
-            api.start_zapret(self.app.cfg)
+            code, message = api.start_zapret(self.app.cfg)
+            if code != api.EXIT_OK:
+                problems.append(message)
 
-        common.toast(self.app, _("Настройки сохранены"))
+        if problems:
+            # Не «Настройки сохранены»: служба могла не подняться (например,
+            # сейчас идёт подбор стратегии и zapret трогать нельзя).
+            common.message(self.app, "\n\n".join(problems))
+        else:
+            common.toast(self.app, _("Настройки сохранены"))
