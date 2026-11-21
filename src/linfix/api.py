@@ -219,6 +219,130 @@ def start_zapret(cfg: Config) -> tuple[int, str]:
     return EXIT_OK, f"{service} запущен"
 
 
+#: Источник доменов для ротации TgWsProxy.
+ROTATION_USER = "user"
+ROTATION_GITHUB = "github"
+ROTATION_MODES = (ROTATION_USER, ROTATION_GITHUB)
+
+
+def _rotation_list(data: dict[str, object], key: str) -> list[str]:
+    value = data.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def get_tgws_rotation() -> tuple[int, dict[str, object]]:
+    """Откуда TgWsProxy берёт домены для ротации прямо сейчас."""
+
+    path = tgws.find_config_path()
+    data: dict[str, object] = {}
+    if path is not None:
+        try:
+            data = tgws.load_json_config(path)
+        except tgws.TgwsError:
+            data = {}
+    user_domains = _rotation_list(data, "cfproxy_user_domain")
+    worker_domains = _rotation_list(data, "cfproxy_worker_domain")
+    github_domains = list(state.load_state().domains)
+    if user_domains:
+        mode = ROTATION_USER
+        domains = user_domains
+    else:
+        # Пустой cfproxy_user_domain: TgWsProxy при старте сам тянет
+        # список с GitHub (если user-доменов нет, автообновление включено).
+        mode = ROTATION_GITHUB
+        domains = github_domains
+    return EXIT_OK, {
+        "ok": True,
+        "mode": mode,
+        "domains": domains,
+        "worker_domains": worker_domains,
+        "auto": mode == ROTATION_GITHUB,
+        "github_count": len(github_domains),
+        "saved": tgws.load_rotation_domains(),
+        "config": str(path) if path is not None else None,
+    }
+
+
+def set_tgws_rotation(
+    cfg: Config,
+    mode: str,
+    domains: list[str] | None = None,
+) -> tuple[int, dict[str, object]]:
+    """Переключить ротация TgWsProxy: пользовательские домены или GitHub.
+
+    Перед изменением конфиг и user-unit бэкапируются, после — служба
+    перезапускается. Возврат к GitHub не удаляет пользовательский список:
+    он сохраняется и восстанавливается при обратном переключении.
+    """
+
+    if mode not in ROTATION_MODES:
+        return EXIT_USAGE, {
+            "ok": False,
+            "error": f"неизвестный источник доменов: {mode}",
+        }
+    path = tgws.find_config_path()
+    if path is None:
+        path, _created = tgws.ensure_config(
+            create=True, port=cfg.tgws.port, host=cfg.tgws.host
+        )
+        if path is None:
+            return EXIT_NOT_INSTALLED, {"ok": False, "error": "конфиг TgWsProxy не найден"}
+    try:
+        data = tgws.load_json_config(path)
+    except tgws.TgwsError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+    current = _rotation_list(data, "cfproxy_user_domain")
+
+    if mode == ROTATION_USER:
+        target = list(domains) if domains is not None else (tgws.load_rotation_domains() or current)
+        if not target:
+            return EXIT_USAGE, {
+                "ok": False,
+                "error": "нет сохранённых пользовательских доменов для ротации",
+            }
+        try:
+            tgws.save_rotation_domains(target)
+        except tgws.TgwsError as exc:
+            return EXIT_ERROR, {"ok": False, "error": str(exc)}
+        changes: dict[str, object] = {"cfproxy_user_domain": target}
+        result_domains = target
+    else:
+        if current:
+            # Сохраняем, чтобы вернуть этот же список при обратном переключении.
+            try:
+                tgws.save_rotation_domains(current)
+            except tgws.TgwsError:
+                pass
+        changes = {"cfproxy_user_domain": []}
+        result_domains = list(state.load_state().domains)
+
+    code, payload = set_tgws_config(changes)
+    if code != EXIT_OK or payload.get("ok") is False:
+        return code, payload
+    try:
+        updated = tgws.load_json_config(path)
+        unit, unit_changed = tgws.install_user_unit(
+            cfg.tgws.binary, mode=tgws.effective_mode(path), data=updated
+        )
+    except tgws.TgwsError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+    util.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
+    restarted = util.run(
+        ["systemctl", "--user", "restart", tgws.UNIT_NAME], check=False, timeout=60
+    )
+    return EXIT_OK, {
+        **payload,
+        "mode": mode,
+        "domains": result_domains,
+        "unit": str(unit),
+        "unit_changed": unit_changed,
+        "restarted": restarted.returncode == 0,
+        "restart_error": (restarted.stderr or "").strip(),
+    }
+
+
 def set_tgws_config(changes: dict[str, object]) -> tuple[int, dict[str, object]]:
     """Безопасно изменить конфиг TgWsProxy (бэкап + валидация)."""
 

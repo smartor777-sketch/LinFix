@@ -444,8 +444,10 @@ def _validate_config_value(key: str, value: object) -> None:
         if not isinstance(value, bool):
             raise TgwsError(f"{key}: ожидается bool, получено {type(value).__name__}")
     elif key in {"cfproxy_user_domain", "cfproxy_worker_domain"}:
-        if not isinstance(value, list) or not value:
-            raise TgwsError(f"{key}: ожидается непустой список доменов")
+        # Пустой список — это режим «домены с GitHub»: TgWsProxy видит
+        # пустой cfproxy_user_domains и сам подтягивает список с GitHub.
+        if not isinstance(value, list):
+            raise TgwsError(f"{key}: ожидается список доменов")
         normalized: list[str] = []
         for item in value:
             if not isinstance(item, str) or not is_valid_domain(item.strip().lower()):
@@ -479,6 +481,51 @@ def update_config(
         mode=0o600,
     )
     return data, backup, True
+
+
+# ---------------------------------------------------------------------------
+# Ротация CF-доменов: сохранение пользовательского списка
+# ---------------------------------------------------------------------------
+
+
+def rotation_file(home: str | Path | None = None) -> Path:
+    """Файл с пользовательскими доменами для восстановления ротации."""
+
+    base = Path(home) if home is not None else Path.home()
+    return base / ".config" / "linfix" / "tgws-rotation.json"
+
+
+def load_rotation_domains(home: str | Path | None = None) -> list[str]:
+    """Прочитать сохранённые пользовательские домены ротации."""
+
+    path = rotation_file(home)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return []
+    value = data.get("domains") if isinstance(data, dict) else None
+    try:
+        return _validate_config_value("cfproxy_user_domain", value) or []
+    except TgwsError:
+        return []
+
+
+def save_rotation_domains(domains: list[str], home: str | Path | None = None) -> Path:
+    """Сохранить пользовательские домены (для переключения туда и обратно)."""
+
+    normalized = _validate_config_value("cfproxy_user_domain", domains) or []
+    if not normalized:
+        raise TgwsError("список доменов ротации не может быть пустым")
+    path = rotation_file(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    util.atomic_write(
+        path,
+        json.dumps({"domains": normalized}, ensure_ascii=False, indent=2) + "\n",
+        mode=0o600,
+    )
+    return path
 
 
 def build_link(secret: str, host: str = "127.0.0.1", port: int = 1080) -> str:

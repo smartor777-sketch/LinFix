@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from linfix import api, util
+from linfix import api, tgws, util
 from linfix.config import Config
 
 
@@ -29,6 +31,81 @@ class StartTgwsTests(unittest.TestCase):
             code, msg = api.start_tgws(Config())
         self.assertEqual(code, api.EXIT_ERROR)
         self.assertIn("tgwsproxy", msg)
+
+
+class RotationTests(unittest.TestCase):
+    """Источник доменов ротации TgWsProxy: пользовательские или GitHub."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.config = self.root / "config.json"
+        tgws.write_default_config(self.config, 1080, "127.0.0.1")
+        for name, value in (
+            ("find_config_path", self.config),
+            ("rotation_file", self.root / "tgws-rotation.json"),
+            ("effective_mode", tgws.MODE_CLI),
+        ):
+            patcher = patch(f"linfix.api.tgws.{name}", return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch(
+            "linfix.api.state.load_state",
+            return_value=SimpleNamespace(domains=["one.co.uk", "two.co.uk"]),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_get_user_mode(self) -> None:
+        tgws.update_config(self.config, {"cfproxy_user_domain": ["pclead.co.uk"]})
+        code, payload = api.get_tgws_rotation()
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertEqual(payload["mode"], api.ROTATION_USER)
+        self.assertEqual(payload["domains"], ["pclead.co.uk"])
+        self.assertFalse(payload["auto"])
+
+    def test_get_github_mode(self) -> None:
+        code, payload = api.get_tgws_rotation()
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertEqual(payload["mode"], api.ROTATION_GITHUB)
+        self.assertEqual(payload["domains"], ["one.co.uk", "two.co.uk"])
+        self.assertTrue(payload["auto"])
+
+    def test_switch_to_github_saves_user_domains_and_restarts(self) -> None:
+        tgws.update_config(
+            self.config,
+            {"cfproxy_user_domain": ["pclead.co.uk", "offshor.co.uk"]},
+        )
+        with patch("linfix.api.tgws.install_user_unit", return_value=(Path("/tmp/unit"), True)), patch(
+            "linfix.api.util.run", return_value=_cp()
+        ) as run:
+            code, payload = api.set_tgws_rotation(Config(), api.ROTATION_GITHUB)
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["restarted"])
+        self.assertEqual(tgws.load_json_config(self.config)["cfproxy_user_domain"], [])
+        self.assertEqual(tgws.load_rotation_domains(), ["pclead.co.uk", "offshor.co.uk"])
+        run.assert_any_call(
+            ["systemctl", "--user", "restart", "tgwsproxy"], check=False, timeout=60
+        )
+
+    def test_switch_to_user_restores_saved_domains(self) -> None:
+        tgws.save_rotation_domains(["cakeisalie.co.uk"])
+        with patch("linfix.api.tgws.install_user_unit", return_value=(Path("/tmp/unit"), True)), patch(
+            "linfix.api.util.run", return_value=_cp()
+        ):
+            code, payload = api.set_tgws_rotation(Config(), api.ROTATION_USER)
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertEqual(
+            tgws.load_json_config(self.config)["cfproxy_user_domain"], ["cakeisalie.co.uk"]
+        )
+        self.assertEqual(payload["domains"], ["cakeisalie.co.uk"])
+
+    def test_switch_to_user_without_domains_is_usage_error(self) -> None:
+        code, payload = api.set_tgws_rotation(Config(), api.ROTATION_USER)
+        self.assertEqual(code, api.EXIT_USAGE)
+        self.assertFalse(payload["ok"])
 
 
 class StartZapretTests(unittest.TestCase):

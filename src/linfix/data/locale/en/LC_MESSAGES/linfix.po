@@ -371,3 +371,48 @@ msgstr "ignored"
 
 msgid "Профили desync: {n} правил, из них глобальных {global_n}. «Глобальный» — путь записан без --hostlist=: nfqws2 применяет такое правило ко всем доменам, и оно перекрывает последующие. В строке «Текущая» показан именно первый сработавший профиль."
 msgstr "Desync profiles: {n} rules, {global_n} of them global. A \"global\" rule has a path without --hostlist=: nfqws2 applies it to all domains and it overrides the following rules. The \"Current\" line shows the first matching profile."
+
+msgid "Список ниже — CF-домены из GitHub для hostlist zapret, а не текущая ротация TgWsProxy. Все домены должны быть в hostlist zapret — иначе прокси ходит через заблокированный SNI."
+msgstr "The list below contains CF domains from GitHub for the zapret hostlist, not the current TgWsProxy rotation. All domains must be in the zapret hostlist, otherwise the proxy uses a blocked SNI."
+
+msgid "Пользовательские домены"
+msgstr "Custom domains"
+
+msgid "Домены с GitHub (авто)"
+msgstr "GitHub domains (auto)"
+
+msgid "Применить"
+msgstr "Apply"
+
+msgid "Ротация TgWsProxy: пользовательские домены ({n}): {list}. Автообновление с GitHub выключено."
+msgstr "TgWsProxy rotation: custom domains ({n}): {list}. GitHub auto-refresh is disabled."
+
+msgid "Ротация TgWsProxy: домены с GitHub ({n}, автообновление включено): {list}"
+msgstr "TgWsProxy rotation: GitHub domains ({n}, auto-refresh enabled): {list}"
+
+msgid "Не удалось прочитать ротацию"
+msgstr "Failed to read rotation settings"
+
+msgid "Переключить ротацию на домены с GitHub?"
+msgstr "Switch rotation to GitHub domains?"
+
+msgid "Будут использованы все домены из списка GitHub, включая проблемные, и включится автообновление."
+msgstr "All domains from the GitHub list will be used, including problematic ones, and auto-refresh will be enabled."
+
+msgid "Переключить ротацию на пользовательские домены?"
+msgstr "Switch rotation to custom domains?"
+
+msgid "Список GitHub перестанет обновляться; вернутся сохранённые пользовательские домены."
+msgstr "The GitHub list will no longer refresh; saved custom domains will be restored."
+
+msgid "Ротация переключена: {mode}"
+msgstr "Rotation switched: {mode}"
+
+msgid "пользовательские домены"
+msgstr "custom domains"
+
+msgid "домены с GitHub"
+msgstr "GitHub domains"
+
+msgid "Настройки сохранены, но служба не перезапустилась — перезапустите TgWsProxy вручную"
+msgstr "Settings saved, but the service did not restart — restart TgWsProxy manually"
