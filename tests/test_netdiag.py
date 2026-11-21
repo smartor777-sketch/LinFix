@@ -241,12 +241,24 @@ class BlockcheckTests(unittest.TestCase):
 
         cfg = SimpleNamespace(zapret=SimpleNamespace(service="zapret2"))
         active = SimpleNamespace(install_dir="/opt/zapret2", active=True)
-        with mock.patch("linfix.zapret.detect_zapret", return_value=active), mock.patch.object(
+        with mock.patch.object(blockcheck, "running", return_value={}), mock.patch(
+            "linfix.zapret.detect_zapret", return_value=active
+        ), mock.patch.object(blockcheck, "stray_processes", return_value=[]), mock.patch.object(
             blockcheck, "script_path", return_value=__import__("pathlib").Path("/tmp")
         ), mock.patch("pathlib.Path.is_file", return_value=True):
             ok, reason = blockcheck.check_readiness(cfg)
         self.assertFalse(ok)
         self.assertIn("остановить", reason)
+
+    def test_readiness_reports_busy_scan(self) -> None:
+        from types import SimpleNamespace
+        from linfix import blockcheck
+
+        cfg = SimpleNamespace(zapret=SimpleNamespace(service="zapret2"))
+        with mock.patch.object(blockcheck, "running", return_value={"pid": 123}):
+            ok, reason = blockcheck.check_readiness(cfg)
+        self.assertFalse(ok)
+        self.assertIn("уже идёт", reason)
 
 
 class BlockcheckBypassTests(unittest.TestCase):

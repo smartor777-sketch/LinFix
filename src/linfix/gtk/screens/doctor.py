@@ -9,7 +9,7 @@ import time
 
 from gi.repository import GLib, Gdk, Gtk
 
-from ... import api, netdiag, tgws, zapret
+from ... import api, blockcheck, netdiag, tgws, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -102,6 +102,47 @@ class DoctorScreen:
         )
         return True
 
+    def _cancel_strategy_selection(self) -> None:
+        """«Отмена подбора»: проверить и поднять zapret/TgWsProxy, если они нужны."""
+
+        self.pick_button.set_sensitive(True)
+
+        def job():
+            busy = blockcheck.running() or bool(blockcheck.stray_processes())
+            info = zapret.detect_zapret(self.app.cfg.zapret.service)
+            if info.active:
+                zapret_state = _("active")
+            elif busy:
+                zapret_state = _("подбор (zapret вернётся автоматически)")
+            else:
+                code, message = api.start_zapret(self.app.cfg)
+                zapret_state = (
+                    _("active") if code == api.EXIT_OK else _("не запустился: {msg}").format(msg=message)
+                )
+
+            if tgws.service_state() == "active":
+                tgws_state = _("active")
+            else:
+                code, message = api.start_tgws(self.app.cfg)
+                tgws_state = (
+                    _("active") if code == api.EXIT_OK else _("не запустился: {msg}").format(msg=message)
+                )
+            return zapret_state, tgws_state
+
+        def done(result):
+            zapret_state, tgws_state = result
+            common.message(
+                self.app,
+                _("Подбор отменён.\n\nZapret2: {zap}\nTgWsProxy: {tg}").format(
+                    zap=zapret_state, tg=tgws_state
+                ),
+            )
+
+        def failed(exc: Exception) -> None:
+            common.message(self.app, _("Ошибка при отмене подбора: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
     def pick_strategy(self) -> None:
         """Подобрать рабочую стратегию desync через blockcheck2.
 
@@ -140,11 +181,14 @@ class DoctorScreen:
             + ("\n\n" + _("Сейчас: {reason}").format(reason=reason) if not ok else "")
         )
         dialog.add_button(_("Отмена"), Gtk.ResponseType.CANCEL)
-        run_button = dialog.add_button(_("Подобрать"), 1)
-        run_button.set_sensitive(True)
+        dialog.add_button(_("Подобрать"), 1)
+        dialog.add_button(_("Отмена подбора"), 2)
         dialog.show_all()
         response = dialog.run()
         dialog.destroy()
+        if response == 2:
+            self._cancel_strategy_selection()
+            return
         if response != 1:
             return
 

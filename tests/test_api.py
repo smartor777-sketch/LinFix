@@ -34,9 +34,10 @@ class StartTgwsTests(unittest.TestCase):
 class StartZapretTests(unittest.TestCase):
     def setUp(self) -> None:
         # Не зависим от того, идёт ли blockcheck на машине разработчика.
-        patcher = patch("linfix.api.blockcheck.stray_processes", return_value=[])
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("running", {}), ("stray_processes", [])):
+            patcher = patch(f"linfix.api.blockcheck.{name}", return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_restart_fails_when_unit_missing(self) -> None:
         info = SimpleNamespace(found=False, service="zapret")
@@ -291,9 +292,10 @@ class BlockcheckGuardTests(unittest.TestCase):
 
 class StrategySafetyTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = patch("linfix.api.blockcheck.stray_processes", return_value=[])
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, value in (("running", {}), ("stray_processes", [])):
+            patcher = patch(f"linfix.api.blockcheck.{name}", return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_restores_zapret_after_helper_failure(self) -> None:
         """Если helper убит по таймауту, zapret должен вернуться в работу."""
