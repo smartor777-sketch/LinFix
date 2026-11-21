@@ -341,3 +341,18 @@ msgstr "Error cancelling the strategy search: {err}"
 
 msgid "Отменено. Zapret2: {zap}, TgWsProxy: {tg}"
 msgstr "Cancelled. Zapret2: {zap}, TgWsProxy: {tg}"
+
+msgid "Текущая: {cur}"
+msgstr "Current: {cur}"
+
+msgid "Подобрано: {n} (лучшая: {best})"
+msgstr "Picked: {n} (best: {best})"
+
+msgid "Подобрано: ошибка"
+msgstr "Picked: error"
+
+msgid "не задана"
+msgstr "not set"
+
+msgid "Текущая: —"
+msgstr "Current: —"

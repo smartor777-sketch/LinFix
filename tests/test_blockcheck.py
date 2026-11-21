@@ -90,3 +90,46 @@ class TimeoutTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LastResultTests(unittest.TestCase):
+    def test_save_read_roundtrip(self) -> None:
+        from pathlib import Path
+
+        import tempfile
+
+        result = blockcheck.BlockcheckResult(
+            domains=["a.org"],
+            level="quick",
+            strategies=[blockcheck.Strategy(2, 2, "--filter-tcp=443 --lua-desync=fake")],
+            error="",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "last.json"
+            blockcheck.save_last_result(result, path)
+            data = blockcheck.read_last_result(path)
+        self.assertIsNotNone(data)
+        assert data is not None
+        self.assertEqual(data.level, "quick")
+        self.assertEqual(len(data.strategies), 1)
+        self.assertEqual(data.strategies[0].args, "--filter-tcp=443 --lua-desync=fake")
+        self.assertEqual(data.strategies[0].score, 1.0)
+        self.assertEqual(data.best, data.strategies[0])
+
+    def test_read_missing(self) -> None:
+        from pathlib import Path
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(blockcheck.read_last_result(Path(tmp) / "nope.json"))
+
+    def test_read_garbage(self) -> None:
+        from pathlib import Path
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "garbage.json"
+            p.write_text("не json", encoding="utf-8")
+            self.assertIsNone(blockcheck.read_last_result(p))
