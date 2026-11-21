@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import sys
 import time
 from pathlib import Path
@@ -53,6 +54,7 @@ ALLOWED_ACTIONS = {
     "zapret.set_enabled",
     "zapret.stop",
     "zapret.blockcheck",
+    "zapret.blockcheck_stop",
     "zapret.restart",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -766,6 +768,55 @@ def action_zapret_restore_config(args: argparse.Namespace) -> tuple[int, dict[st
 
 
 
+def action_zapret_blockcheck_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Прервать идущий blockcheck2 (подбор стратегий).
+
+    Прибивает процессы замеров, дожидается конца прогона и возвращает
+    zapret2, если он был выключен подбором.
+    """
+
+    from . import blockcheck
+
+    service = validate_service(args.service or "zapret2")
+    install_dir = Path(args.install_dir or "/opt/zapret2")
+    if not (install_dir / "blockcheck2.sh").is_file():
+        raise HelperError(f"blockcheck2.sh не найден в {install_dir}")
+
+    stopped: list[int] = []
+    for pid in blockcheck.stray_processes():
+        if pid <= 0:
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            stopped.append(pid)
+        except (ProcessLookupError, PermissionError):
+            pass
+    if stopped:
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and blockcheck.stray_processes():
+            time.sleep(0.3)
+        for pid in blockcheck.stray_processes():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        time.sleep(1.0)
+
+    was_active = (
+        util.run(["systemctl", "is-active", service], check=False, timeout=10).stdout or ""
+    ).strip() == "active"
+    if was_active and not blockcheck.stray_processes():
+        # Маркер пока снимается тем же helper-процессом, который был прерван;
+        # если он жив, не трогаем zapret — иначе результаты не запишутся.
+        running = blockcheck.running()
+        if running and running.get("pid") == os.getpid():
+            pass
+        elif not running:
+            util.run(["systemctl", "start", service], check=False, timeout=60)
+
+    return 0, {"ok": True, "stopped": stopped}
+
+
 def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     """Подобрать стратегии desync через blockcheck2 (root).
 
@@ -944,6 +995,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_zapret_stop(args)
         elif args.action == "zapret.blockcheck":
             code, payload = action_zapret_blockcheck(args)
+        elif args.action == "zapret.blockcheck_stop":
+            code, payload = action_zapret_blockcheck_stop(args)
         elif args.action == "profile.set":
             code, payload = action_profile_set(args)
         elif args.action == "profile.clear":
