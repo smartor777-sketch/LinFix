@@ -278,25 +278,61 @@ def _json_objects(text: str) -> list[dict[str, object]]:
     return found
 
 
+def _ascii_safe(value: str) -> bool:
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
     """Запуск helper из рабочей копии, когда пакет ещё не установлен.
 
-    Исходники лежат рядом с пакетом (`src/linfix/...`), поэтому root-процессу
-    нужно явно передать PYTHONPATH. Эскалация — pkexec (GUI-диалог), иначе sudo.
+    Эскалация — pkexec (GUI-диалог), иначе sudo.
+
+    Особенность: pkexec падает на аргументах с не-ASCII символами
+    («g_variant_new_string: assertion 'g_utf8_validate' failed»), а рабочая
+    копия может лежать в каталоге с кириллицей («Документы»). Поэтому путь к
+    исходникам не передаём ни в argv, ни в env: пишем ASCII-скрипт-обёртку во
+    временный каталог, а он уже добавляет путь к sys.path.
     """
 
     src_root = str(Path(__file__).resolve().parent.parent)
-    inner = [
-        sys.executable,
-        "-m",
-        "linfix.helper",
-        action,
-        *[str(item) for item in args],
-    ]
+    helper_args = [action, *[str(item) for item in args], "--json"]
+    inner = [sys.executable, "-m", "linfix.helper", *helper_args]
+
+    if _ascii_safe(src_root):
+        if which("pkexec"):
+            return ["pkexec", "env", f"PYTHONPATH={src_root}", *inner]
+        if which("sudo"):
+            return ["sudo", "env", f"PYTHONPATH={src_root}", *inner]
+        raise NetfixError("нет pkexec/sudo для привилегированной операции")
+
+    # Путь с кириллицей: argv должен остаться ASCII. Делаем исполняемый
+    # скрипт с понятным именем — тогда polkit в диалоге покажет
+    # «.../linfix-helper», а не «/usr/bin/python3».
+    bootstrap_dir = Path(tempfile.gettempdir()) / "linfix-dev-helper"
+    bootstrap_dir.mkdir(mode=0o700, exist_ok=True)
+    try:
+        bootstrap_dir.chmod(0o700)
+    except OSError:
+        pass
+    bootstrap = bootstrap_dir / "linfix-helper"
+    bootstrap.write_text(
+        "#!/usr/bin/python3\n"
+        "import sys\n"
+        f"sys.path.insert(0, {src_root!r})\n"
+        "from linfix.helper import main\n"
+        f"sys.exit(main({helper_args!r}))\n",
+        encoding="utf-8",
+    )
+    bootstrap.chmod(0o700)
+
     if which("pkexec"):
-        return ["pkexec", "env", f"PYTHONPATH={src_root}", *inner]
+        return ["pkexec", str(bootstrap)]
     if which("sudo"):
-        return ["sudo", "env", f"PYTHONPATH={src_root}", *inner]
+        return ["sudo", str(bootstrap)]
     raise NetfixError("нет pkexec/sudo для привилегированной операции")
 
 
@@ -335,7 +371,15 @@ def run_helper(
         else:
             raise NetfixError("нет pkexec/sudo для привилегированной операции")
 
-    completed = run(cmd, check=False, timeout=timeout)
+    try:
+        completed = run(cmd, check=False, timeout=timeout)
+    except CommandError as exc:
+        # Сюда попадаем, если запрос пароля не был подтверждён вовремя:
+        # pkexec ждёт ввода и не возвращает управление.
+        raise NetfixError(
+            "не дождались подтверждения пароля (запрос отменён или истёк). "
+            "Повторите действие и введите пароль в диалоге"
+        ) from exc
     payload = _parse_helper_payload(completed.stdout, completed.stderr)
     if not payload:
         payload = {
