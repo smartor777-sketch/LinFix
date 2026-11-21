@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from gi.repository import GLib, Gdk, Gtk
 
+from .. import __version__
 from .i18n import _
 from .screens import (
     DoctorScreen,
@@ -52,7 +53,12 @@ def _install_tab_css() -> None:
 
 class NetFixWindow(Gtk.ApplicationWindow):
     def __init__(self, app) -> None:
-        super().__init__(application=app, title=_("LinFix — статус"), default_width=800, default_height=560)
+        super().__init__(
+            application=app,
+            title=self._window_title(0),
+            default_width=800,
+            default_height=560,
+        )
         self.app = app
         self._restoring = False
         _install_tab_css()
@@ -165,6 +171,13 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.deiconify()
         self.show_all()
 
+    def _window_title(self, index: int) -> str:
+        """«LinFix v0.4.4 — Статус»: версия видна всегда, раздел — текущий."""
+
+        section = PAGES[index][1] if 0 <= index < len(PAGES) else ""
+        base = _("LinFix v{version}").format(version=__version__)
+        return f"{base} — {section}" if section else base
+
     def set_page(self, key: str) -> None:
         for index, (name, _label) in enumerate(PAGES):
             if name == key:
@@ -182,6 +195,7 @@ class NetFixWindow(Gtk.ApplicationWindow):
                 # Фокус следует за активной вкладкой, чтобы рамка фокуса
                 # не подсвечивала соседний раздел.
                 btn.grab_focus()
+            self.set_title(self._window_title(index))
             screen = self.screens.get(key)
             hook = getattr(screen, "on_shown", None)
             if callable(hook):
