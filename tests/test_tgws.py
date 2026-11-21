@@ -204,6 +204,14 @@ class ConfigTests(unittest.TestCase):
                 with self.assertRaises(tgws.TgwsError):
                     tgws.update_config(path, {"log_max_mb": bad})
 
+    def test_rotation_domains_saved_and_loaded(self) -> None:
+        saved = tgws.save_rotation_domains(
+            [" Pclead.CO.UK ", "offshor.co.uk", "pclead.co.uk"], home=self.root
+        )
+        self.assertTrue(saved.exists())
+        self.assertEqual(tgws.load_rotation_domains(home=self.root), ["pclead.co.uk", "offshor.co.uk"])
+        self.assertEqual(stat.S_IMODE(saved.stat().st_mode), 0o600)
+
     def test_mode_saved_outside_tgws_config(self) -> None:
         # TgWsProxy при старте затирает незнакомые ключи в своём config.json,
         # поэтому режим хранится в отдельном файле LinFix.
@@ -284,7 +292,9 @@ class ConfigTests(unittest.TestCase):
             ["pclead.co.uk", "offshor.co.uk"],
         )
 
-        for bad in ([], "pclead.co.uk", ["not a domain"], [123], ["-bad.co.uk"]):
+        # Пустой список — корректный режим «домены с GitHub».
+        self.assertEqual(tgws.update_config(path, {"cfproxy_user_domain": []})[0]["cfproxy_user_domain"], [])
+        for bad in ("pclead.co.uk", ["not a domain"], [123], ["-bad.co.uk"]):
             with self.subTest(bad=bad):
                 with self.assertRaises(tgws.TgwsError):
                     tgws.update_config(path, {"cfproxy_user_domain": bad})

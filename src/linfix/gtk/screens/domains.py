@@ -22,12 +22,24 @@ class DomainsScreen:
         self.info = common.label(_("—"), wrap=True)
         self.note = common.label(
             _(
-                "Это список доменов для TgWsProxy (Cloudflare-путь к Telegram), "
-                "а не список обхода для zapret вообще. Все домены должны быть в "
-                "hostlist zapret — иначе прокси ходит через заблокированный SNI."
+                "Список ниже — CF-домены из GitHub для hostlist zapret, а не "
+                "текущая ротация TgWsProxy. Все домены должны быть в hostlist "
+                "zapret — иначе прокси ходит через заблокированный SNI."
             ),
             wrap=True,
         )
+
+        # Источник ротации показываем отдельно: это конфиг TgWsProxy,
+        # а не список доменов для hostlist zapret.
+        self.rotation_label = common.label(_("—"), wrap=True)
+        self.rotation_combo = Gtk.ComboBoxText()
+        self.rotation_combo.append(api.ROTATION_USER, _("Пользовательские домены"))
+        self.rotation_combo.append(api.ROTATION_GITHUB, _("Домены с GitHub (авто)"))
+        self.rotation_apply = common.button(_("Применить"), self.apply_rotation)
+        rotation_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
+        common.pack(rotation_row, self.rotation_combo)
+        common.pack(rotation_row, self.rotation_apply)
+        self._rotation_mode: str | None = None
 
         # Кнопки — до списка, как привычнее: действие → результат.
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
@@ -58,6 +70,8 @@ class DomainsScreen:
         self.store.set_sort_column_id(1, Gtk.SortType.ASCENDING)
         self.scrolled = common.scrolled(self.tree)
 
+        common.pack(self.box, self.rotation_label)
+        common.pack(self.box, rotation_row)
         common.pack(self.box, self.info)
         common.pack(self.box, self.note)
         common.pack(self.box, self.buttons)
@@ -73,10 +87,12 @@ class DomainsScreen:
 
     def refresh(self) -> None:
         def job():
-            return api.get_cf_domains(self.app.cfg)
+            return api.get_cf_domains(self.app.cfg), api.get_tgws_rotation()
 
         def done(result) -> None:
-            code, payload = result
+            cf_result, rotation_result = result
+            self._update_rotation(rotation_result)
+            code, payload = cf_result
             if code != api.EXIT_OK or payload.get("ok") is False:
                 self.info.set_text(str(payload.get("error") or _("Не удалось прочитать список")))
                 return
@@ -100,6 +116,90 @@ class DomainsScreen:
                 self.store.append([domain in previous, domain, status, ""])
 
         run_in_thread(job, on_done=done)
+
+    def _update_rotation(self, result) -> None:
+        code, payload = result
+        if code != api.EXIT_OK or payload.get("ok") is False:
+            self.rotation_label.set_text(
+                str(payload.get("error") or _("Не удалось прочитать ротацию"))
+            )
+            return
+        mode = str(payload.get("mode") or api.ROTATION_GITHUB)
+        domains = [str(item) for item in payload.get("domains", [])]
+        self._rotation_mode = mode
+        self.rotation_combo.set_active_id(mode)
+        shown = ", ".join(domains[:4]) + (" …" if len(domains) > 4 else "")
+        if mode == api.ROTATION_USER:
+            text = _("Ротация TgWsProxy: пользовательские домены ({n}): {list}. Автообновление с GitHub выключено.").format(
+                n=len(domains), list=shown or "—"
+            )
+        else:
+            text = _("Ротация TgWsProxy: домены с GitHub ({n}, автообновление включено): {list}").format(
+                n=len(domains), list=shown or "—"
+            )
+        self.rotation_label.set_text(text)
+
+    def apply_rotation(self, _button=None) -> None:
+        target = self.rotation_combo.get_active_id()
+        if not target or target == self._rotation_mode:
+            return
+        if target == api.ROTATION_GITHUB:
+            question = _("Переключить ротацию на домены с GitHub?")
+            detail = _(
+                "Будут использованы все домены из списка GitHub, включая "
+                "проблемные, и включится автообновление."
+            )
+        else:
+            question = _("Переключить ротацию на пользовательские домены?")
+            detail = _(
+                "Список GitHub перестанет обновляться; вернутся сохранённые "
+                "пользовательские домены."
+            )
+        confirm = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=question,
+        )
+        confirm.format_secondary_text(detail)
+        response = confirm.run()
+        confirm.destroy()
+        if response != Gtk.ResponseType.OK:
+            self.rotation_combo.set_active_id(self._rotation_mode)
+            return
+
+        self.rotation_apply.set_sensitive(False)
+
+        def job():
+            return api.set_tgws_rotation(self.app.cfg, str(target))
+
+        def done(result) -> None:
+            self.rotation_apply.set_sensitive(True)
+            code, payload = result
+            if code != api.EXIT_OK or payload.get("ok") is False:
+                common.message(self.app, str(payload.get("error") or _("Ошибка")))
+            else:
+                common.toast(
+                    self.app,
+                    _("Ротация переключена: {mode}").format(
+                        mode=_("пользовательские домены")
+                        if target == api.ROTATION_USER
+                        else _("домены с GitHub")
+                    ),
+                )
+                if not payload.get("restarted"):
+                    common.message(
+                        self.app,
+                        _("Настройки сохранены, но служба не перезапустилась — перезапустите TgWsProxy вручную"),
+                    )
+            self.refresh()
+
+        def failed(exc: Exception) -> None:
+            self.rotation_apply.set_sensitive(True)
+            common.message(self.app, _("Ошибка: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
 
     def _on_toggled(self, _renderer, path: str) -> None:
         self.store[path][0] = not self.store[path][0]
