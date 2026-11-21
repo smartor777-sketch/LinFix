@@ -21,8 +21,9 @@ class DevHelperFallbackTests(unittest.TestCase):
         pythonpath = next(part for part in cmd if part.startswith("PYTHONPATH="))
         self.assertTrue(pythonpath.endswith("src"), pythonpath)
         tail = ["linfix.helper", "zapret.set_enabled", "--service", "zapret2", "--enabled", "on"]
-        self.assertEqual(cmd[-7:-1], tail)
-        self.assertEqual(cmd[-1], "--json")
+        self.assertEqual(cmd[-6:], tail)
+        # --json добавляет только run_helper, не сама команда.
+        self.assertNotIn("--json", cmd)
         self.assertIn(sys.executable, cmd)
 
     def test_without_escalation_raises(self) -> None:
@@ -50,3 +51,32 @@ class DevHelperFallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JsonParsingTests(unittest.TestCase):
+    def test_stdout_preferred_over_glib_noise(self) -> None:
+        """GLib-шум в stderr не должен перебивать валидный JSON из stdout."""
+
+        stdout = '{\n  "ok": true,\n  "service": "zapret2"\n}\n'
+        stderr = (
+            "\n(process:1): GLib-CRITICAL **: g_variant_new_string: "
+            "assertion failed\n"
+        )
+        payload = util._parse_helper_payload(stdout, stderr)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["service"], "zapret2")
+
+    def test_json_surrounded_by_noise(self) -> None:
+        text = 'предупреждение\n{"ok": false, "error": "boom"}\nещё текст\n'
+        payload = util._parse_helper_payload(text, "")
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "boom")
+
+    def test_empty_streams(self) -> None:
+        self.assertEqual(util._parse_helper_payload("", ""), {})
+
+    def test_dev_helper_has_single_json_flag(self) -> None:
+        """--json добавляет только run_helper, иначе парсер получает мусор."""
+
+        cmd = util._dev_helper_command("zapret.set_enabled", ["--service", "zapret2"])
+        self.assertNotIn("--json", cmd)
