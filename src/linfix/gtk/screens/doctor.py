@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from gi.repository import Gdk, Gtk
 
-from ... import api
+from ... import api, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -25,95 +25,61 @@ class DoctorScreen:
         )
         self.scrolled = common.scrolled(self.tree)
 
-        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
-        # Не «починить», а «обезвредить»: правка проверяется тестом CF-пути
-        # и автоматически откатывается при ухудшении.
-        self.fix_button = common.button(
-            _("Обезвредить профиль zapret"), lambda _: self.fix_config()
-        )
-        self.fix_button.set_no_show_all(True)
-        self.fix_button.set_visible(False)
-        common.pack(self.buttons, self.fix_button)
+        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
 
-        # Кнопки — до растягиваемой таблицы, иначе уезжают за край окна.
+        # Профили desync — только просмотр: какие правила реально работают.
+        self.profile_store = Gtk.ListStore(str, str, str, str)
+        self.profile_tree = common.table_from_store(
+            self.profile_store,
+            [_("Протокол"), _("Статус"), _("Действует на"), _("Стратегия")],
+        )
+        self.profile_tree.set_size_request(-1, 150)
+        self.profile_note = common.label("", wrap=True)
+
         common.pack(self.box, self.buttons)
+        common.pack(self.box, self.profile_note)
+        common.pack(self.box, common.scrolled(self.profile_tree))
         common.pack_expand(self.box, self.scrolled)
         self.last_report = None
         self.refresh()
+        self.refresh_profiles()
 
-    def _update_fix_button(self, report) -> None:
-        """Кнопка нужна только при находке «hostlist без --hostlist»."""
-
-        broken = any(
-            getattr(check, "id", "") == "zapret.hostlist_args" and check.status == "fail"
-            for check in getattr(report, "checks", ())
-        )
-        self.fix_button.set_visible(broken)
-
-    def fix_config(self) -> None:
-        """Обезвредить профиль zapret: закомментировать, проверить, откатить при регрессии."""
-
-        self.fix_button.set_sensitive(False)
+    def refresh_profiles(self) -> None:
+        """Показать профили zapret: активные и игнорируемые."""
 
         def job():
-            return api.neutralize_zapret_hostlist_args(self.app.cfg)
+            return zapret.read_profiles()
 
-        def done(result) -> None:
-            self.fix_button.set_sensitive(True)
-            code, payload = result
-            before = payload.get("before") or {}
-            after = payload.get("after") or {}
-            cf_line = (
-                _("CF-путь: было {b}/{bt}, стало {a}/{at}").format(
-                    b=before.get("ok", "?"),
-                    bt=before.get("total", "?"),
-                    a=after.get("ok", "?"),
-                    at=after.get("total", "?"),
-                )
-                if after
-                else ""
-            )
-            if payload.get("rolled_back"):
-                common.message(
-                    self.app,
-                    _("{error}\n\n{cf}").format(
-                        error=payload.get("error") or _("Правка отменена"), cf=cf_line
-                    ),
-                )
+        def done(profiles) -> None:
+            self.profile_store.clear()
+            if not profiles:
+                self.profile_note.set_text(_("Профили zapret не найдены (конфиг недоступен)"))
                 return
-            if code != api.EXIT_OK or payload.get("ok") is False:
-                common.message(
-                    self.app,
-                    _("{error}\n\n{cf}").format(
-                        error=payload.get("error") or _("Не удалось исправить конфиг"),
-                        cf=cf_line,
-                    ),
+            ignored = 0
+            for profile in profiles:
+                active = bool(profile.get("active"))
+                if not active:
+                    ignored += 1
+                strategy = ", ".join(profile.get("desync") or [])[:60]
+                self.profile_store.append(
+                    [
+                        str(profile.get("protocol") or "—"),
+                        _("работает") if active else _("игнорируется"),
+                        str(profile.get("applies_to") or "—"),
+                        strategy,
+                    ]
                 )
-                return
-            if not payload.get("changed"):
-                common.toast(self.app, _("Профиль уже в безопасном виде"))
-            else:
-                common.message(
-                    self.app,
-                    _(
-                        "Профиль обезврежен (строк: {n}).\n\n{cf}\n\n"
-                        "Строки закомментированы, а не включены: включение такого "
-                        "профиля ломает TLS. Бэкап: {backup}"
-                    ).format(
-                        n=len(payload.get("lines") or []),
-                        cf=cf_line,
-                        backup=payload.get("backup") or "—",
-                    ),
-                )
-            self.refresh()
+            note = _(
+                "Профили desync: {n} правил, из них игнорируется {ignored}. "
+                "«Игнорируется» — путь к списку записан без --hostlist=: nfqws2 "
+                "такую строку не применяет. Это безопасно (правило не работает) "
+                "и ничего менять не нужно."
+            ).format(n=len(profiles), ignored=ignored)
+            self.profile_note.set_text(note)
 
-        def failed(exc: Exception) -> None:
-            self.fix_button.set_sensitive(True)
-            common.message(self.app, _("Ошибка: {err}").format(err=exc))
-
-        run_in_thread(job, on_done=done, on_error=failed)
+        run_in_thread(job, on_done=done)
 
     def refresh(self) -> None:
         def job():
@@ -121,7 +87,6 @@ class DoctorScreen:
 
         def apply_report(report):
             self.last_report = report
-            self._update_fix_button(report)
             self.store.clear()
             for check in report.checks:
                 self.store.append(

@@ -206,3 +206,54 @@ class NeutralizeTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertEqual(target.read_text(encoding="utf-8"), "старое\n")
+
+
+class ProfileTests(unittest.TestCase):
+    CONFIG = (
+        'NFQWS2_OPT="\n'
+        "--filter-tcp=443 --filter-l7=tls /opt/zapret2/ipset/zapret-hosts-rut.txt "
+        "--payload=tls_client_hello --lua-desync=tcpseg:pos=0,1:ip_id=rnd --new\n"
+        "--filter-tcp=443 --filter-l7=tls <HOSTLIST> --payload=tls_client_hello "
+        "--lua-desync=multisplit:pos=1 --new\n"
+        '"\n'
+    )
+
+    def _config(self) -> Path:
+        import tempfile
+        from pathlib import Path as P
+
+        path = P(tempfile.mkdtemp()) / "config"
+        path.write_text(self.CONFIG, encoding="utf-8")
+        return path
+
+    def test_bare_profile_marked_inactive(self) -> None:
+        profiles = zapret.read_profiles(self._config())
+        self.assertEqual(len(profiles), 2)
+        self.assertFalse(profiles[0]["active"])
+        self.assertEqual(profiles[0]["bare_hostlists"], ["zapret-hosts-rut.txt"])
+        self.assertTrue(profiles[1]["active"])
+        self.assertTrue(profiles[1]["uses_placeholder"])
+
+    def test_active_profile_skips_broken_one(self) -> None:
+        profiles = zapret.read_profiles(self._config())
+        chosen = zapret.active_profile_for(profiles, "kws2.pclead.co.uk")
+        self.assertEqual(chosen["desync"], ["multisplit:pos=1"])
+
+    def test_http_profile_protocol(self) -> None:
+        import tempfile
+        from pathlib import Path as P
+
+        path = P(tempfile.mkdtemp()) / "config"
+        path.write_text(
+            'NFQWS2_OPT="\n'
+            "--filter-tcp=80 --filter-l7=http <HOSTLIST> --payload=http_req "
+            "--lua-desync=http_methodeol --new\n"
+            '"\n',
+            encoding="utf-8",
+        )
+        profiles = zapret.read_profiles(path)
+        self.assertEqual(profiles[0]["protocol"], "tcp/80 http")
+        self.assertEqual(profiles[0]["applies_to"], "hostlist zapret")
+
+    def test_missing_config(self) -> None:
+        self.assertEqual(zapret.read_profiles("/nonexistent/config"), [])

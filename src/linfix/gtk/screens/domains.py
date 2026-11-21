@@ -232,9 +232,11 @@ class DomainsScreen:
         )
         confirm.format_secondary_text(
             _(
-                "{n} домен(ов) будут убраны из hostlist zapret, служба перезапустится. "
-                "Если это CF-домены TgWsProxy, прокси может перестать работать "
-                "через них."
+                "{n} домен(ов) будут убраны из hostlist zapret, служба перезапустится.\n\n"
+                "ВНИМАНИЕ: это CF-домены TgWsProxy. Без них прокси не сможет "
+                "подключиться к Telegram — zapret перестанет маскировать их SNI.\n\n"
+                "Если вы просто хотите проверить домены — используйте «Тест TLS», "
+                "он ничего не меняет."
             ).format(n=len(selected))
         )
         response = confirm.run()

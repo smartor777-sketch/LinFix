@@ -351,3 +351,99 @@ def config_hostlist_problems(config_path: str | Path = "/opt/zapret2/config") ->
                 problems.append(stripped)
                 break
     return problems
+
+
+def read_profiles(config_path: str | Path = "/opt/zapret2/config") -> list[dict[str, object]]:
+    """Прочитать профили desync из конфига zapret (только чтение)."""
+
+    target = Path(config_path)
+    default_path = str(config_path) == "/opt/zapret2/config"
+    if not target.exists():
+        if not default_path:
+            return []
+        for candidate in ("/opt/zapret/ipset", "/opt/zapret2/ipset"):
+            if Path(candidate).exists():
+                alternate = Path(candidate).parent / "config"
+                if alternate.exists():
+                    target = alternate
+                    break
+        else:
+            return []
+
+    text = target.read_text(encoding="utf-8", errors="replace")
+    block = ""
+    collecting = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('NFQWS2_OPT="'):
+            collecting = True
+            block = stripped[len('NFQWS2_OPT="') :]
+            if block.endswith('"'):
+                block = block[:-1]
+                break
+            continue
+        if collecting:
+            if stripped == '"':
+                break
+            block += "\n" + stripped
+
+    profiles: list[dict[str, object]] = []
+    for raw in block.split("--new"):
+        line = raw.strip()
+        if not line or not line.startswith("--"):
+            continue
+        tokens = line.split()
+        hostlists = [t.split("=", 1)[1] for t in tokens if t.startswith("--hostlist=")]
+        bare = [
+            t for t in tokens
+            if not t.startswith("-") and (t.endswith(".txt") or t.endswith(".gz"))
+        ]
+        desync = [t.split("=", 1)[1] for t in tokens if t.startswith("--lua-desync=")]
+        uses_placeholder = any("<HOSTLIST" in t for t in tokens)
+        l7 = ""
+        port = ""
+        for token in tokens:
+            if token.startswith("--filter-l7="):
+                l7 = token.split("=", 1)[1]
+            elif token.startswith("--filter-tcp="):
+                port = f"tcp/{token.split('=', 1)[1]}"
+            elif token.startswith("--filter-udp="):
+                port = f"udp/{token.split('=', 1)[1]}"
+        proto = " ".join(item for item in (port, l7) if item) or "?"
+        profiles.append(
+            {
+                "protocol": proto or "?",
+                "hostlists": [Path(item).name for item in hostlists],
+                "bare_hostlists": [Path(item).name for item in bare],
+                "desync": desync,
+                "uses_placeholder": uses_placeholder,
+                "applies_to": (
+                    "hostlist zapret"
+                    if uses_placeholder
+                    else "только свой список"
+                    if hostlists
+                    else "весь трафик (нет --hostlist)"
+                    if bare
+                    else "весь трафик"
+                ),
+                # «Голый» путь nfqws2 игнорирует — профиль фактически неактивен.
+                "active": not bare,
+                "raw": line,
+            }
+        )
+    return profiles
+
+
+def active_profile_for(profiles: list[dict[str, object]], domain: str) -> dict[str, object] | None:
+    """Какой профиль первым совпадёт с доменом (учитывая порядок)."""
+
+    for profile in profiles:
+        if not profile.get("active"):
+            continue  # «голый» путь — правило не работает
+        listed = list(profile.get("hostlists") or [])
+        if listed and domain.lower().endswith(tuple(listed)):
+            return profile
+    for profile in profiles:
+        if profile.get("active") and profile.get("uses_placeholder"):
+            return profile
+    return None
