@@ -19,7 +19,7 @@ make deb
 ## Установка
 
 ```sh
-sudo apt install ./dist/linfix_0.4.9_all.deb
+sudo apt install ./dist/linfix_0.5.0_all.deb
 ```
 
 Зависимости: `python3-gi`, `gir1.2-gtk-3.0`, `nftables`, `curl`,
