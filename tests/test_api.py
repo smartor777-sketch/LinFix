@@ -188,3 +188,53 @@ class CfDomainsTests(unittest.TestCase):
         self.assertEqual(payload["domains"], ["a.co.uk", "b.co.uk"])
         self.assertEqual(payload["missing"], ["b.co.uk"])
         self.assertEqual(payload["in_hostlist"], 1)
+
+
+class CfPathCheckTests(unittest.TestCase):
+    def test_check_cf_path_counts_alive(self) -> None:
+        fake = [("kws2.a.co.uk", True, "ok"), ("kws4.a.co.uk", False, "timeout")]
+        with patch("linfix.api.cfdomains.test_domains", return_value=fake):
+            result = api.check_cf_path(limit=1)
+        self.assertEqual(result["ok"], 1)
+        self.assertEqual(result["total"], 2)
+
+    def test_check_cf_path_survives_exception(self) -> None:
+        with patch("linfix.api.cfdomains.test_domains", side_effect=OSError("boom")):
+            result = api.check_cf_path()
+        self.assertEqual(result["ok"], 0)
+        self.assertIn("boom", result["error"])
+
+    def test_rolls_back_when_worse(self) -> None:
+        cfg = Config()
+        info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2")
+        better = {"ok": 4, "total": 4}
+        worse = {"ok": 0, "total": 4}
+        with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.check_cf_path", side_effect=[better, worse]
+        ), patch(
+            "linfix.api.util.run_helper",
+            side_effect=[(0, {"ok": True, "changed": True, "backup": "/tmp/bak"}),
+                         (0, {"ok": True})],
+        ) as helper, patch("linfix.api.util.run"):
+            code, payload = api.neutralize_zapret_hostlist_args(cfg)
+
+        self.assertEqual(code, api.EXIT_CHECK_FAILED)
+        self.assertTrue(payload["rolled_back"])
+        self.assertFalse(payload["ok"])
+        # второй вызов — восстановление из бэкапа
+        self.assertEqual(helper.call_args_list[1].args[0], "zapret.restore_config")
+
+    def test_keeps_change_when_not_worse(self) -> None:
+        cfg = Config()
+        info = SimpleNamespace(service="zapret2", install_dir="/opt/zapret2")
+        same = {"ok": 4, "total": 4}
+        with patch("linfix.api.zapret.detect_zapret", return_value=info), patch(
+            "linfix.api.check_cf_path", side_effect=[same, same]
+        ), patch(
+            "linfix.api.util.run_helper",
+            return_value=(0, {"ok": True, "changed": True, "backup": "/tmp/bak"}),
+        ), patch("linfix.api.util.run"):
+            code, payload = api.neutralize_zapret_hostlist_args(cfg)
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload.get("rolled_back", False))

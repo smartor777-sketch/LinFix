@@ -142,3 +142,67 @@ class BareHostlistTests(unittest.TestCase):
             problems = zapret.config_hostlist_problems(path)
         self.assertEqual(len(problems), 1)
         self.assertIn("zapret-hosts-rut.txt", problems[0])
+
+
+class NeutralizeTests(unittest.TestCase):
+    def _write(self, text: str) -> Path:
+        import tempfile
+        from pathlib import Path as P
+
+        tmp = tempfile.mkdtemp()
+        path = P(tmp) / "config"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_comments_bare_hostlist_line(self) -> None:
+        path = self._write(
+            'NFQWS2_OPT="\n'
+            "--filter-tcp=443 --filter-l7=tls /opt/zapret2/ipset/zapret-hosts-rut.txt "
+            "--payload=tls_client_hello --new\n"
+            '"\n'
+        )
+        from linfix import helper
+        from types import SimpleNamespace
+
+        code, payload = helper.action_zapret_neutralize_hostlist_args(
+            SimpleNamespace(config_path=str(path), json=False)
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["changed"])
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("# --filter-tcp=443", text)
+        self.assertIn("# linfix: профиль без --hostlist обезврежен", text)
+        # Ключевое: мы НЕ включаем профиль.
+        self.assertNotIn("\n--filter-tcp=443 --filter-l7=tls /opt", text)
+
+    def test_correct_line_untouched(self) -> None:
+        path = self._write(
+            "--filter-tcp=443 --filter-l7=tls "
+            "--hostlist=/opt/zapret2/ipset/zapret-hosts-rut.txt --new\n"
+        )
+        from linfix import helper
+        from types import SimpleNamespace
+
+        code, payload = helper.action_zapret_neutralize_hostlist_args(
+            SimpleNamespace(config_path=str(path), json=False)
+        )
+        self.assertEqual(code, 0)
+        self.assertFalse(payload["changed"])
+
+    def test_restore_from_backup(self) -> None:
+        import tempfile
+        from pathlib import Path as P
+        from linfix import helper
+        from types import SimpleNamespace
+
+        tmp = P(tempfile.mkdtemp())
+        target = tmp / "config"
+        target.write_text("новое\n", encoding="utf-8")
+        backup = tmp / "config.bak"
+        backup.write_text("старое\n", encoding="utf-8")
+
+        code, payload = helper.action_zapret_restore_config(
+            SimpleNamespace(backup=str(backup), config_path=str(target), json=False)
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(target.read_text(encoding="utf-8"), "старое\n")

@@ -62,12 +62,13 @@ class StatusScreen:
         ):
             self.telegram_card.add(key, text)
 
-        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=12)
+        # Кнопка обновления — сверху, до карточек: так её видно без прокрутки.
+        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
+        common.pack(self.box, self.buttons)
         common.pack(self.box, self.zapret_card)
         common.pack(self.box, self.tgws_card)
         common.pack(self.box, self.domains_card)
         common.pack(self.box, self.telegram_card)
-        common.pack(self.box, self.buttons)
 
         self._build_buttons()
         self.refresh()

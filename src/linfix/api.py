@@ -800,29 +800,78 @@ def zapret_hostlist_arg_problems(cfg: Config) -> list[str]:
     return zapret.config_hostlist_problems()
 
 
-def fix_zapret_hostlist_args(cfg: Config) -> tuple[int, dict[str, object]]:
-    """Исправить голые пути hostlist в config zapret (root через helper)."""
+def check_cf_path(limit: int = 3, timeout: float = 5.0) -> dict[str, object]:
+    """Быстрая проверка CF-пути: сколько доменов отвечает по TLS."""
+
+    try:
+        results = cfdomains.test_domains(limit=limit, timeout=timeout)
+    except Exception as exc:  # noqa: BLE001 — проверка не должна ронять UI
+        return {"ok": 0, "total": 0, "error": str(exc)}
+    ok = sum(1 for _host, alive, _detail in results if alive)
+    return {"ok": ok, "total": len(results), "results": results}
+
+
+def neutralize_zapret_hostlist_args(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Безопасно обезвредить профили zapret без ``--hostlist=``.
+
+    Порядок: замерить CF-путь → закомментировать строки → перезапустить
+    службу → замерить снова. Если стало хуже, вернуть конфиг из бэкапа.
+    """
 
     info = zapret.detect_zapret(cfg.zapret.service)
+    service = info.service or cfg.zapret.service
     base = Path(info.install_dir) if info.install_dir else Path("/opt/zapret2")
     config_path = base / "config"
+
+    before = check_cf_path()
     try:
         code, payload = util.run_helper(
-            "zapret.fix_hostlist_args", ["--config-path", str(config_path)], timeout=120
+            "zapret.neutralize_hostlist_args", ["--config-path", str(config_path)], timeout=120
         )
     except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
     except util.CommandError as exc:
         return EXIT_ERROR, {"ok": False, "error": f"правка конфига: {exc}"}
 
-    if code == 0 and payload.get("changed"):
-        restart = util.run(
-            ["systemctl", "restart", info.service or cfg.zapret.service],
-            check=False,
-            timeout=60,
-        )
-        payload["restarted"] = restart.returncode == 0
-    return code, payload
+    payload["before"] = before
+    if code != 0 or not payload.get("changed"):
+        return code, payload
+
+    restart = util.run(["systemctl", "restart", service], check=False, timeout=60)
+    payload["restarted"] = restart.returncode == 0
+    after = check_cf_path()
+    payload["after"] = after
+
+    before_ok = int(before.get("ok") or 0)
+    after_ok = int(after.get("ok") or 0)
+    if after_ok < before_ok:
+        # Регресс — откатываем автоматически, не оставляя пользователя
+        # со сломанной сетью.
+        backup = payload.get("backup")
+        if backup:
+            try:
+                restore_code, _restore = util.run_helper(
+                    "zapret.restore_config",
+                    ["--backup", str(backup), "--config-path", str(config_path)],
+                    timeout=120,
+                )
+            except (util.NetfixError, util.CommandError) as exc:
+                payload["ok"] = False
+                payload["rolled_back"] = False
+                payload["error"] = f"ухудшилось, а откат не удался: {exc}"
+                return EXIT_ERROR, payload
+            util.run(["systemctl", "restart", service], check=False, timeout=60)
+            payload["rolled_back"] = restore_code == 0
+            payload["ok"] = False
+            payload["error"] = (
+                f"после правки CF-путь стал хуже ({before_ok}/{before.get('total')} → "
+                f"{after_ok}/{after.get('total')}); конфиг возвращён назад"
+            )
+            return EXIT_CHECK_FAILED, payload
+
+    payload["ok"] = True
+    payload["improved"] = after_ok > before_ok
+    return EXIT_OK, payload
 
 
 def add_to_cf_domains(cfg: Config, domains: list[str], *, restart: bool = True) -> tuple[int, dict[str, object]]:

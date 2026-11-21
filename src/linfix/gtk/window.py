@@ -186,3 +186,19 @@ class NetFixWindow(Gtk.ApplicationWindow):
             hook = getattr(screen, "on_shown", None)
             if callable(hook):
                 hook()
+            # При смене раздела возвращаем содержимое наверх: иначе страница
+            # остаётся на той же прокрутке, и кажется, что контент «пропал».
+            self.scroll_to_top()
+
+    def scroll_to_top(self) -> None:
+        """Прокрутить содержимое раздела в начало."""
+
+        def reset() -> bool:
+            adjustment = self.scrolled.get_vadjustment()
+            if adjustment is not None:
+                adjustment.set_value(adjustment.get_lower())
+            return False
+
+        # После смены страницы GTK заново считает размер — ждём кадр.
+        GLib.idle_add(reset)
+        GLib.timeout_add(60, reset)
