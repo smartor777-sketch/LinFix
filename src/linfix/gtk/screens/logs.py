@@ -22,16 +22,17 @@ class LogsScreen:
         self.buffer = self.textview.get_buffer()
         self.scrolled = common.scrolled(self.textview)
 
-        self.search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=8)
+        self.search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         self.entry = common.entry()
         self.entry.set_placeholder_text(_("Поиск в логах"))
         self.entry.connect("activate", lambda *_: self.filter_text())
         self.b_refresh = common.button(_("Обновить"), lambda _: self.refresh())
-        common.pack(self.search_box, self.entry)
+        common.pack_expand(self.search_box, self.entry)
         common.pack(self.search_box, self.b_refresh)
 
-        common.pack_expand(self.box, self.scrolled)
+        # Поиск и «Обновить» — над логом: так их видно без прокрутки.
         common.pack(self.box, self.search_box)
+        common.pack_expand(self.box, self.scrolled)
         self.full_text = ""
         self.refresh()
 

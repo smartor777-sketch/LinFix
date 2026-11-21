@@ -45,7 +45,7 @@
   TLS до CF-доменов, VPN/TUN, guard.
 - **Настройки** — порт, хост, verbose, размер лога, режим TgWsProxy
   (трей/CLI), guard, автозапуск, управление службами, ссылка `tg://proxy`.
-- **Логи** — journalctl обеих служб + хвост `proxy.log`, с поиском.
+- **Логи** — journalctl обеих служб + хвост `proxy.log`; поиск и «Обновить» сверху.
 - **Трей** — цвет иконки отражает состояние, меню управляет службами.
 
 ## Проверка сайтов и MTU
@@ -123,7 +123,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.3.0_all.deb
+sudo apt install ./linfix_0.3.1_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте

@@ -344,3 +344,67 @@ class SettingsActionTests(unittest.TestCase):
         self.assertEqual(len(stop_tgws.call_args.args), 1)
         self.assertTrue(called)
         app.window.destroy()
+
+
+class LayoutTests(unittest.TestCase):
+    def test_status_refresh_button_above_cards(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        status = app.window.screens["status"]
+        children = status.box.get_children()
+        # 0 — заголовок раздела, 1 — панель с «Обновить», дальше карточки.
+        self.assertIs(children[1], status.buttons)
+        self.assertEqual(
+            [b.get_label() for b in status.buttons.get_children()], ["Обновить"]
+        )
+        app.window.destroy()
+
+    def test_switching_sections_scrolls_to_top(self) -> None:
+        from linfix.gtk.app import NetFixApp
+        import time
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.resize(900, 560)
+
+        def pump(rounds: int = 40) -> None:
+            for _ in range(rounds):
+                while Gtk.events_pending():
+                    Gtk.main_iteration()
+                time.sleep(0.01)
+
+        pump()
+        window.set_page("status")
+        pump()
+        adjustment = window.scrolled.get_vadjustment()
+        adjustment.set_value(150)
+        pump()
+        self.assertGreater(adjustment.get_value(), 0)
+
+        window.set_page("logs")
+        pump()
+        self.assertEqual(adjustment.get_value(), 0.0)
+
+        window.set_page("status")
+        pump()
+        self.assertEqual(adjustment.get_value(), 0.0)
+        app.window.destroy()
+
+
+class LogsLayoutTests(unittest.TestCase):
+    def test_search_bar_above_log_view(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        logs = app.window.screens["logs"]
+        children = logs.box.get_children()
+        self.assertLess(
+            children.index(logs.search_box),
+            children.index(logs.scrolled),
+            "поиск и «Обновить» должны быть над логом",
+        )
+        app.window.destroy()
