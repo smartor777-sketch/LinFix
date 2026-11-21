@@ -17,11 +17,13 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import ssl
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from dataclasses import dataclass, field
 
 from . import util as _util
@@ -140,6 +142,42 @@ def _https_fetch(host: str, timeout: float, *, limit: int = 65536) -> tuple[int,
         return received, f"ошибка: {exc}", False
 
 
+def _in_zapret_hostlist(host: str) -> bool | None:
+    """Есть ли домен в списках zapret (тогда на него действует desync)."""
+
+    paths = [
+        Path("/opt/zapret2/ipset/zapret-hosts-user.txt"),
+        Path("/opt/zapret/ipset/zapret-hosts-user.txt"),
+    ]
+    checked = False
+    for path in paths:
+        if not path.is_file():
+            continue
+        checked = True
+        try:
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                item = line.strip().lower()
+                if not item or item.startswith("#"):
+                    continue
+                if host == item or host.endswith("." + item):
+                    return True
+        except OSError:
+            continue
+    return False if checked else None
+
+
+def _interface_mtu(ip: str) -> int | None:
+    """MTU интерфейса, через который идёт маршрут до адреса."""
+
+    route = util_run(["ip", "-o", "route", "get", ip], timeout=10, check=False)
+    match = re.search(r"\bdev\s+(\S+)", route.stdout or "")
+    if not match:
+        return None
+    link = util_run(["ip", "-o", "link", "show", match.group(1)], timeout=10, check=False)
+    mtu_match = re.search(r"\bmtu\s+(\d+)", link.stdout or "")
+    return int(mtu_match.group(1)) if mtu_match else None
+
+
 def _path_mtu(ip: str, timeout: float = 2.0) -> int | None:
     """Максимальный размер ICMP-пакета, который проходит до адреса (DF).
 
@@ -225,16 +263,27 @@ def check_site(host: str, *, timeout: float = DEFAULT_TIMEOUT) -> SiteCheck:
         received, reason, complete = _https_fetch(host, timeout)
         details.append(f"Загрузка по HTTPS: {received} байт, {reason}")
         if not complete:
+            local_mtu = _interface_mtu(ip) if ip else None
             mtu = _path_mtu(ip)
             if mtu is None:
                 details.append("ICMP-проверка MTU недоступна")
             else:
-                details.append(f"PMTU до сервера: {mtu} байт (локальный MTU 1500)")
-            if mtu is not None and mtu < 1500:
+                if mtu is not None and local_mtu is not None and mtu >= local_mtu:
+                    details.append(
+                        f"PMTU согласован: {mtu} байт (локальный MTU {local_mtu}) — не причина"
+                    )
+                else:
+                    details.append(
+                        f"PMTU до сервера: {mtu} байт (локальный MTU {local_mtu or 1500})"
+                    )
+            # Сравниваем с ФАКТИЧЕСКИМ MTU интерфейса, а не с 1500:
+            # после первого «Починить MTU» он уже 1492, и старом условие
+            # продолжало ругаться на PMTU, хотя всё согласовано.
+            if mtu is not None and local_mtu is not None and mtu < local_mtu:
                 return SiteCheck(
                     host,
                     "pmtu",
-                    f"Данные застревают: MTU до сервера {mtu} вместо 1500",
+                    f"Данные застревают: MTU до сервера {mtu}, локальный {local_mtu}",
                     details,
                     ip=ip,
                     advice=(
@@ -244,13 +293,30 @@ def check_site(host: str, *, timeout: float = DEFAULT_TIMEOUT) -> SiteCheck:
                     ),
                     suggested_mtu=mtu,
                 )
+            in_lists = _in_zapret_hostlist(host)
+            if in_lists:
+                return SiteCheck(
+                    host,
+                    "desync",
+                    "Данные застревают при включённом desync для этого домена",
+                    details,
+                    ip=ip,
+                    advice=(
+                        "Домен есть в hostlist zapret, и именно на нём ломается передача: "
+                        "профиль desync не подходит. Проверьте другие профили или "
+                        "исключите домен из списка. Остановка zapret на минуту это подтвердит."
+                    ),
+                )
             return SiteCheck(
                 host,
                 "slow",
                 "TLS проходит, но данные почти не идут",
                 details,
                 ip=ip,
-                advice="Блокировки не видно: скорее всего сервер перегружен или канал узкий.",
+                advice=(
+                    "Домена нет в списках zapret, значит desync ни при чём. "
+                    "Скорее всего сервер перегружен или канал узкий."
+                ),
             )
         if real_time > 3.0 or not complete:
             return SiteCheck(

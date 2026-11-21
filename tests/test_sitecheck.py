@@ -41,7 +41,9 @@ class ClassificationTests(unittest.TestCase):
              mock.patch.object(sitecheck, "_tls_handshake", **patches.get("tls", {"return_value": (True, 0.1, "TLSv1.3")})), \
              mock.patch.object(sitecheck, "_https_fetch", **patches.get("fetch", {"return_value": (20000, "ok", True)})), \
              mock.patch.object(sitecheck, "_http_ok", **patches.get("http", {"return_value": (False, 0, 0.0)})), \
-             mock.patch.object(sitecheck, "_path_mtu", **patches.get("mtu", {"return_value": 1500})):
+             mock.patch.object(sitecheck, "_path_mtu", **patches.get("mtu", {"return_value": 1500})), \
+             mock.patch.object(sitecheck, "_interface_mtu", **patches.get("iface_mtu", {"return_value": 1500})), \
+             mock.patch.object(sitecheck, "_in_zapret_hostlist", **patches.get("in_list", {"return_value": False})):
             return sitecheck.check_site("example.com", timeout=3)
 
     def test_ok(self) -> None:
@@ -78,19 +80,41 @@ class ClassificationTests(unittest.TestCase):
         self.assertIn("hostlist", result.advice)
 
     def test_pmtu_blackhole(self) -> None:
+        # Локальный MTU 1500, а до сервера проходит 1492 — «дыра».
         result = self._run(
             fetch={"return_value": (8000, "таймаут", False)},
             mtu={"return_value": 1492},
+            iface_mtu={"return_value": 1500},
         )
         self.assertEqual(result.status, "pmtu")
         self.assertIn("1492", result.summary)
+
+    def test_pmtu_aligned_is_not_the_cause(self) -> None:
+        # MTU уже согласован: 1492 == 1492, значит причина не в MTU.
+        result = self._run(
+            fetch={"return_value": (8000, "таймаут", False)},
+            mtu={"return_value": 1492},
+            iface_mtu={"return_value": 1492},
+        )
+        self.assertEqual(result.status, "slow")
 
     def test_slow_without_mtu_issue(self) -> None:
         result = self._run(
             fetch={"return_value": (8000, "таймаут", False)},
             mtu={"return_value": 1500},
+            iface_mtu={"return_value": 1500},
         )
         self.assertEqual(result.status, "slow")
+
+    def test_desync_blamed_when_domain_in_list(self) -> None:
+        result = self._run(
+            fetch={"return_value": (8000, "таймаут", False)},
+            mtu={"return_value": 1500},
+            iface_mtu={"return_value": 1500},
+            in_list={"return_value": True},
+        )
+        self.assertEqual(result.status, "desync")
+        self.assertIn("hostlist", result.advice)
 
 
 if __name__ == "__main__":
