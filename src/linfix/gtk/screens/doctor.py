@@ -30,6 +30,10 @@ class DoctorScreen:
             _("Сетевая диагностика"), lambda _: self.run_network_diag()
         )
         common.pack(self.buttons, self.net_button)
+        self.pick_button = common.button(
+            _("Подобрать стратегию"), lambda _: self.pick_strategy()
+        )
+        common.pack(self.buttons, self.pick_button)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
 
@@ -40,8 +44,9 @@ class DoctorScreen:
             self.net_store,
             [_("Проверка"), _("Статус"), _("Детали")],
         )
-        self.net_scrolled = common.scrolled(self.net_tree)
-        self.net_scrolled.set_min_content_height(180)
+        # Без ScrolledWindow: TreeView запрашивает высоту по числу строк,
+        # внешняя прокрутка страницы уже есть.
+        self.net_scrolled = self.net_tree
         self.reco_label = common.label("", wrap=True)
 
         # Профили desync — только просмотр: какие правила реально работают.
@@ -50,11 +55,8 @@ class DoctorScreen:
             self.profile_store,
             [_("Протокол"), _("Статус"), _("Действует на"), _("Стратегия")],
         )
-        # Высоту задаём самому ScrolledWindow: size_request на TreeView внутри
-        # него не влияет — окно прокрутки всё равно просит минимум и
-        # показывает две строки.
-        self.profile_scrolled = common.scrolled(self.profile_tree)
-        self.profile_scrolled.set_min_content_height(200)
+        # Высота по контенту: без внутренней прокрутки.
+        self.profile_scrolled = self.profile_tree
         self.profile_note = common.label("", wrap=True)
 
         common.pack(self.box, self.buttons)
@@ -67,6 +69,91 @@ class DoctorScreen:
         self.last_report = None
         self.refresh()
         self.refresh_profiles()
+
+    def pick_strategy(self) -> None:
+        """Подобрать рабочую стратегию desync через blockcheck2.
+
+        Пользователь должен понимать: zapret на время замеров остановится.
+        """
+
+        ok, reason = api.blockcheck_status(self.app.cfg)
+
+        dialog = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE,
+            text=_("Подобрать стратегию desync?"),
+        )
+        dialog.format_secondary_text(
+            _(
+                "Запустится штатный blockcheck2.sh из zapret. Он подберёт "
+                "стратегии, которые обходят вашего провайдера.\n\n"
+                "zapret на время замеров будет ОСТАНОВЛЕН и включён обратно — "
+                "это обязательно, иначе он вмешивается в замеры.\n\n"
+                "Занимает от 1 до 10 минут в зависимости от уровня.\n\n"
+                "Подбор ничего не меняет в конфиге: вы просто увидите список "
+                "рабочих стратегий."
+            )
+            + ("\n\n" + _("Сейчас: {reason}").format(reason=reason) if not ok else "")
+        )
+        dialog.add_button(_("Отмена"), Gtk.ResponseType.CANCEL)
+        run_button = dialog.add_button(_("Подобрать"), 1)
+        run_button.set_sensitive(True)
+        dialog.show_all()
+        response = dialog.run()
+        dialog.destroy()
+        if response != 1:
+            return
+
+        self.pick_button.set_sensitive(False)
+        self.verdict_label.set_text(_("Подбираю стратегию… это может занять несколько минут"))
+
+        def job():
+            return api.pick_strategy(self.app.cfg, level="quick", timeout=900)
+
+        def done(result) -> None:
+            self.pick_button.set_sensitive(True)
+            code, payload = result
+            strategies = payload.get("strategies") or []
+            best = payload.get("best")
+            if not strategies:
+                common.message(
+                    self.app,
+                    _("Рабочих стратегий не найдено.\n\n{err}").format(
+                        err=payload.get("error") or _("см. Логи")
+                    ),
+                )
+                self.verdict_label.set_text(_("Стратегии не найдены"))
+                return
+            lines = [
+                _("Найдено стратегий: {n}").format(n=len(strategies)),
+                "",
+            ]
+            for item in strategies[:5]:
+                mark = "★" if best and item["args"] == best["args"] else " "
+                lines.append(
+                    f"{mark} {item['success']}/{item['total']}: {item['args'][:110]}"
+                )
+            lines.append("")
+            lines.append(
+                _(
+                    "Скопируйте нужную строку и вставьте в NFQWS2_OPT файла "
+                    "config (заменив строку своего профиля), затем перезапустите "
+                    "zapret. LinFix конфиг не меняет — правка остаётся за вами."
+                )
+            )
+            self.verdict_label.set_text("\n".join(lines))
+            common.toast(
+                self.app,
+                _("Найдено стратегий: {n}, zapret снова запущен").format(n=len(strategies)),
+            )
+
+        def failed(exc: Exception) -> None:
+            self.pick_button.set_sensitive(True)
+            common.message(self.app, _("Ошибка подбора: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
 
     def run_network_diag(self) -> None:
         """Проверить сеть до Telegram: DC, DNS, DPI, медиа — с вердиктом."""

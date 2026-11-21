@@ -148,3 +148,60 @@ class SpeedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BlockcheckTests(unittest.TestCase):
+    SAMPLE = (
+        "2/2 : --filter-tcp=443 --hostlist=x --lua-desync=multisplit:pos=1\n"
+        "1/2 : --filter-tcp=443 --lua-desync=fake:blob=fake_default_tls\n"
+        "комментарий без формата\n"
+        "1/2 : --filter-tcp=443 --lua-desync=fake:blob=fake_default_tls\n"
+    )
+
+    def test_parse_sorts_and_dedups(self) -> None:
+        from linfix import blockcheck
+
+        strategies = blockcheck.parse_output(self.SAMPLE)
+        self.assertEqual(len(strategies), 2)
+        self.assertEqual(strategies[0].score, 1.0)
+        self.assertIn("multisplit", strategies[0].args)
+
+    def test_desync_only(self) -> None:
+        from linfix import blockcheck
+
+        best = blockcheck.parse_output(self.SAMPLE)[0]
+        self.assertEqual(best.desync, ["--lua-desync=multisplit:pos=1"])
+
+    def test_build_env_is_noninteractive(self) -> None:
+        from linfix import blockcheck
+
+        env = blockcheck.build_env("/opt/zapret2", ["a.org", "b.org"], "quick")
+        self.assertEqual(env["DOMAINS"], "a.org b.org")
+        self.assertEqual(env["SCANLEVEL"], "quick")
+        self.assertEqual(env["BATCH"], "1")
+        self.assertEqual(env["IPVS"], "4")
+
+    def test_bad_level_rejected(self) -> None:
+        from linfix import blockcheck
+
+        with self.assertRaises(blockcheck.BlockcheckError):
+            blockcheck.run_blockcheck("/opt/zapret2", domains=["a"], level="turbo")
+
+    def test_missing_script(self) -> None:
+        from linfix import blockcheck
+
+        with self.assertRaises(blockcheck.BlockcheckError):
+            blockcheck.run_blockcheck("/nonexistent", domains=["a"])
+
+    def test_readiness_requires_stopped_zapret(self) -> None:
+        from types import SimpleNamespace
+        from linfix import blockcheck
+
+        cfg = SimpleNamespace(zapret=SimpleNamespace(service="zapret2"))
+        active = SimpleNamespace(install_dir="/opt/zapret2", active=True)
+        with mock.patch("linfix.zapret.detect_zapret", return_value=active), mock.patch.object(
+            blockcheck, "script_path", return_value=__import__("pathlib").Path("/tmp")
+        ), mock.patch("pathlib.Path.is_file", return_value=True):
+            ok, reason = blockcheck.check_readiness(cfg)
+        self.assertFalse(ok)
+        self.assertIn("остановить", reason)
