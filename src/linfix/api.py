@@ -916,3 +916,97 @@ def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
         "missing": missing,
         "in_hostlist": len(present),
     }
+
+
+# ---------------------------------------------------------------------------
+# Подбор стратегии desync (blockcheck2)
+# ---------------------------------------------------------------------------
+
+
+def blockcheck_status(cfg: Config) -> tuple[bool, str]:
+    """Можно ли запускать подбор стратегии прямо сейчас."""
+
+    from . import blockcheck
+
+    return blockcheck.check_readiness(cfg)
+
+
+def pick_strategy(
+    cfg: Config,
+    *,
+    domains: list[str] | None = None,
+    level: str = "quick",
+    timeout: float = 900.0,
+) -> tuple[int, dict[str, object]]:
+    """Остановить zapret и подобрать рабочую стратегию desync.
+
+    Останавливать приходится: работающий zapret вмешивается в замеры.
+    После подбора служба возвращается в прежнее состояние.
+    """
+
+    from . import blockcheck
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.install_dir:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "zapret не установлен"}
+
+    ready, reason = blockcheck.check_readiness(cfg)
+    was_active = info.active
+    service = info.service or cfg.zapret.service
+
+    if not info.active and not blockcheck.script_path(info.install_dir).is_file():
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": reason}
+
+    stopped = False
+    if was_active:
+        try:
+            code, payload = util.run_helper("zapret.stop", ["--service", service], timeout=120)
+        except util.NetfixError as exc:
+            return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+        if code != 0:
+            return code, {
+                "ok": False,
+                "error": str(payload.get("error") or "не удалось остановить zapret для замеров"),
+            }
+        stopped = True
+
+    target_domains = domains or ["rutracker.org", "telegram.org"]
+    try:
+        result = blockcheck.run_blockcheck(
+            info.install_dir, domains=target_domains, level=level, timeout=timeout
+        )
+    finally:
+        if stopped:
+            # Всегда возвращаем службу в работу, даже если подбор упал.
+            util.run_helper("zapret.restart", ["--service", service], timeout=120)
+
+    best = result.best
+    note = ""
+    if not best and result.works_without_bypass:
+        note = (
+            "эти домены открываются без обхода — у вашего провайдера они не "
+            "блокируются, подбирать стратегию не нужно"
+        )
+    return (
+        EXIT_OK if best else EXIT_CHECK_FAILED,
+        {
+            "ok": bool(best),
+            "works_without_bypass": result.works_without_bypass,
+            "note": note,
+            "domains": result.domains,
+            "level": result.level,
+            "restarted": stopped,
+            "strategies": [
+                {"success": item.success, "total": item.total, "args": item.args}
+                for item in result.strategies[:10]
+            ],
+            "best": (
+                {"success": best.success, "total": best.total, "args": best.args}
+                if best
+                else None
+            ),
+            "error": result.error
+            or note
+            or ("" if best else "рабочих стратегий не найдено"),
+        },
+    )

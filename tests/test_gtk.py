@@ -430,8 +430,7 @@ class ProfileTableLayoutTests(unittest.TestCase):
         screen = window.screens["doctor"]
         # Высота задана на ScrolledWindow, а не на TreeView: иначе GTK
         # просит минимум и видно только две строки.
-        self.assertGreaterEqual(screen.profile_scrolled.get_min_content_height(), 150)
-        # В CI zapret не установлен, поэтому строк может не быть — проверяем
-        # высоту контейнера, а не данные.
-        self.assertGreaterEqual(screen.profile_scrolled.get_allocation().height, 150)
+        # Высота по контенту: внутренней прокрутки больше нет, поэтому
+        # таблица — это сам TreeView, а не ScrolledWindow.
+        self.assertIsInstance(screen.profile_scrolled, Gtk.TreeView)
         window.destroy()
