@@ -16,6 +16,7 @@ STATUS_LABELS = {
     "sni": _("Блокировка SNI"),
     "tls_ip": _("Блокировка TLS/IP"),
     "http_only": _("Только HTTP"),
+    "desync": _("Ломает desync"),
     "ip_block": _("Блокировка IP"),
     "dns": _("DNS"),
     "error": _("Ошибка"),
@@ -63,11 +64,11 @@ class SiteCheckScreen:
         self._update_mtu_button()
 
     def _update_mtu_button(self) -> None:
-        """Кнопка MTU нужна только тогда, когда проблема именно в PMTU."""
+        """Кнопка MTU полезна и при «медленно»: причину мог не увидеть тест."""
 
         result = self._last
-        if result is not None and result.status == "pmtu":
-            mtu = result.suggested_mtu or 1492
+        mtu = (result.suggested_mtu if result else None) or 1492
+        if result is not None and result.status in {"pmtu", "slow"}:
             self.mtu_button.set_label(_("Починить MTU (→{mtu})").format(mtu=mtu))
             self.mtu_button.set_visible(True)
         else:
@@ -77,7 +78,7 @@ class SiteCheckScreen:
         """Исправить «чёрную дыру» PMTU: probing или MTU интерфейса."""
 
         result = self._last
-        if result is None or result.status != "pmtu":
+        if result is None or result.status not in {"pmtu", "slow"}:
             return
         target_mtu = result.suggested_mtu or 1492
         state = mtufix.read_state(result.ip)
