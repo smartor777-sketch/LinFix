@@ -30,12 +30,27 @@ PAGES: list[tuple[str, str]] = [
 
 # Активная вкладка должна быть визуально очевидна, иначе легко спутать
 # соседние разделы («Мастер настройки» и «Настройки»).
-_TAB_CSS = b"""
+_TAB_CSS = """
 .tab-button.active {
     background-image: none;
     background-color: #3584e4;
     color: #ffffff;
     font-weight: bold;
+}
+
+/* Строка стратегий на «Диагностике» — чуть крупнее и с цветовыми акцентами. */
+.strategy-info {
+    font-size: 15px;
+}
+.strategy-best {
+    color: #3584e4;
+    font-weight: bold;
+}
+.strategy-none {
+    color: #6c6c6c;
+}
+.strategy-error {
+    color: #e01b24;
 }
 """
 
@@ -45,7 +60,7 @@ def _install_tab_css() -> None:
     if screen is None:
         return
     provider = Gtk.CssProvider()
-    provider.load_from_data(_TAB_CSS)
+    provider.load_from_data(_TAB_CSS.encode())
     Gtk.StyleContext.add_provider_for_screen(
         screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
     )
