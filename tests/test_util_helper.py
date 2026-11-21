@@ -80,10 +80,28 @@ class JsonParsingTests(unittest.TestCase):
         self.assertEqual(util._parse_helper_payload("", ""), {})
 
     def test_dev_helper_has_single_json_flag(self) -> None:
-        """--json добавляет только run_helper, иначе парсер получает мусор."""
+        """--json должен попасть в helper ровно один раз (дубль ломал разбор)."""
 
-        cmd = util._dev_helper_command("zapret.set_enabled", ["--service", "zapret2"])
-        self.assertNotIn("--json", cmd)
+        # ASCII-путь: флаг виден прямо в argv.
+        with patch.object(
+            util.Path, "resolve", return_value=util.Path("/opt/linfix/src/linfix/util.py")
+        ), patch.object(
+            util, "which", side_effect=lambda n: "/usr/bin/pkexec" if n == "pkexec" else None
+        ):
+            cmd = util._dev_helper_command("zapret.set_enabled", ["--service", "zapret2"])
+        self.assertEqual(cmd.count("--json"), 1)
+
+        # Не-ASCII путь: флаг лежит в файле-обёртке, а в argv его нет.
+        with patch.object(
+            util.Path, "resolve",
+            return_value=util.Path("/home/a/Документы/LinFix/src/linfix/util.py"),
+        ), patch.object(
+            util, "which", side_effect=lambda n: "/usr/bin/pkexec" if n == "pkexec" else None
+        ):
+            cmd = util._dev_helper_command("zapret.set_enabled", ["--service", "zapret2"])
+        self.assertEqual(cmd.count("--json"), 0)
+        wrapper = util.Path(cmd[1])
+        self.assertEqual(wrapper.read_text(encoding="utf-8").count("'--json'"), 1)
 
 
 class CyrillicPathTests(unittest.TestCase):
