@@ -434,3 +434,48 @@ class ProfileTableLayoutTests(unittest.TestCase):
         # таблица — это сам TreeView, а не ScrolledWindow.
         self.assertIsInstance(screen.profile_scrolled, Gtk.TreeView)
         window.destroy()
+
+
+class DoctorTablesTests(unittest.TestCase):
+    def test_all_tables_use_content_height(self) -> None:
+        """В «Диагностике» не должно быть таблиц с собственной прокруткой."""
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["doctor"]
+        # Все три таблицы — это Gtk.TreeView, высота по контенту.
+        self.assertIsInstance(screen.scrolled, Gtk.TreeView)
+        self.assertIsInstance(screen.profile_scrolled, Gtk.TreeView)
+        self.assertIsInstance(screen.net_scrolled, Gtk.TreeView)
+        app.window.destroy()
+
+    def test_network_table_hidden_until_run(self) -> None:
+        """Пустая таблица с одним заголовком выглядит как поломка."""
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["doctor"]
+        self.assertFalse(screen.net_scrolled.get_visible())
+        self.assertTrue(screen.net_hint.get_visible())
+        app.window.destroy()
+
+    def test_columns_ellipsize(self) -> None:
+        """Длинный текст не должен растягивать таблицу за окно."""
+
+        from linfix.gtk.app import NetFixApp
+        from gi.repository import Pango
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["doctor"]
+        for tree in (screen.tree, screen.net_tree, screen.profile_tree):
+            for column in tree.get_columns():
+                renderer = column.get_cells()[0]
+                self.assertEqual(
+                    renderer.get_property("ellipsize"), Pango.EllipsizeMode.END
+                )
+        app.window.destroy()

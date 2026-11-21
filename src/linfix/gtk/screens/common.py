@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 from ..i18n import _
 
@@ -96,13 +96,27 @@ def table_from_store(
     store: Gtk.ListStore,
     columns: list[str],
     tree: Gtk.TreeView | None = None,
+    *,
+    tooltip_column: int | None = None,
 ) -> Gtk.TreeView:
+    """Таблица из ListStore.
+
+    Текст в ячейках обрезается с «…», а не растягивает таблицу за окно:
+    иначе длинные строки (стратегии, детали проверок) уводят правые колонки
+    за край. Полный текст виден в подсказке при наведении.
+    """
+
     tree = tree or Gtk.TreeView(model=store)
     for index, column_title in enumerate(columns):
         renderer = Gtk.CellRendererText()
+        renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
         column = Gtk.TreeViewColumn(column_title, renderer, text=index)
         column.set_expand(True)
+        column.set_min_width(0)
+        column.set_resizable(True)
         tree.append_column(column)
+    if tooltip_column is not None:
+        tree.set_tooltip_column(tooltip_column)
     return tree
 
 
