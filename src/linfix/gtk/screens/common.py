@@ -101,19 +101,31 @@ def table_from_store(
 ) -> Gtk.TreeView:
     """Таблица из ListStore.
 
-    Текст в ячейках обрезается с «…», а не растягивает таблицу за окно:
-    иначе длинные строки (стратегии, детали проверок) уводят правые колонки
-    за край. Полный текст виден в подсказке при наведении.
+    Длинный текст переносится на следующую строку внутри ячейки (а не
+    обрезается «…»): иначе важные детали (стратегии, подсказки) теряются.
+    Ширина переноса обновляется вместе с шириной колонки, высота строки
+    растёт автоматически.
     """
 
     tree = tree or Gtk.TreeView(model=store)
+    tree.set_fixed_height_mode(False)
     for index, column_title in enumerate(columns):
         renderer = Gtk.CellRendererText()
-        renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+        renderer.set_property("wrap-mode", Pango.WrapMode.WORD_CHAR)
+        renderer.set_property("wrap-width", 120)
+        # Без лишних вертикальных отступов: при переносе строки иначе
+        # получаются огромные «поля» и таблица раздувается.
+        renderer.set_property("ypad", 4)
         column = Gtk.TreeViewColumn(column_title, renderer, text=index)
         column.set_expand(True)
         column.set_min_width(0)
         column.set_resizable(True)
+        # Перенос должен совпадать с фактической шириной колонки, иначе
+        # текст уйдёт за границу или будет переноситься слишком рано.
+        def _sync_wrap(col, _pspec, cell=renderer) -> None:
+            cell.props.wrap_width = max(col.get_width() - 12, 60)
+
+        column.connect("notify::width", _sync_wrap)
         tree.append_column(column)
     if tooltip_column is not None:
         tree.set_tooltip_column(tooltip_column)

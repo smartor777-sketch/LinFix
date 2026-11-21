@@ -463,8 +463,8 @@ class DoctorTablesTests(unittest.TestCase):
         self.assertTrue(screen.net_hint.get_visible())
         app.window.destroy()
 
-    def test_columns_ellipsize(self) -> None:
-        """Длинный текст не должен растягивать таблицу за окно."""
+    def test_columns_wrap_instead_of_truncate(self) -> None:
+        """Длинный текст переносится, а не обрезается точками."""
 
         from linfix.gtk.app import NetFixApp
         from gi.repository import Pango
@@ -476,6 +476,11 @@ class DoctorTablesTests(unittest.TestCase):
             for column in tree.get_columns():
                 renderer = column.get_cells()[0]
                 self.assertEqual(
-                    renderer.get_property("ellipsize"), Pango.EllipsizeMode.END
+                    renderer.get_property("wrap-mode"), Pango.WrapMode.WORD_CHAR
+                )
+                self.assertGreater(renderer.get_property("wrap-width"), 0)
+                # Обрезка «…» больше не используется.
+                self.assertEqual(
+                    renderer.get_property("ellipsize"), Pango.EllipsizeMode.NONE
                 )
         app.window.destroy()
