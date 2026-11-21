@@ -97,18 +97,25 @@ def enable_probing() -> tuple[int, dict[str, object]]:
     }
 
 
-def set_interface_mtu(interface: str, mtu: int) -> tuple[int, dict[str, object]]:
-    """Уменьшить MTU интерфейса (root через helper)."""
+def set_interface_mtu(
+    interface: str, mtu: int, *, increase: bool = False
+) -> tuple[int, dict[str, object]]:
+    """Задать MTU интерфейса (root через helper).
+
+    ``increase=False`` (по умолчанию) разрешает только уменьшение; поднять
+    MTU обратно можно с ``increase=True``.
+    """
 
     if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", interface):
         return 2, {"ok": False, "error": f"недопустимое имя интерфейса: {interface}"}
     if not 576 <= mtu <= 1500:
         return 2, {"ok": False, "error": f"MTU вне диапазона 576..1500: {mtu}"}
 
+    args = ["--interface", interface, "--mtu", str(mtu)]
+    if increase:
+        args.append("--allow-increase")
     try:
-        code, payload = util.run_helper(
-            "mtu.set", ["--interface", interface, "--mtu", str(mtu)], timeout=60
-        )
+        code, payload = util.run_helper("mtu.set", args, timeout=60)
     except util.NetfixError as exc:
         return 4, {"ok": False, "error": str(exc)}
     except util.CommandError as exc:

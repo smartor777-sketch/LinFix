@@ -656,7 +656,12 @@ def action_sysctl_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]
 
 
 def action_mtu_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
-    """Уменьшить MTU интерфейса (только уменьшение, 576..1500)."""
+    """Задать MTU интерфейса (576..1500).
+
+    Увеличение разрешено только с явным --allow-increase: по умолчанию
+    интерфейс можно лишь сузить, чтобы случайно не заявить MTU больше,
+    чем пропускает провайдер.
+    """
 
     if not args.interface or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", args.interface):
         raise HelperError("mtu.set: требуется корректное --interface")
@@ -667,9 +672,10 @@ def action_mtu_set(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if current.returncode != 0:
         raise HelperError(f"интерфейс не найден: {args.interface}")
     match = re.search(r"\bmtu\s+(\d+)", current.stdout or "")
-    if match and int(match.group(1)) < args.mtu:
+    if match and int(match.group(1)) < args.mtu and not getattr(args, "allow_increase", False):
         raise HelperError(
-            f"mtu.set: {args.interface} уже имеет меньший MTU ({match.group(1)}), не увеличиваем"
+            f"mtu.set: {args.interface} уже имеет меньший MTU ({match.group(1)}); "
+            "для увеличения нужен --allow-increase"
         )
 
     completed = util.run(
@@ -779,6 +785,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--value", default="", help="значение sysctl")
     parser.add_argument("--interface", default="", help="сетевой интерфейс для mtu.set")
     parser.add_argument("--mtu", type=int, default=None, help="MTU для mtu.set")
+    parser.add_argument(
+        "--allow-increase",
+        action="store_true",
+        help="разрешить mtu.set увеличивать MTU интерфейса",
+    )
     parser.add_argument("--config-path", default="/opt/zapret2/config", help="config zapret")
     parser.add_argument("--json", action="store_true")
     return parser

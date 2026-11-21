@@ -278,3 +278,28 @@ class SysctlAndMtuTests(unittest.TestCase):
         with mock.patch.object(helper.util, "run", return_value=missing):
             with self.assertRaises(helper.HelperError):
                 helper.action_mtu_set(args)
+
+
+class MtuIncreaseFlagTests(unittest.TestCase):
+    def test_increase_requires_flag(self) -> None:
+        running = mock.Mock(returncode=0, stdout="2: wlo1: mtu 1400 qdisc\n", stderr="")
+        args = SimpleNamespace(interface="wlo1", mtu=1492, json=False, allow_increase=False)
+        with mock.patch.object(helper.util, "run", return_value=running):
+            with self.assertRaises(helper.HelperError):
+                helper.action_mtu_set(args)
+
+    def test_increase_allowed_with_flag(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            if "link" in cmd and "show" in cmd:
+                return mock.Mock(returncode=0, stdout="2: wlo1: mtu 1492 qdisc\n", stderr="")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        args = SimpleNamespace(interface="wlo1", mtu=1492, json=False, allow_increase=True)
+        with mock.patch.object(helper.util, "run", side_effect=fake_run):
+            code, payload = helper.action_mtu_set(args)
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertIn(["ip", "link", "set", "wlo1", "mtu", "1492"], calls)
