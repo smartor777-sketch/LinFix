@@ -397,7 +397,7 @@ msgid "Переключить ротацию на домены с GitHub?"
 msgstr "Switch rotation to GitHub domains?"
 
 msgid "Будут использованы все домены из списка GitHub, включая проблемные, и включится автообновление."
-msgstr "All domains from the GitHub list will be used, including problematic ones, and auto-refresh will be enabled."
+msgstr "TgWsProxy will start taking domains from the GitHub list and enable auto-refresh.\n\nNote: the current GitHub list contains .com domains that no longer resolve. Most likely media and part of the traffic will stop working.\n\nThe custom domain list is kept — you can switch back with the same dropdown."
 
 msgid "Переключить ротацию на пользовательские домены?"
 msgstr "Switch rotation to custom domains?"

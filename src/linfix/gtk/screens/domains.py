@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from gi.repository import Gtk
 
-from ... import api, cfdomains
+from ... import api, cfdomains, cfprofile
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -48,10 +48,14 @@ class DomainsScreen:
         self.test_all_button = common.button(_("Тест всего списка"), lambda _: self.run_test(all_domains=True))
         self.add_button = common.button(_("Добавить домен"), lambda _: self.add_domain())
         self.remove_button = common.button(_("Удалить выбранные"), lambda _: self.remove_selected())
+        self.profile_button = common.button(
+            _("Проверить профиль CF"), lambda _: self.run_profile_check()
+        )
         for button in (
             self.refresh_button,
             self.test_button,
             self.test_all_button,
+            self.profile_button,
             self.add_button,
             self.remove_button,
         ):
@@ -146,8 +150,13 @@ class DomainsScreen:
         if target == api.ROTATION_GITHUB:
             question = _("Переключить ротацию на домены с GitHub?")
             detail = _(
-                "Будут использованы все домены из списка GitHub, включая "
-                "проблемные, и включится автообновление."
+                "TgWsProxy начнёт брать домены из списка GitHub и включит "
+                "автообновление.\n\n"
+                "Важно: текущий список GitHub содержит .com-домены, которые "
+                "уже не резолвятся. Скорее всего, медиа и часть трафика "
+                "перестанут работать.\n\n"
+                "Список пользовательских доменов сохранится — переключиться "
+                "обратно можно тем же выпадающим списком."
             )
         else:
             question = _("Переключить ротацию на пользовательские домены?")
@@ -229,6 +238,52 @@ class DomainsScreen:
 
         def failed(exc: Exception) -> None:
             self.refresh_button.set_sensitive(True)
+            common.message(self.app, _("Ошибка: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def run_profile_check(self) -> None:
+        """Проверить, что профиль zapret пропускает большие H2-тела.
+
+        Обычный TLS-тест этого не видит: `tcpseg` открывает домен, но ломает
+        передачу медиа через HTTP/2. Здесь проверяется POST на 256 КБ.
+        """
+
+        selected = self._selected() or list(self._domains[: cfprofile.DEFAULT_LIMIT])
+        if not selected:
+            common.message(self.app, _("Нет доменов для проверки"))
+            return
+
+        self.profile_button.set_sensitive(False)
+
+        def job():
+            return cfprofile.check_profile(selected)
+
+        def done(report) -> None:
+            self.profile_button.set_sensitive(True)
+            details = {probe.domain: probe for probe in report.probes}
+            for row in self.store:
+                probe = details.get(row[1])
+                if probe is None:
+                    continue
+                if not probe.tls_ok:
+                    row[2] = _("FAIL")
+                    row[3] = _("TLS: {err}").format(err=probe.h2_error or "ошибка")
+                elif probe.body_ok:
+                    row[2] = _("OK")
+                    row[3] = _("H2 {kb} КБ за {ms} мс").format(
+                        kb=cfprofile.BODY_BYTES // 1024, ms=probe.h2_ms
+                    )
+                else:
+                    row[2] = _("FAIL")
+                    row[3] = _("H2: {err}").format(err=probe.h2_error or "таймаут")
+            text = report.detection
+            if report.hint:
+                text += "\n" + report.hint
+            common.message(self.app, text)
+
+        def failed(exc: Exception) -> None:
+            self.profile_button.set_sensitive(True)
             common.message(self.app, _("Ошибка: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
