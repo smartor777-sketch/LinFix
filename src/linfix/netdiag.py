@@ -1,4 +1,4 @@
-"""Сетевая диагностика: проверки уровня NetFix, но для Linux/zapret2.
+"""Диагностика Telegram: состояние пути до серверов и медиа.
 
 Что проверяем и зачем:
 
@@ -6,11 +6,13 @@
   прямой путь (без прокси он обычно заблокирован).
 - **Пинг до опорных узлов** — есть ли интернет вообще.
 - **DNS-спуфинг** — сравниваем ответ системного DNS с DoH (1.1.1.1).
-- **SNI/DPI** — один и тот же IP, два имени: telegram.org и нейтральный.
-  Если блокируется только «своё» имя — режут по SNI.
 - **Троттлинг** — сравниваем задержку до DC Telegram с задержкой до опорных
   узлов: аномальная разница указывает на замедление.
 - **Медиа** — реальная скорость загрузки файла Telegram.
+
+Разбор блокировки по SNI и по IP для конкретного домена — в разделе «Сайты»:
+там проверяется произвольный адрес и выдаются действия (hostlist, MTU).
+Здесь мы намеренно не дублируем эту диагностику.
 
 Итог — «человеческий вердикт» и список рекомендаций, как в NetFix.
 """
@@ -18,7 +20,6 @@
 from __future__ import annotations
 
 import socket
-import ssl
 import statistics
 import time
 import urllib.request
@@ -37,10 +38,8 @@ MEDIA_URLS: tuple[str, ...] = (
     "https://web.telegram.org/a/runtime.js",
 )
 SLOW_MEDIA_KBPS = 200.0
-DNI_PROBE_IP = "149.154.167.51"
 
 BLOCK_NONE = "none"
-BLOCK_SNI = "sni"
 BLOCK_IP = "ip"
 BLOCK_THROTTLE = "throttle"
 BLOCK_DNS = "dns"
@@ -75,13 +74,6 @@ class DnsResult:
 
 
 @dataclass
-class DpiResult:
-    sni_target: str = "unknown"
-    sni_neutral: str = "unknown"
-    dpi_detected: bool = False
-
-
-@dataclass
 class MediaResult:
     speed_kbps: float = 0.0
     throttled: bool = False
@@ -93,7 +85,6 @@ class NetReport:
     dc: list[DcResult] = field(default_factory=list)
     ping: list[PingResult] = field(default_factory=list)
     dns: DnsResult | None = None
-    dpi: DpiResult | None = None
     media: MediaResult | None = None
     blocks: list[str] = field(default_factory=list)
     verdict: tuple[str, str, str] = ("", "", "")  # emoji, title, detail
@@ -127,16 +118,6 @@ class NetReport:
                         ),
                     )
                 )
-        if self.dpi is not None:
-            rows.append(
-                (
-                    "Блокировка по SNI",
-                    "fail" if self.dpi.dpi_detected else "ok",
-                    (
-                        f"telegram.org: {self.dpi.sni_target}, нейтральный: {self.dpi.sni_neutral}"
-                    ),
-                )
-            )
         if self.media is not None:
             if self.media.error:
                 rows.append(("Медиа Telegram", "warn", self.media.error))
@@ -165,26 +146,6 @@ def tcp_connect(ip: str, port: int, timeout: float = 3.0) -> tuple[bool, float]:
         return False, 0.0
     except OSError:
         return False, 0.0
-
-
-def tls_state(ip: str, sni: str, timeout: float = 4.0) -> str:
-    """Результат TLS-хендшейка: ok | timeout | rst | error:…"""
-
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    try:
-        with socket.create_connection((ip, 443), timeout=timeout) as raw:
-            with context.wrap_socket(raw, server_hostname=sni):
-                return "ok"
-    except (socket.timeout, TimeoutError):
-        return "timeout"
-    except ConnectionResetError:
-        return "rst"
-    except ssl.SSLError as exc:
-        return f"error:{getattr(exc, 'reason', None) or exc}"
-    except OSError as exc:
-        return f"error:{exc}"
 
 
 def ping_once(host: str, timeout: float = 2.0) -> tuple[bool, float]:
@@ -278,17 +239,6 @@ def check_dns(domain: str = "telegram.org") -> DnsResult:
     return result
 
 
-def check_dpi(timeout: float = 4.0) -> DpiResult:
-    result = DpiResult()
-    result.sni_target = tls_state(DNI_PROBE_IP, "telegram.org", timeout)
-    result.sni_neutral = tls_state(DNI_PROBE_IP, "example.com", timeout)
-    result.dpi_detected = result.sni_target in {"rst", "timeout"} and result.sni_neutral not in {
-        "rst",
-        "timeout",
-    }
-    return result
-
-
 def check_media(timeout: float = 12.0) -> MediaResult:
     result = MediaResult()
     for url in MEDIA_URLS:
@@ -324,9 +274,7 @@ def classify(report: NetReport) -> list[str]:
         return [BLOCK_NO_INTERNET]
     if report.dns is not None and report.dns.spoofed:
         blocks.append(BLOCK_DNS)
-    if report.dpi is not None and report.dpi.dpi_detected:
-        blocks.append(BLOCK_SNI)
-    if not dc_ok and ping_ok and BLOCK_SNI not in blocks:
+    if not dc_ok and ping_ok:
         blocks.append(BLOCK_IP)
     if dc_ok and ping_ok:
         dc_lat = [item.latency_ms for item in dc_ok if item.latency_ms is not None]
@@ -352,14 +300,6 @@ def verdict(report: NetReport, *, proxy_running: bool, zapret_running: bool) -> 
         )
     if BLOCK_NO_INTERNET in blocks:
         return ("🔴", "Интернета нет", "Ни один узел не отвечает. Проверьте Wi-Fi или кабель.")
-    if BLOCK_SNI in blocks:
-        return (
-            "🟢" if zapret_running else "🔴",
-            "Блокировка по SNI" if not zapret_running else "SNI-блокировка, zapret компенсирует",
-            "Провайдер обрывает TLS по имени. zapret маскирует SNI — добавьте домен в hostlist."
-            if not zapret_running
-            else "DPI режет имя, но zapret уже включён и это обходит.",
-        )
     if BLOCK_IP in blocks:
         return (
             "🟡",
@@ -393,11 +333,6 @@ def recommendations(report: NetReport, *, zapret_running: bool) -> list[str]:
             "DNS подменяется: смените сервер (например, 1.1.1.1) или включите DoH. "
             "Проверка: «Сайты» → ваш домен."
         )
-    if BLOCK_SNI in blocks and not zapret_running:
-        tips.append(
-            "SNI-блокировка: включите zapret и добавьте домен в hostlist "
-            "(«Сайты» → «Добавить в hostlist»)."
-        )
     if BLOCK_IP in blocks:
         tips.append(
             "IP дата-центров недоступны напрямую: используйте TgWsProxy "
@@ -428,12 +363,10 @@ def run_network_diagnostics(
         ping_f = pool.submit(check_ping, timeout)
         dc_f = pool.submit(check_dc, timeout)
         dns_f = pool.submit(check_dns)
-        dpi_f = pool.submit(check_dpi, timeout + 1)
         media_f = pool.submit(check_media)
         report.ping = ping_f.result()
         report.dc = dc_f.result()
         report.dns = dns_f.result()
-        report.dpi = dpi_f.result()
         report.media = media_f.result()
     report.blocks = classify(report)
     report.verdict = verdict(report, proxy_running=proxy_running, zapret_running=zapret_running)
