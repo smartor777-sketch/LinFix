@@ -1,0 +1,7 @@
+name = "tgws-worker"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# Бесплатный тариф Cloudflare Workers.
+# После `npx wrangler deploy` будет выдан домен вида
+#   tgws-worker.<account>.workers.dev

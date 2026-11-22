@@ -100,6 +100,8 @@ ALLOWED_CONFIG_KEYS = {
     # --cfproxy-worker-domain при генерации user-юнита (см. cli_args).
     "cfproxy_user_domain",
     "cfproxy_worker_domain",
+    # Включение worker-пути: без флага TgWsProxy игнорирует worker-домены.
+    "cfproxy_worker_enabled",
     # linfix_mode остаётся только для чтения старых конфигов (см. detect_mode).
     "linfix_mode",
 }
@@ -440,7 +442,7 @@ def _validate_config_value(key: str, value: object) -> None:
             raise TgwsError("host: ожидается непустая строка")
         if value not in {"127.0.0.1", "localhost", "::1"}:
             raise TgwsError("host: в MVP разрешён только loopback (127.0.0.1, localhost, ::1)")
-    elif key in {"cfproxy", "h2", "verbose"}:
+    elif key in {"cfproxy", "h2", "verbose", "cfproxy_worker_enabled"}:
         if not isinstance(value, bool):
             raise TgwsError(f"{key}: ожидается bool, получено {type(value).__name__}")
     elif key in {"cfproxy_user_domain", "cfproxy_worker_domain"}:

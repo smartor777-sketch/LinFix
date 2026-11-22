@@ -197,3 +197,20 @@ merge → state → restart → verify. Если после рестарта с�
 - `linfix guard check` считает `fallback` успешным статусом (exit 0).
 - H2 не включается обратно автоматически: решение должно быть осознанным,
   после проверки, что CF снова отдаёт заголовки.
+
+## D19. CF-профиль zapret и worker-домен (0.5.12)
+
+- Причина «текст есть, медиа нет» — профиль `tcpseg:pos=0,1`: он режет
+  TCP-сегменты и ломает H2-тела больше ~16–24 КБ. Канал отправляет запрос,
+  не получает заголовки и закрывается по таймауту.
+- Рабочий профиль для CF-доменов: `fake:blob=fake_default_tls:tcp_md5`
+  + `multidisorder:pos=1,midsld`. Проверено: H2 принимает 256 КБ за 0.4 с.
+- Профиль ограничен отдельным hostlist (`linfix-cf-hosts.txt`), остальные
+  правила zapret не меняются. Воспроизводимо: `scripts/apply-cf-profile.sh`.
+- Публичный список с GitHub содержит `.com`-домены в NXDOMAIN; рабочий
+  список — 20 `.co.uk`-доменов из `cf-domains.txt`.
+- `linfix tgws config --worker-domain <домен>` пишет `cfproxy_worker_domain`
+  и включает `cfproxy_worker_enabled`. Ключ `cfproxy_worker_enabled`
+  добавлен в `ALLOWED_CONFIG_KEYS`; `cfproxy_user_domain_enabled`
+  по-прежнему защищён от изменения через LinFix.
+- Код Worker'а лежит в `deploy/cf-worker/` (worker.js + wrangler.toml).

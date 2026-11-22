@@ -129,6 +129,31 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
+## Медиа Telegram: профиль zapret для CF (0.5.12)
+
+Если текст в Telegram работает, а медиа не грузится, причина обычно в
+профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
+через HTTP/2. Рабочий профиль — `fake` + `multidisorder` для CF-доменов:
+
+```bash
+sudo scripts/apply-cf-profile.sh
+```
+
+Скрипт делает бэкап конфига, создаёт hostlist CF-хостов, добавляет профиль
+и проверяет H2 запросом на 256 КБ. Подробности:
+[docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md](docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md).
+
+### Свой Cloudflare Worker
+
+Если публичные CF-воркеры недоступны или медленные, можно поднять свой —
+медиа пойдёт потоком через WebSocket:
+
+```bash
+linfix tgws config --worker-domain <домен>.workers.dev
+```
+
+Код Worker'а и инструкция: [deploy/cf-worker](deploy/cf-worker).
+
 ```bash
 linfix guard status   # включён ли и когда срабатывал
 linfix guard check    # проверить сейчас
@@ -142,7 +167,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.5.11_all.deb
+sudo apt install ./linfix_0.5.12_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
