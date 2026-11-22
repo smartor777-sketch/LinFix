@@ -1,26 +1,34 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from linfix import sitecheck
 
 
 class InHostlistTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "hostlist.txt"
+        self.paths = [self.path]
+
     def test_finds_exact_domain(self) -> None:
-        with mock.patch("pathlib.Path.read_text", return_value="rutracker.org\n"):
-            result = sitecheck._in_zapret_hostlist("rutracker.org")
-        self.assertTrue(result)
+        self.path.write_text("rutracker.org\n", encoding="utf-8")
+        self.assertTrue(sitecheck._in_zapret_hostlist("rutracker.org", self.paths))
 
     def test_finds_subdomain(self) -> None:
-        with mock.patch("pathlib.Path.read_text", return_value="rutracker.org\n"):
-            result = sitecheck._in_zapret_hostlist("www.rutracker.org")
-        self.assertTrue(result)
+        self.path.write_text("rutracker.org\n", encoding="utf-8")
+        self.assertTrue(sitecheck._in_zapret_hostlist("www.rutracker.org", self.paths))
 
     def test_ignores_comments(self) -> None:
-        with mock.patch("pathlib.Path.read_text", return_value="# rutracker.org\n"):
-            result = sitecheck._in_zapret_hostlist("rutracker.org")
-        self.assertFalse(result)
+        self.path.write_text("# rutracker.org\n", encoding="utf-8")
+        self.assertFalse(sitecheck._in_zapret_hostlist("rutracker.org", self.paths))
+
+    def test_missing_file_returns_none(self) -> None:
+        self.assertIsNone(sitecheck._in_zapret_hostlist("rutracker.org", self.paths))
 
 
 class SniStatusTests(unittest.TestCase):

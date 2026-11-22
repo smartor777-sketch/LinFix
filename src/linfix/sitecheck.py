@@ -142,13 +142,19 @@ def _https_fetch(host: str, timeout: float, *, limit: int = 65536) -> tuple[int,
         return received, f"ошибка: {exc}", False
 
 
-def _in_zapret_hostlist(host: str) -> bool | None:
-    """Есть ли домен в списках zapret (тогда на него действует desync)."""
+def hostlist_paths() -> list[Path]:
+    """Где искать пользовательский hostlist zapret."""
 
-    paths = [
+    return [
         Path("/opt/zapret2/ipset/zapret-hosts-user.txt"),
         Path("/opt/zapret/ipset/zapret-hosts-user.txt"),
     ]
+
+
+def _in_zapret_hostlist(host: str, paths: list[Path] | None = None) -> bool | None:
+    """Есть ли домен в списках zapret (тогда на него действует desync)."""
+
+    paths = paths if paths is not None else hostlist_paths()
     checked = False
     for path in paths:
         if not path.is_file():
