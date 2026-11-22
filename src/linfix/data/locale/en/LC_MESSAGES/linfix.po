@@ -488,24 +488,6 @@ msgstr "Switch"
 
 
 
-msgid "Домены для подбора:"
-msgstr "Domains to test:"
-
-msgid "Через запятую. Подбор останавливает zapret и проверяет именно эти домены."
-msgstr "Comma separated. The scan stops zapret and tests exactly these domains."
-
-msgid "Сохранить список"
-msgstr "Save list"
-
-msgid "Укажите хотя бы один домен — иначе подбор нечего проверять"
-msgstr "Enter at least one domain — otherwise there is nothing to test"
-
-msgid "Сохранено: {list}"
-msgstr "Saved: {list}"
-
-msgid "Список доменов для подбора обновлён"
-msgstr "Domain list for the scan updated"
-
 msgid "Проверяются домены: {domains}.\n\n"
 msgstr "Domains to test: {domains}.\n\n"
 
@@ -523,3 +505,6 @@ msgstr "Checks Telegram DC reachability, DNS and media speed and gives a verdict
 
 msgid "Стратегия (desync) — это способ, которым zapret обрабатывает первые пакеты TLS-соединения, чтобы провайдер не распознал домен и не заблокировал его.\nКнопка запускает штатный blockcheck2 из zapret: он на время замеров останавливает zapret и перебирает десятки готовых вариантов маскировки — fake, multisplit, multidisorder и их комбинации — на выбранных ниже доменах.\nВ результате вы получите список стратегий с оценкой вида «4/4» и увидите, какие из них открывают домены у вашего провайдера. Конфиг при этом не меняется: применить найденное нужно вручную."
 msgstr "A strategy (desync) is how zapret processes the first packets of a TLS connection so the provider cannot recognise the domain and block it.\nThe button runs zapret's stock blockcheck2: it stops zapret for the duration and tries dozens of ready-made masking variants — fake, multisplit, multidisorder and combinations — against the domains selected below.\nYou will get a list of strategies with a score like “4/4” and see which of them open the domains with your provider. The config is not changed: applying the result is manual."
+
+msgid "Проверяются домены: {domains}. Список задаётся секцией [blockcheck] domains в /etc/linfix/config.toml.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
+msgstr "Domains to test: {domains}.\n\nThe scan does not change the config: you just see the list of working strategies."
