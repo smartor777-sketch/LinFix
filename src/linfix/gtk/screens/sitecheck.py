@@ -263,15 +263,6 @@ class SiteCheckScreen:
                         "помогут, нужен прокси или VPN."
                     )
                 )
-            elif result.status == "desync":
-                lines.append("")
-                lines.append(
-                    _(
-                        "Домен уже в hostlist — добавлять не нужно. Для начала "
-                        "попробуйте другую стратегию в разделе «Диагностика», "
-                        "и только потом исключайте домен из hostlist."
-                    )
-                )
             elif result.status == "ok":
                 lines.append("")
                 lines.append(_("Сайт открывается — добавлять в hostlist не нужно."))
