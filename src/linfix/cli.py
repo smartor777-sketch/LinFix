@@ -625,6 +625,13 @@ def cmd_tgws_config(cfg: Config, args: argparse.Namespace) -> int:
         changes["h2"] = _bool_choice(args.h2)
     if args.cfproxy is not None:
         changes["cfproxy"] = _bool_choice(args.cfproxy)
+    if getattr(args, "worker_domain", None):
+        changes["cfproxy_worker_domain"] = [
+            part.strip()
+            for part in args.worker_domain.replace(",", " ").split()
+            if part.strip()
+        ]
+        changes["cfproxy_worker_enabled"] = True
 
     path, created = tgws.ensure_config(
         create=args.create or bool(changes),
@@ -1170,6 +1177,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_config.add_argument("--verbose", choices=["on", "off"])
     p_config.add_argument("--h2", choices=["on", "off"])
     p_config.add_argument("--cfproxy", choices=["on", "off"])
+    p_config.add_argument(
+        "--worker-domain",
+        help="домен своего Cloudflare Worker (через запятую можно несколько)",
+    )
     p_config.add_argument(
         "--mode",
         choices=list(tgws.MODES),
