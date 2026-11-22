@@ -88,8 +88,16 @@ class AppTests(unittest.TestCase):
                 "Проверить профиль CF",
                 "Добавить домен",
                 "Удалить выбранные",
+                "Добавить в ротацию",
+                "Удалить из ротации",
             ],
         )
+        # Переключатель источника списка: GitHub и пользовательская ротация.
+        model = domains.source_combo.get_model()
+        self.assertEqual([model[i][1] for i in range(2)], ["github", "user"])
+        # В режиме GitHub видны кнопки hostlist, кнопки ротации скрыты.
+        self.assertFalse(domains.add_rotation_button.get_visible())
+        self.assertTrue(domains.add_button.get_visible())
         doctor = app.window.screens["doctor"]
         self.assertEqual(doctor.store.get_n_columns(), 4)
         settings = app.window.screens["settings"]

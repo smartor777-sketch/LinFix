@@ -416,3 +416,60 @@ msgstr "домены с GitHub"
 
 msgid "Настройки сохранены, но служба не перезапустилась — перезапустите TgWsProxy вручную"
 msgstr "Настройки сохранены, но служба не перезапустилась — перезапустите TgWsProxy вручную"
+
+msgid "Показать:"
+msgstr "Show:"
+
+msgid "Список с GitHub"
+msgstr "GitHub list"
+
+msgid "Пользовательский (ротация)"
+msgstr "Custom (rotation)"
+
+msgid "Добавить в ротацию"
+msgstr "Add to rotation"
+
+msgid "Удалить из ротации"
+msgstr "Remove from rotation"
+
+msgid "ROTATION"
+msgstr "ROTATION"
+
+msgid "Пользовательских доменов: {n}. {state}"
+msgstr "Custom domains: {n}. {state}"
+
+msgid "Используются прокси сейчас."
+msgstr "Used by the proxy now."
+
+msgid "Сохранены, но прокси сейчас в режиме GitHub."
+msgstr "Saved, but the proxy is in GitHub mode."
+
+msgid "Это текущая ротация TgWsProxy: именно эти домены прокси перебирает при подключении. Добавление и удаление меняет конфиг прокси и перезапускает службу."
+msgstr "This is the current TgWsProxy rotation: these are the domains the proxy tries when connecting. Adding or removing changes the proxy config and restarts the service."
+
+msgid "Список с GitHub для hostlist zapret — это не ротация прокси. Все домены должны быть в hostlist zapret, иначе прокси ходит через заблокированный SNI."
+msgstr "The GitHub list is for the zapret hostlist, not the proxy rotation. All domains must be in the zapret hostlist, otherwise the proxy uses a blocked SNI."
+
+msgid "Добавить домен в ротацию"
+msgstr "Add domain to rotation"
+
+msgid "Домен для ротации TgWsProxy (например, pclead.co.uk):"
+msgstr "Domain for TgWsProxy rotation (for example, pclead.co.uk):"
+
+msgid "Убрать выбранные домены из ротации?"
+msgstr "Remove selected domains from rotation?"
+
+msgid "{n} домен(ов) будут убраны из пользовательской ротации, конфиг прокси обновится, служба перезапустится.\n\nСписок hostlist zapret при этом не меняется."
+msgstr "{n} domain(s) will be removed from the custom rotation, the proxy config will be updated and the service restarted.\n\nThe zapret hostlist stays unchanged."
+
+msgid "Нельзя удалить все домены: ротация останется пустой"
+msgstr "Cannot remove all domains: the rotation would be empty"
+
+msgid "Список сохранён. Прокси в режиме GitHub — переключите ротацию на «Пользовательские домены», чтобы применить."
+msgstr "List saved. The proxy is in GitHub mode — switch rotation to “Custom domains” to apply."
+
+msgid "Ротация обновлена: {n} доменов"
+msgstr "Rotation updated: {n} domains"
+
+msgid "Список сохранён, но служба не перезапустилась — перезапустите TgWsProxy"
+msgstr "List saved, but the service did not restart — restart TgWsProxy"
