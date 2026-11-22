@@ -67,22 +67,6 @@ class DoctorScreen:
             ),
             wrap=True,
         )
-        # Домены для подбора: blockcheck2 проверяет именно их. Список
-        # хранится в [blockcheck] domains конфига LinFix.
-        domains_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
-        common.pack(domains_row, common.label(_("Домены для подбора:")))
-        self.blockcheck_entry = common.entry()
-        self.blockcheck_entry.set_placeholder_text("rutracker.org, telegram.org")
-        self.blockcheck_entry.set_tooltip_text(
-            _("Через запятую. Подбор останавливает zapret и проверяет именно эти домены.")
-        )
-        domains_row.pack_start(self.blockcheck_entry, True, True, 0)
-        self.blockcheck_save = common.button(
-            _("Сохранить список"), lambda _: self.save_blockcheck_domains()
-        )
-        common.pack(domains_row, self.blockcheck_save)
-        self.blockcheck_label = common.label("", wrap=True)
-
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         self.pick_button = common.button(
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
@@ -142,8 +126,6 @@ class DoctorScreen:
         common.pack(self.box, self.reco_label)
 
         common.pack(self.box, self.strategy_caption)
-        common.pack(self.box, domains_row)
-        common.pack(self.box, self.blockcheck_label)
         common.pack(self.box, self.buttons)
         # Краткая информация по стратегиям — отдельной строкой под кнопками,
         # а не между «Подобрать стратегию» и «Отмена подбора».
@@ -296,37 +278,6 @@ class DoctorScreen:
         config = cfg or self.app.cfg
         return list(config.blockcheck.effective_domains)
 
-    def save_blockcheck_domains(self) -> None:
-        raw = self.blockcheck_entry.get_text()
-        domains = [part.strip() for part in raw.replace(",", " ").split() if part.strip()]
-        if not domains:
-            common.message(
-                self.app, _("Укажите хотя бы один домен — иначе подбор нечего проверять")
-            )
-            return
-
-        self.blockcheck_save.set_sensitive(False)
-
-        def job():
-            return api.set_blockcheck_domains(domains)
-
-        def done(result) -> None:
-            self.blockcheck_save.set_sensitive(True)
-            code, payload = result
-            if code != api.EXIT_OK or payload.get("ok") is False:
-                common.message(self.app, str(payload.get("error") or _("Ошибка")))
-                return
-            self.blockcheck_label.set_text(
-                _("Сохранено: {list}").format(list=", ".join(payload.get("domains") or []))
-            )
-            common.toast(self.app, _("Список доменов для подбора обновлён"))
-
-        def failed(exc: Exception) -> None:
-            self.blockcheck_save.set_sensitive(True)
-            common.message(self.app, _("Ошибка: {err}").format(err=exc))
-
-        run_in_thread(job, on_done=done, on_error=failed)
-
     def pick_strategy(self) -> None:
         """Подобрать рабочую стратегию desync через blockcheck2.
 
@@ -360,7 +311,8 @@ class DoctorScreen:
                 "это обязательно, иначе он вмешивается в замеры.\n\n"
                 "Обычно занимает 15–35 минут: тесты прогоняются долго, "
                 "зависит от вашего провайдера.\n\n"
-                "Проверяются домены: {domains}.\n\n"
+                "Проверяются домены: {domains}. Список задаётся секцией "
+                "[blockcheck] domains в /etc/linfix/config.toml.\n\n"
                 "Подбор ничего не меняет в конфиге: вы просто увидите список "
                 "рабочих стратегий."
             ).format(domains=", ".join(self._load_blockcheck_domains()))
@@ -534,15 +486,7 @@ class DoctorScreen:
 
         run_in_thread(job, on_done=done)
 
-    def _sync_blockcheck_entry(self) -> None:
-        if not self.blockcheck_entry.get_text().strip():
-            self.blockcheck_entry.set_text(
-                ", ".join(self._load_blockcheck_domains())
-            )
-
     def refresh(self) -> None:
-        self._sync_blockcheck_entry()
-
         def job():
             return api.get_doctor_report(self.app.cfg)
 
