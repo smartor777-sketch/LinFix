@@ -5,7 +5,7 @@ import unittest
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gdk, Gtk  # noqa: E402
 
 from linfix.gtk import icons  # noqa: E402
 from linfix.gtk.i18n import install, _  # noqa: E402
@@ -102,6 +102,13 @@ class AppTests(unittest.TestCase):
         self.assertEqual(doctor.store.get_n_columns(), 4)
         settings = app.window.screens["settings"]
         self.assertTrue(settings.port_entry.get_text())
+
+        # Обычное окно: не должно висеть поверх всех приложений.
+        self.assertEqual(
+            app.window.get_type_hint(), Gdk.WindowTypeHint.NORMAL
+        )
+        self.assertFalse(app.window.keep_above)
+        self.assertFalse(app.window.get_skip_taskbar_hint())
         self.assertTrue(hasattr(settings, "zapret2_switch"))
         settings_labels = [
             child.get_child().get_label()
