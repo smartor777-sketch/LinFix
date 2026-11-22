@@ -96,6 +96,7 @@ systemctl is-active zapret2
 
 - `tcpseg` не использовать для CF-доменов: он ломает H2-медиа.
 - Профиль `fake + multidisorder` совпадает с рабочим Windows-конфигом.
-- Публичный GitHub-список `cfproxy-domains.txt` содержит `.com`-домены,
-  которые уже не резолвятся (NXDOMAIN). Рабочий список — 20 `.co.uk`-доменов
-  из `cf-domains.txt`.
+- Публичный GitHub-список `cfproxy-domains.txt` закодирован: `.com`-строки —
+  это коды (`virkgj.com` → `pclead.co.uk`). LinFix декодирует их тем же
+  алгоритмом, что и TgWsProxy, и получает те же 20 `.co.uk`-доменов.
+  Прямой DNS-запрос к `.com`-коду даёт NXDOMAIN — это ожидаемо.

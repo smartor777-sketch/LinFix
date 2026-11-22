@@ -565,3 +565,15 @@ msgstr "The domain is already in the hostlist — no need to add it. First try a
 
 msgid "Активна, если сайт уже в hostlist, но TLS ломается. Сначала лучше подобрать другую стратегию: удаление из hostlist оставит домен совсем без обхода."
 msgstr "Enabled when the site is already in the hostlist but TLS breaks. Better to pick another strategy first: removing it leaves the domain with no bypass at all."
+
+msgid "Что учесть:"
+msgstr "What to consider:"
+
+msgid "• список на GitHub закодирован, но клиент его декодирует и получает те же домены, что и у вас;"
+msgstr "• the GitHub list is encoded, but the client decodes it and gets the same domains you have;"
+
+msgid "• рабочий профиль zapret для CF-доменов привязан к вашему списку — новые имена в hostlist сами не попадут;"
+msgstr "• the working zapret profile for CF domains is bound to your list — new names will not appear in the hostlist automatically;"
+
+msgid "• если upstream сменит домены, медиа может перестать загружаться до ручного обновления hostlist."
+msgstr "• if upstream changes domains, media may stop loading until the hostlist is updated manually."
