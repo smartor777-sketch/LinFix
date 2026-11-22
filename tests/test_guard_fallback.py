@@ -42,7 +42,9 @@ class H2FallbackTests(unittest.TestCase):
     def _run(self, lines: list[str]):
         self.log.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with mock.patch.object(guard.util, "run", return_value=mock.Mock(returncode=0)) as run:
-            report = guard.check_guard(make_cfg(), home=self.home, skip_history=False)
+            report = guard.check_guard(
+                make_cfg(), home=self.home, skip_history=False, h2_probe=lambda: False
+            )
         return report, run
 
     def test_counts_stalls(self) -> None:
@@ -99,6 +101,28 @@ class H2FallbackTests(unittest.TestCase):
         report, _ = self._run([FAIL_LINE] * guard.H2_STALL_MIN)
         self.assertEqual(report.status, "fallback")
         self.assertTrue(report.h2_disabled)
+
+    def test_does_not_disable_h2_when_live_probe_passes(self) -> None:
+        """История лога не должна отключать H2, если живой запрос проходит."""
+
+        self.log.write_text("\n".join([STALL_LINE] * 20) + "\n", encoding="utf-8")
+        with mock.patch.object(guard.util, "run", return_value=mock.Mock(returncode=0)) as run:
+            report = guard.check_guard(
+                make_cfg(),
+                home=self.home,
+                skip_history=False,
+                h2_probe=lambda: True,
+            )
+        self.assertEqual(report.status, "warn")
+        self.assertFalse(report.h2_disabled)
+        self.assertIn("живой запрос проходит", report.detail)
+        restarts = [
+            call_ for call_ in run.call_args_list
+            if call_.args and "restart" in call_.args[0]
+        ]
+        self.assertEqual(restarts, [])
+        data = json.loads(self.config.read_text(encoding="utf-8"))
+        self.assertEqual(data["h2"], True)
 
     def test_event_written(self) -> None:
         self._run([STALL_LINE] * guard.H2_STALL_MIN)

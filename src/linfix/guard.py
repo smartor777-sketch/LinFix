@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import cfdomains, state, tgws, util
+from . import cfdomains, cfprofile, state, tgws, util
 from .config import Config
 
 CF_FAILURE_RE = re.compile(r"CF proxy failed", re.IGNORECASE)
@@ -235,6 +235,33 @@ def _h2_enabled(home: str | Path | None) -> bool:
         return False
 
 
+def h2_works_now(home: str | Path | None = None, *, timeout: float = 6.0) -> bool:
+    """Проверить H2 живым запросом: TLS + POST 256 КБ к CF-домену."""
+
+    path = tgws.find_config_path(home)
+    domains: list[str] = []
+    if path is not None:
+        try:
+            data = tgws.load_json_config(path)
+        except tgws.TgwsError:
+            data = {}
+        value = data.get("cfproxy_user_domain")
+        if isinstance(value, list):
+            domains = [item for item in value if isinstance(item, str) and item]
+    if not domains:
+        domains = list(cfprofile_fallback_domains())
+
+    try:
+        report = cfprofile.check_profile(domains, limit=1, timeout=timeout)
+    except Exception:
+        return False
+    return bool(report.body_ok)
+
+
+def cfprofile_fallback_domains() -> tuple[str, ...]:
+    return tuple(cfdomains.FALLBACK_DOMAINS)
+
+
 def _disable_h2(home: str | Path | None, stalls: int, cf_failures: int, cfg: Config) -> GuardReport:
     """Переключить TgWsProxy на WS-CF и вернуть отчёт без остановки службы."""
 
@@ -305,6 +332,7 @@ def check_guard(
     tls_test: Callable[[], list[tuple[str, bool, str]]] | None = None,
     stop_service: Callable[[], object] | None = None,
     skip_history: bool = True,
+    h2_probe: Callable[[], bool] | None = None,
 ) -> GuardReport:
     if not cfg.guard.enabled:
         return GuardReport("disabled", "guard выключен в конфиге", 0, cfg.guard.error_threshold)
@@ -339,6 +367,20 @@ def check_guard(
     stalls = count_h2_stalls(lines)
     h2_failures = count_h2_failures(lines)
     if should_disable_h2(stalls, _h2_enabled(home), failures=h2_failures):
+        # Перед отключением H2 проверяем его живым запросом: строки в логе
+        # могли относиться к прошлому профилю zapret, а H2 сейчас работает.
+        probe = h2_probe or (lambda: h2_works_now(home))
+        if probe():
+            report = GuardReport(
+                "warn",
+                f"в логе {stalls + h2_failures} зависаний H2, но живой запрос "
+                "проходит — H2 не отключаю",
+                failures,
+                cfg.guard.error_threshold,
+                log_path=str(log_path),
+            )
+            _save_event(home, report)
+            return report
         return _disable_h2(home, stalls + h2_failures, failures, cfg)
 
     threshold = cfg.guard.error_threshold
