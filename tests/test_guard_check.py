@@ -66,6 +66,7 @@ class CheckGuardTests(unittest.TestCase):
         report = guard.check_guard(
             make_cfg(),
             home=self.home,
+            skip_history=False,
             tls_test=lambda: [("kws2.x", False, "timeout")],
             stop_service=self.stop,
         )
@@ -78,6 +79,7 @@ class CheckGuardTests(unittest.TestCase):
         report = guard.check_guard(
             make_cfg(),
             home=self.home,
+            skip_history=False,
             tls_test=lambda: [("kws2.x", False, "timeout")],
             stop_service=self.stop,
         )
@@ -96,6 +98,7 @@ class CheckGuardTests(unittest.TestCase):
         report = guard.check_guard(
             make_cfg(),
             home=self.home,
+            skip_history=False,
             tls_test=lambda: [("kws2.x", True, "TLSv1.3")],
             stop_service=self.stop,
         )
@@ -122,6 +125,7 @@ class CheckGuardTests(unittest.TestCase):
         report = guard.check_guard(
             make_cfg(),
             home=self.home,
+            skip_history=False,
             tls_test=lambda: [("kws2.x", False, "timeout")],
             stop_service=self.stop,
         )

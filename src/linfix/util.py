@@ -336,6 +336,19 @@ def _dev_helper_command(action: str, args: Sequence[str]) -> list[str]:
     raise NetfixError("нет pkexec/sudo для привилегированной операции")
 
 
+def installed_helper() -> str | None:
+    """Путь к установленному linfix-helper, если пакет установлен."""
+
+    for candidate in (
+        which("linfix-helper"),
+        "/usr/libexec/linfix-helper",
+        "/usr/local/libexec/linfix-helper",
+    ):
+        if candidate and Path(candidate).exists():
+            return str(candidate)
+    return None
+
+
 def run_helper(
     action: str,
     args: Sequence[str],
@@ -351,15 +364,7 @@ def run_helper(
     if is_root() or os.environ.get("LINFIX_HELPER"):
         cmd = helper_command() + [action, *[str(item) for item in args], "--json"]
     else:
-        installed = None
-        for candidate in (
-            which("linfix-helper"),
-            "/usr/libexec/linfix-helper",
-            "/usr/local/libexec/linfix-helper",
-        ):
-            if candidate and Path(candidate).exists():
-                installed = candidate
-                break
+        installed = installed_helper()
         if installed is None:
             # Пакет не установлен — работаем из рабочей копии (dev-режим):
             # pkexec/sudo запускает тот же модуль с PYTHONPATH на src/.
