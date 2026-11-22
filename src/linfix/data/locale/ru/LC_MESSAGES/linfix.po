@@ -506,3 +506,12 @@ msgstr "Стратегия (desync) — это способ, которым zapr
 
 msgid "Проверяются домены: {domains}. Список задаётся секцией [blockcheck] domains в /etc/linfix/config.toml.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
 msgstr "Проверяются домены: {domains}. Список задаётся секцией [blockcheck] domains в /etc/linfix/config.toml.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
+
+msgid "Напрямую"
+msgstr "Напрямую"
+
+msgid "Через TgWsProxy"
+msgstr "Через TgWsProxy"
+
+msgid "MTProto через TgWsProxy"
+msgstr "MTProto через TgWsProxy"

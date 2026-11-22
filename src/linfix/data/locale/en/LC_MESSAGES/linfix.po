@@ -508,3 +508,12 @@ msgstr "A strategy (desync) is how zapret processes the first packets of a TLS c
 
 msgid "Проверяются домены: {domains}. Список задаётся секцией [blockcheck] domains в /etc/linfix/config.toml.\n\nПодбор ничего не меняет в конфиге: вы просто увидите список рабочих стратегий."
 msgstr "Domains to test: {domains}.\n\nThe scan does not change the config: you just see the list of working strategies."
+
+msgid "Напрямую"
+msgstr "Direct"
+
+msgid "Через TgWsProxy"
+msgstr "Via TgWsProxy"
+
+msgid "MTProto через TgWsProxy"
+msgstr "MTProto via TgWsProxy"
