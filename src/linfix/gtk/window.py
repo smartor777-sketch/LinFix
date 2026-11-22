@@ -145,7 +145,13 @@ class NetFixWindow(Gtk.ApplicationWindow):
         self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
         self.set_deletable(True)
         self.set_resizable(True)
-        self.set_keep_above(True)
+        # Обычное окно: не «поверх всех». Раньше здесь стоял keep_above=True,
+        # из-за чего панель либо висела над другими приложениями, либо
+        # оказывалась за ними при разворачивании из трея.
+        self.set_keep_above(False)
+        # Запоминаем намерение: у GTK3 нет get_keep_above, а тестам и
+        # диагностике полезно знать, что окно обычное.
+        self.keep_above = False
         self.set_focus_on_map(True)
         self.connect("delete-event", self._on_delete_event)
         self.connect("window-state-event", self._on_window_state_event)
@@ -189,10 +195,26 @@ class NetFixWindow(Gtk.ApplicationWindow):
 
         self._restoring = True
         GLib.timeout_add(2000, self._end_restoring)
-        self.present()
         self.set_visible(True)
         self.deiconify()
         self.show_all()
+        # Поднять окно поверх остальных только в момент показа из трея,
+        # а дальше вести себя как обычное окно (клик по другому приложению
+        # спокойно уводит LinFix назад).
+        self.present()
+        self._raise_once()
+
+    def _raise_once(self) -> bool:
+        """Однократно поднять окно и отдать фокус, не включая keep_above."""
+
+        window = self.get_window()
+        if window is not None:
+            try:
+                window.focus(Gdk.CURRENT_TIME)
+            except Exception:
+                pass
+        self.present()
+        return False
 
     def _window_title(self, index: int) -> str:
         """«LinFix v0.4.4 — Статус»: версия видна всегда, раздел — текущий."""
