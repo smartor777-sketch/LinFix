@@ -70,16 +70,24 @@ class H2FallbackTests(unittest.TestCase):
         calls = [call.args[0] for call in run.call_args_list]
         self.assertIn(["systemctl", "--user", "restart", tgws.UNIT_NAME], calls)
 
+    def _restart_calls(self, run) -> list:
+        """Только вызовы restart: is-active/ss делают другие проверки."""
+
+        return [
+            call_ for call_ in run.call_args_list
+            if call_.args and "restart" in call_.args[0]
+        ]
+
     def test_no_fallback_when_h2_already_off(self) -> None:
         self.config.write_text(json.dumps({"h2": False}), encoding="utf-8")
         report, run = self._run([STALL_LINE] * guard.H2_STALL_MIN)
         self.assertEqual(report.status, "ok")
-        run.assert_not_called()
+        self.assertEqual(self._restart_calls(run), [])
 
     def test_no_fallback_below_threshold(self) -> None:
         report, run = self._run([STALL_LINE] * (guard.H2_STALL_MIN - 1))
         self.assertEqual(report.status, "ok")
-        run.assert_not_called()
+        self.assertEqual(self._restart_calls(run), [])
 
     def test_first_run_skips_history(self) -> None:
         """При первом запуске старые зависания в логе не должны отключать H2."""
