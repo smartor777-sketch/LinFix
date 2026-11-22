@@ -25,6 +25,8 @@ import time
 import urllib.request
 from dataclasses import dataclass, field
 
+from . import proxyprobe
+
 TELEGRAM_DCS: tuple[tuple[int, str], ...] = (
     (1, "149.154.175.50"),
     (2, "149.154.167.51"),
@@ -86,28 +88,45 @@ class NetReport:
     ping: list[PingResult] = field(default_factory=list)
     dns: DnsResult | None = None
     media: MediaResult | None = None
+    proxy: proxyprobe.ProxyProbe | None = None
     blocks: list[str] = field(default_factory=list)
     verdict: tuple[str, str, str] = ("", "", "")  # emoji, title, detail
     recommendations: list[str] = field(default_factory=list)
 
-    def as_rows(self) -> list[tuple[str, str, str]]:
-        """Плоский список для таблицы «Проверка / Статус / Детали»."""
+    def as_rows(self) -> list[tuple[str, str, str, str]]:
+        """Строки для таблицы «Проверка / Напрямую / Через TgWsProxy / Детали»."""
 
-        rows: list[tuple[str, str, str]] = []
+        proxy_state = "OK" if (self.proxy and self.proxy.ok) else "BLOCK"
+        proxy_ms = f" ({self.proxy.latency_ms} мс)" if self.proxy and self.proxy.ok else ""
+
+        rows: list[tuple[str, str, str, str]] = []
         for item in self.dc:
-            state = f"{item.latency_ms:.0f} мс" if item.ok else (item.error or "недоступен")
-            rows.append((f"DC{item.dc_id} {item.ip}:{item.port}", "ok" if item.ok else "fail", state))
+            direct = "OK" if item.ok else "BLOCK"
+            detail = (
+                f"{item.latency_ms:.0f} мс"
+                if item.ok
+                else (item.error or "соединение не устанавливается")
+            )
+            rows.append(
+                (
+                    f"DC{item.dc_id} {item.ip}:{item.port}",
+                    direct,
+                    proxy_state + proxy_ms,
+                    detail,
+                )
+            )
         for item in self.ping:
             state = f"{item.latency_ms:.0f} мс" if item.ok else "нет ответа"
-            rows.append((f"Пинг {item.host}", "ok" if item.ok else "warn", state))
+            rows.append((f"Пинг {item.host}", "OK" if item.ok else "нет", "—", state))
         if self.dns is not None:
             if self.dns.error:
-                rows.append(("DNS", "warn", self.dns.error))
+                rows.append(("DNS " + self.dns.domain, "?", "—", self.dns.error))
             else:
                 rows.append(
                     (
                         f"DNS {self.dns.domain}",
-                        "fail" if self.dns.spoofed else "ok",
+                        "BLOCK" if self.dns.spoofed else "OK",
+                        "—",
                         (
                             "подменён: система "
                             + (", ".join(self.dns.system_ips[:2]) or "—")
@@ -120,15 +139,25 @@ class NetReport:
                 )
         if self.media is not None:
             if self.media.error:
-                rows.append(("Медиа Telegram", "warn", self.media.error))
+                rows.append(("Медиа Telegram", "BLOCK", proxy_state, self.media.error))
             else:
                 rows.append(
                     (
                         "Медиа Telegram",
-                        "warn" if self.media.throttled else "ok",
+                        "OK",
+                        proxy_state + proxy_ms,
                         f"{self.media.speed_kbps:.0f} кбит/с (норма > {SLOW_MEDIA_KBPS:.0f})",
                     )
                 )
+        if self.proxy is not None:
+            rows.append(
+                (
+                    "MTProto через TgWsProxy",
+                    "—",
+                    "OK" if self.proxy.ok else "BLOCK",
+                    self.proxy.detail,
+                )
+            )
         return rows
 
 
@@ -350,6 +379,23 @@ def recommendations(report: NetReport, *, zapret_running: bool) -> list[str]:
     return tips
 
 
+def check_proxy(timeout: float = 6.0) -> proxyprobe.ProxyProbe:
+    """Проверить MTProto-путь через локальный TgWsProxy."""
+
+    secret = ""
+    try:
+        from . import tgws
+
+        path = tgws.find_config_path()
+        if path is not None:
+            value = tgws.load_json_config(path).get("secret")
+            if isinstance(value, str):
+                secret = value
+    except Exception:
+        secret = ""
+    return proxyprobe.probe_proxy(secret_hex=secret, timeout=timeout)
+
+
 def run_network_diagnostics(
     *,
     proxy_running: bool = False,
@@ -359,15 +405,17 @@ def run_network_diagnostics(
     from concurrent.futures import ThreadPoolExecutor
 
     report = NetReport()
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         ping_f = pool.submit(check_ping, timeout)
         dc_f = pool.submit(check_dc, timeout)
         dns_f = pool.submit(check_dns)
         media_f = pool.submit(check_media)
+        proxy_f = pool.submit(check_proxy)
         report.ping = ping_f.result()
         report.dc = dc_f.result()
         report.dns = dns_f.result()
         report.media = media_f.result()
+        report.proxy = proxy_f.result()
     report.blocks = classify(report)
     report.verdict = verdict(report, proxy_running=proxy_running, zapret_running=zapret_running)
     report.recommendations = recommendations(report, zapret_running=zapret_running)

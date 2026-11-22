@@ -82,11 +82,11 @@ class DoctorScreen:
 
         # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
         self.verdict_label = common.label("", wrap=True, css_class="screen-title")
-        self.net_store = Gtk.ListStore(str, str, str)
+        self.net_store = Gtk.ListStore(str, str, str, str)
         self.net_tree = common.table_from_store(
             self.net_store,
-            [_("Проверка"), _("Статус"), _("Детали")],
-            tooltip_column=2,
+            [_("Проверка"), _("Напрямую"), _("Через TgWsProxy"), _("Детали")],
+            tooltip_column=3,
         )
         # Без ScrolledWindow: TreeView запрашивает высоту по числу строк,
         # внешняя прокрутка страницы уже есть.
@@ -434,10 +434,8 @@ class DoctorScreen:
             self.net_hint.set_visible(False)
             self.net_scrolled.set_visible(True)
             self.net_store.clear()
-            for title_row, status, details in report.as_rows():
-                self.net_store.append(
-                    [title_row, common.status_label(status).get_text(), details]
-                )
+            for title_row, direct, via_proxy, details in report.as_rows():
+                self.net_store.append([title_row, direct, via_proxy, details])
             self.reco_label.set_text(
                 _("Что делать:\n") + "\n".join(f"• {tip}" for tip in report.recommendations)
             )

@@ -108,15 +108,36 @@ class RowsTests(unittest.TestCase):
         rows = report.as_rows()
         self.assertEqual(len(rows), 2)
         self.assertIn("DC1", rows[0][0])
-        self.assertEqual(rows[0][1], "ok")
+        # Колонки: проверка, напрямую, через прокси, детали.
+        self.assertEqual(rows[0][1], "OK")
+        self.assertEqual(rows[0][2], "BLOCK")
 
     def test_dns_spoof_row(self) -> None:
         report = _report(
             dns=netdiag.DnsResult("telegram.org", ["10.0.0.1"], ["149.1.1.1"], True)
         )
         rows = report.as_rows()
-        self.assertEqual(rows[0][1], "fail")
-        self.assertIn("подменён", rows[0][2])
+        self.assertEqual(rows[0][1], "BLOCK")
+        self.assertIn("подменён", rows[0][3])
+
+    def test_proxy_ok_marks_proxy_column(self) -> None:
+        report = _report(
+            dc=[netdiag.DcResult(2, "149.154.167.51", 443, False)],
+            proxy=netdiag.proxyprobe.ProxyProbe(True, "ok", 300, "resPQ получен"),
+        )
+        rows = report.as_rows()
+        dc_row = next(row for row in rows if row[0].startswith("DC2"))
+        self.assertEqual(dc_row[1], "BLOCK")
+        self.assertIn("OK", dc_row[2])
+
+    def test_proxy_row_present(self) -> None:
+        report = _report(
+            proxy=netdiag.proxyprobe.ProxyProbe(False, "timeout", 0, "нет ответа"),
+        )
+        rows = report.as_rows()
+        row = rows[-1]
+        self.assertIn("TgWsProxy", row[0])
+        self.assertEqual(row[2], "BLOCK")
 
 
 class SpeedTests(unittest.TestCase):
