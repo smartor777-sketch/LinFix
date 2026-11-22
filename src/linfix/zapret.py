@@ -414,7 +414,10 @@ def read_profiles(config_path: str | Path = "/opt/zapret2/config") -> list[dict[
             {
                 "protocol": proto or "?",
                 "hostlists": [Path(item).name for item in hostlists],
+                # Полные пути нужны, чтобы понять, покрывает ли профиль домен.
+                "hostlist_paths": list(hostlists),
                 "bare_hostlists": [Path(item).name for item in bare],
+                "bare_hostlist_paths": list(bare),
                 "desync": desync,
                 "uses_placeholder": uses_placeholder,
                 "applies_to": (
@@ -444,18 +447,37 @@ def active_profile_for(profiles: list[dict[str, object]], domain: str) -> dict[s
     любым доменом и поэтому перекрывает последующие профили.
     """
 
+    host = domain.lower()
+
+    def covers(profile: dict[str, object]) -> bool:
+        """Покрывает ли профиль этот домен (по содержимому его hostlist)."""
+
+        if profile.get("uses_placeholder"):
+            # <HOSTLIST> — общий список zapret; покрытие проверит вызывающий
+            # по факту наличия домена, здесь считаем «подходит».
+            return True
+        for path in list(profile.get("hostlist_paths") or []):
+            try:
+                if host in read_hostlist_domains(str(path)):
+                    return True
+            except OSError:
+                continue
+        return False
+
     for profile in profiles:
         if not profile.get("active"):
             continue
         listed = list(profile.get("hostlists") or [])
-        if not listed and not profile.get("uses_placeholder"):
-            return profile  # глобальный профиль — совпадает с любым доменом
-    for profile in profiles:
-        if not profile.get("active"):
-            continue
-        listed = list(profile.get("hostlists") or [])
-        if listed and domain.lower().endswith(tuple(listed)):
+        bare = list(profile.get("bare_hostlist_paths") or [])
+        if listed and covers(profile):
             return profile
+        if listed:
+            continue
+        # Профиль без --hostlist (в том числе «голый» путь) глобален, но
+        # срабатывает лишь если ни один профиль выше по порядку не совпал.
+        if not profile.get("uses_placeholder"):
+            return profile
+
     for profile in profiles:
         if profile.get("active") and profile.get("uses_placeholder"):
             return profile

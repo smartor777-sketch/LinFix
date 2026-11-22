@@ -187,14 +187,35 @@ def _hostlist_args_check(info: zapret.ZapretInfo) -> Check:
             "все списки переданы через --hostlist",
         )
     names = ", ".join(Path(item).name for item in bare)
+    # Опасно не само наличие «голого» профиля, а перекрывает ли он CF-домены:
+    # nfqws2 берёт первое совпавшее правило. Проверяем на реальном домене.
+    try:
+        profiles = zapret.read_profiles()
+        effective = zapret.active_profile_for(profiles, "kws2.pclead.co.uk")
+    except Exception:
+        effective = None
+    covered_by_cf = bool(
+        effective
+        and list(effective.get("hostlists") or [])
+        and "cf" in " ".join(list(effective.get("hostlists") or [])).lower()
+    )
+    if covered_by_cf:
+        return Check(
+            "zapret.hostlist_args",
+            "Аргументы hostlist",
+            PASS,
+            f"профиль {names} без --hostlist= есть, но CF-домены "
+            "перехватываются раньше отдельным профилем",
+            "Менять не нужно: для CF работает профиль с linfix-cf-hosts.txt",
+        )
     return Check(
         "zapret.hostlist_args",
         "Аргументы hostlist",
         WARN,
-        f"профиль {names} указан без --hostlist=: он применяется ко ВСЕМ "
-        "доменам и перекрывает остальные правила (проверено по debug nfqws2)",
-        "Если CF-домены ведут себя нестабильно, ограничьте это правило через "
-        "--hostlist= и проверьте blockcheck2.sh; без проверки менять опасно",
+        f"профиль {names} указан без --hostlist= и перекрывает CF-домены "
+        "(проверено по debug nfqws2)",
+        "Ограничьте это правило через --hostlist= или поставьте CF-профиль "
+        "раньше; после правки проверьте `linfix domains profile`",
     )
 
 
@@ -466,6 +487,18 @@ def _guard_check(cfg: Config) -> Check:
         )
     if event.get("last_trip"):
         detail = str(event.get("detail", ""))[:90]
+        # Guard мог сработать «вхолостую»: в логе были старые зависания H2,
+        # но живой запрос прошёл, и прокси не трогали. Это не проблема.
+        if event.get("status") == "warn" and "живой запрос проходит" in str(
+            event.get("detail", "")
+        ):
+            return Check(
+                "guard",
+                "Guard",
+                PASS,
+                f"{event.get('last_trip')}: {detail}",
+                "действий не требуется — H2 работает",
+            )
         return Check(
             "guard",
             "Guard",
