@@ -1,4 +1,4 @@
-# Параметры подключения к Telegram (снимок 21.11.2026)
+# Параметры подключения к Telegram (снимок 21.11.2026, обновлено 22.11.2026)
 
 Документ фиксирует параметры, которые **фактически используются сейчас** на этом ПК для подключения к Telegram. Это не рекомендованные настройки, а снимок рабочей конфигурации.
 
@@ -63,21 +63,49 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
 
 ### Cloudflare-домены
 
-Свои домены в конфиге не заданы. На старте лог сообщает:
+Свои домены в конфиге не заданы. Пул обновляется раз в час, в логе это выглядит так:
 
 ```
-CF proxy domain pool updated from GitHub (20 domains)
+2026-11-22 04:44:47  INFO  tg-mtproto-proxy  CF proxy domain pool updated from GitHub (20 domains)
 ```
 
 Источник пула: `https://raw.githubusercontent.com/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt`.
-Локальная копия доменов (на 19.11.2026) лежит в [`cf-domains.txt`](../cf-domains.txt) этого репозитория. В логе маршрутизация media идёт через домены `*.nothingthere.co.uk`, `*.sorokdva.co.uk` и др. из этого пула (имена частично маскируются в логе).
+Локальная копия доменов (на 19.11.2026) лежит в [`cf-domains.txt`](../cf-domains.txt) этого репозитория. **На 22.11.2026 удалённый файл содержит уже другие случайные `.com`-домены**, поэтому локальная копия устарела.
 
-### Фактический роутинг по логу (21.11.2026)
+### Текущий CF-сервер (22.11.2026 04:47 MSK)
 
-- `DC1…DC5` -> `trying CF proxy`, WS-пул для этих DC часто недоступен (`WS pool unavailable -> fallback`).
-- Media (`DC2 media`, `DC4 media`) -> `ROUTE ... H2 lane=1/2 channel=N host=<cf-домен>`.
-- Счётчик на 23:15: `total=730 active=4 ws=0 h2=610 h2_tcp=44 h2_req=3888 tcp_fb=0 cf=706 up=3.5MB down=91.7MB`.
-  Т.е. в данный момент работают именно H2/CF-каналы, а не прямой WS.
+Живые исходящие TLS-соединения процессов `TgWsProxy.exe` (PID 14860, 16044), все на порту `443`:
+
+| Удалённый адрес | Число соединений |
+|---|---:|
+| `172.67.214.67:443` | 3 |
+| `104.21.33.146:443` | 1 |
+| `104.21.70.196:443` | 1 |
+| `104.21.78.5:443` | 1 |
+| `172.67.138.236:443` | 1 |
+
+Все адреса принадлежат Cloudflare (диапазоны `104.21.x.x`, `172.67.x.x`).
+
+Последние строки `ROUTE` в логе (`04:45:28–04:45:33`):
+
+| DC | Домен (SNI/Host) | Канал |
+|---|---|---|
+| `DC2 media` | `kw*.nothingthere.co.uk` | H2, lane 1, channels 909–921 |
+| `DC4 media` | `kw*.notelega.co.uk` | H2, lane 25, channels 916–920 |
+| `DC1 media` | `kw*.noskomnadzor.co.uk` | H2, lane 5, channel 915 |
+
+Ранее для `DC4 media` также использовались `kw*.sorokdva.co.uk` / `kw*.sorokodin.co.uk`.
+
+В логе имена маскируются (`kw**.nothin******.c*.uk`, `kw**.note****.c*.uk`); полные имена восстановлены по шаблону маски и списку доменов из `cf-domains.txt`. У этих `*.co.uk`-доменов нет A-записей в DNS (только SOA `ingrid.ns.cloudflare.com`), то есть прокси подключается напрямую к IP Cloudflare, а домен использует как SNI/Host.
+
+### Фактический роутинг по логу
+
+- `DC1…DC5` -> `trying CF proxy`, WS-пул для этих DC почти всегда недоступен (`WS pool unavailable -> fallback`).
+- Media (`DC1/DC2/DC4 media`) -> `ROUTE ... H2 lane=N channel=N host=<cf-домен>`.
+- 21.11.2026 23:15: `total=730 active=4 ws=0 h2=610 h2_tcp=44 h2_req=3888 tcp_fb=0 cf=706 up=3.5MB down=91.7MB`.
+- 22.11.2026 04:46: `total=1288 active=4 ws=0 h2=921 h2_tcp=73 h2_req=11348 h2_err=24 tcp_fb=0 cf=1264 masked=0 err=928 pool=0/1211 cf_pool=n/a up=8.6MB down=425.2MB`.
+
+Прямой WS не работает (`ws=0`), весь трафик идёт через CF/H2-каналы.
 
 ## Интеграция с NetFix
 
