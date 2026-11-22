@@ -553,3 +553,15 @@ msgstr "TCP does not connect: hostlist and zapret will not help here, a proxy or
 
 msgid "Сайт открывается — добавлять в hostlist не нужно."
 msgstr "The site opens — no need to add it to the hostlist."
+
+msgid "Домен в hostlist, но TLS не проходит — стратегия не срабатывает"
+msgstr "Domain is in the hostlist, but TLS fails — the strategy does not work"
+
+msgid "Домен уже добавлен, поэтому добавлять повторно не нужно. Попробуйте другую стратегию: «Диагностика» → «Подобрать стратегию» (домен уже входит в список подбора)."
+msgstr "The domain is already added, so there is no need to add it again. Try another strategy: “Diagnostics” → “Pick a strategy” (the domain is already in the scan list)."
+
+msgid "Домен уже в hostlist — добавлять не нужно. Для начала попробуйте другую стратегию в разделе «Диагностика», и только потом исключайте домен из hostlist."
+msgstr "The domain is already in the hostlist — no need to add it. First try another strategy in “Diagnostics”, and only then remove the domain from the hostlist."
+
+msgid "Активна, если сайт уже в hostlist, но TLS ломается. Сначала лучше подобрать другую стратегию: удаление из hostlist оставит домен совсем без обхода."
+msgstr "Enabled when the site is already in the hostlist but TLS breaks. Better to pick another strategy first: removing it leaves the domain with no bypass at all."
