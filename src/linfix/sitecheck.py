@@ -371,6 +371,27 @@ def check_site(host: str, *, timeout: float = DEFAULT_TIMEOUT) -> SiteCheck:
         )
 
     details.append("Вывод: режут именно SNI этого домена")
+    in_lists = _in_zapret_hostlist(host)
+    if in_lists:
+        # Домен уже обходится zapret, но TLS всё равно не проходит — значит
+        # текущая стратегия ему не подходит. Совет «добавьте в hostlist» тут
+        # вводит в заблуждение (так было с rutracker.org).
+        details.append(
+            f"Домен уже в hostlist zapret, но TLS с ним не проходит: "
+            "текущая стратегия (desync) для него не срабатывает"
+        )
+        return SiteCheck(
+            host,
+            "desync",
+            "Домен в hostlist, но TLS не проходит — стратегия не срабатывает",
+            details,
+            ip=ip,
+            advice=(
+                "Домен уже добавлен, поэтому добавлять повторно не нужно. "
+                "Попробуйте другую стратегию: «Диагностика» → «Подобрать "
+                "стратегию» (домен уже входит в список подбора)."
+            ),
+        )
     return SiteCheck(
         host,
         "sni",
@@ -378,7 +399,6 @@ def check_site(host: str, *, timeout: float = DEFAULT_TIMEOUT) -> SiteCheck:
         details,
         ip=ip,
         advice=(
-            f"Добавьте {host} в hostlist zapret и перезапустите службу. "
-            "Если домен уже там — попробуйте другой профиль desync."
+            f"Добавьте {host} в hostlist zapret и перезапустите службу."
         ),
     )

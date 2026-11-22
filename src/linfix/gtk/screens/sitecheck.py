@@ -56,8 +56,9 @@ class SiteCheckScreen:
         )
         self.exclude_button.set_tooltip_text(
             _(
-                "Активна, если сайт уже в hostlist, но TLS ломается — "
-                "значит текущая стратегия ему мешает."
+                "Активна, если сайт уже в hostlist, но TLS ломается. "
+                "Сначала лучше подобрать другую стратегию: удаление из "
+                "hostlist оставит домен совсем без обхода."
             )
         )
         self.mtu_button = common.button(_("Починить MTU"), lambda _: self.fix_mtu())
@@ -260,6 +261,15 @@ class SiteCheckScreen:
                     _(
                         "TCP не устанавливается: hostlist и zapret тут не "
                         "помогут, нужен прокси или VPN."
+                    )
+                )
+            elif result.status == "desync":
+                lines.append("")
+                lines.append(
+                    _(
+                        "Домен уже в hostlist — добавлять не нужно. Для начала "
+                        "попробуйте другую стратегию в разделе «Диагностика», "
+                        "и только потом исключайте домен из hostlist."
                     )
                 )
             elif result.status == "ok":
