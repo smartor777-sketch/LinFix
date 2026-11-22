@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import __version__, api, cfdomains, doctor, guard, profiles, state, tgws, util, zapret
+from . import __version__, api, cfdomains, cfprofile, doctor, guard, profiles, state, tgws, util, zapret
 from .config import Config, ConfigError, load_config
 
 EXIT_OK = 0
@@ -401,6 +401,35 @@ def cmd_domains_test(cfg: Config, args: argparse.Namespace) -> int:
         rows = [["OK" if result_ok else "FAIL", host, details] for host, result_ok, details in results]
         _table(["Статус", "Хост", "Детали"], rows)
     return EXIT_OK if ok else EXIT_CHECK_FAILED
+
+
+def cmd_cf_profile(cfg: Config, *, as_json: bool = False, timeout: float = 8.0) -> int:
+    """Проверить, что профиль zapret не ломает H2-медиа для CF-доменов."""
+
+    state_info = state.load_state()
+    domains = list(state_info.domains) or list(cfdomains.FALLBACK_DOMAINS)
+    report = cfprofile.check_profile(domains, timeout=timeout)
+
+    if as_json:
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return EXIT_OK if report.body_ok else EXIT_CHECK_FAILED
+
+    rows = []
+    for probe in report.probes:
+        if not probe.tls_ok:
+            status, detail = "FAIL", f"TLS: {probe.h2_error or 'ошибка'}"
+        elif probe.body_ok:
+            status, detail = "OK", f"HTTP {probe.h2_status}, тело {cfprofile.BODY_BYTES // 1024} КБ за {probe.h2_ms} мс"
+        else:
+            status, detail = "FAIL", f"тело {cfprofile.BODY_BYTES // 1024} КБ: {probe.h2_error}"
+        rows.append([status, probe.host, detail])
+
+    _table(["Статус", "Хост", "Детали"], rows)
+    print()
+    print(report.detection)
+    if report.hint:
+        print(f"Подсказка: {report.hint}")
+    return EXIT_OK if report.body_ok else EXIT_CHECK_FAILED
 
 
 # ---------------------------------------------------------------------------
@@ -1147,6 +1176,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_test.add_argument("--json", action="store_true", help="JSON для GUI")
     p_test.add_argument("--timeout", type=float, default=5.0, help="таймаут TLS, секунды")
     p_test.add_argument("--offline", action="store_true", help="использовать fallback-список")
+    p_cf_profile = domains_sub.add_parser(
+        "profile", help="проверить, что профиль zapret пропускает H2-медиа"
+    )
+    p_cf_profile.add_argument("--json", action="store_true", help="JSON для GUI")
+    p_cf_profile.add_argument("--timeout", type=float, default=8.0, help="таймаут проверки, секунды")
 
     p_tgws = sub.add_parser("tgws", help="TgWsProxy")
     tgws_sub = p_tgws.add_subparsers(dest="tgws_command", required=True)
@@ -1258,6 +1292,8 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_domains_test(cfg, args)
             if args.domains_command == "update":
                 return cmd_domains_update(cfg, args)
+            if args.domains_command == "profile":
+                return cmd_cf_profile(cfg, as_json=args.json, timeout=args.timeout)
             return _not_implemented("linfix domains update", "M1")
         if args.command == "tgws":
             if args.tgws_command == "status":

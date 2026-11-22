@@ -86,7 +86,12 @@ class H2FallbackTests(unittest.TestCase):
         with mock.patch.object(guard.util, "run", return_value=mock.Mock(returncode=0)) as run:
             report = guard.check_guard(make_cfg(), home=self.home)
         self.assertEqual(report.status, "ok")
-        run.assert_not_called()
+        self.assertFalse(report.h2_disabled)
+        restarts = [
+            call_ for call_ in run.call_args_list
+            if call_.args and "restart" in call_.args[0]
+        ]
+        self.assertEqual(restarts, [])
         data = json.loads(self.config.read_text(encoding="utf-8"))
         self.assertEqual(data["h2"], True)
 
