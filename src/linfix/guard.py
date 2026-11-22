@@ -304,6 +304,7 @@ def check_guard(
     home: str | Path | None = None,
     tls_test: Callable[[], list[tuple[str, bool, str]]] | None = None,
     stop_service: Callable[[], object] | None = None,
+    skip_history: bool = True,
 ) -> GuardReport:
     if not cfg.guard.enabled:
         return GuardReport("disabled", "guard выключен в конфиге", 0, cfg.guard.error_threshold)
@@ -319,6 +320,18 @@ def check_guard(
 
     cursor_file = cursor_path(home)
     cursor = load_cursor(cursor_file)
+    # Первый запуск: не разбирать историю лога — иначе старые зависания H2
+    # сразу же отключат рабочий H2. Начинаем с текущего конца файла.
+    if cursor is None and skip_history:
+        try:
+            current = Path(log_path).stat()
+        except OSError:
+            current = None
+        if current is not None:
+            cursor = Cursor(
+                path=str(log_path), offset=current.st_size, inode=current.st_ino
+            )
+            save_cursor(cursor_file, cursor)
     lines, new_cursor = read_new_lines(log_path, cursor)
     save_cursor(cursor_file, new_cursor)
 

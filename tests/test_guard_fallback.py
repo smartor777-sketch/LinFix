@@ -42,7 +42,7 @@ class H2FallbackTests(unittest.TestCase):
     def _run(self, lines: list[str]):
         self.log.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with mock.patch.object(guard.util, "run", return_value=mock.Mock(returncode=0)) as run:
-            report = guard.check_guard(make_cfg(), home=self.home)
+            report = guard.check_guard(make_cfg(), home=self.home, skip_history=False)
         return report, run
 
     def test_counts_stalls(self) -> None:
@@ -78,6 +78,17 @@ class H2FallbackTests(unittest.TestCase):
         report, run = self._run([STALL_LINE] * (guard.H2_STALL_MIN - 1))
         self.assertEqual(report.status, "ok")
         run.assert_not_called()
+
+    def test_first_run_skips_history(self) -> None:
+        """При первом запуске старые зависания в логе не должны отключать H2."""
+
+        self.log.write_text("\n".join([STALL_LINE] * 50) + "\n", encoding="utf-8")
+        with mock.patch.object(guard.util, "run", return_value=mock.Mock(returncode=0)) as run:
+            report = guard.check_guard(make_cfg(), home=self.home)
+        self.assertEqual(report.status, "ok")
+        run.assert_not_called()
+        data = json.loads(self.config.read_text(encoding="utf-8"))
+        self.assertEqual(data["h2"], True)
 
     def test_falls_back_on_timeout_series(self) -> None:
         report, _ = self._run([FAIL_LINE] * guard.H2_STALL_MIN)

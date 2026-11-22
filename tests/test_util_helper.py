@@ -42,6 +42,8 @@ class DevHelperFallbackTests(unittest.TestCase):
         with patch.object(util, "is_root", return_value=False), patch.dict(
             "os.environ", {}, clear=False
         ), patch.object(util, "which", return_value=None), patch.object(
+            util, "installed_helper", return_value=None
+        ), patch.object(
             util, "_dev_helper_command", return_value=["pkexec", "dev"]
         ) as dev, patch.object(util, "run", return_value=completed):
             os_environ = util.os.environ
