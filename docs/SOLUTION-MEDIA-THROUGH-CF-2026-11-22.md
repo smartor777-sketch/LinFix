@@ -18,7 +18,8 @@
 
 ## Как нашли
 
-1. Снимок рабочей конфигурации на другой машине показал: `h2=true`, `ws=0`,
+1. Снимок рабочей Windows-конфигурации
+   (`docs/TELEGRAM-CONNECTION-PARAMS.md`) показал: `h2=true`, `ws=0`,
    скачано **425 МБ**. Значит CF/H2 в принципе работает.
 2. Остановка zapret целиком дала `ConnectTimeout` — обход нужен, но не тот.
 3. Прогон 8 профилей desync с проверкой `TLS + H2 POST 16/64/256 КБ`:
@@ -37,7 +38,7 @@
 ### zapret
 
 Добавлен отдельный профиль только для CF-доменов, остальные профили не
-тронуты. В конфиге zapret2 первой строкой в `NFQWS2_OPT`:
+тронуты. В `/opt/zapret2/config`, первой строкой в `NFQWS2_OPT`:
 
 ```text
 --filter-tcp=443 --filter-l7=tls --hostlist=/opt/zapret2/ipset/linfix-cf-hosts.txt \
@@ -46,10 +47,10 @@
   --lua-desync=multidisorder:pos=1,midsld --new
 ```
 
-Список `linfix-cf-hosts.txt` — 120 хостов: `kws1..kws5` и `kws203` × 20
-доменов из `cf-domains.txt`.
+Список `/opt/zapret2/ipset/linfix-cf-hosts.txt` — 120 хостов:
+`kws1..kws5` и `kws203` × 20 доменов из `cf-domains.txt`.
 
-Бэкап исходного конфига сохраняется рядом с ним.
+Бэкап: `/opt/zapret2/config.bak-linfix-20261122-0428`.
 
 ### TgWsProxy
 
@@ -60,7 +61,7 @@
 
 ### Сеть
 
-- MTU Wi-Fi 1492 (PMTU до CF = 1492, с 1500 была «чёрная дыра»).
+- `wlo1` MTU 1492 (PMTU до CF = 1492, с 1500 была «чёрная дыра»).
 - `net.ipv4.tcp_mtu_probing=1`.
 - Wi-Fi переведён на 5 ГГц (канал 48): джиттер упал с 23 мс до 3.6 мс.
 
@@ -94,7 +95,8 @@ systemctl is-active zapret2
 ## Важно на будущее
 
 - `tcpseg` не использовать для CF-доменов: он ломает H2-медиа.
-- `fake + multidisorder` — рабочий профиль для CF-доменов.
-- Публичный GitHub-список `cfproxy-domains.txt` содержит `.com`-домены,
-  которые уже не резолвятся (NXDOMAIN). Рабочий список — 20 `.co.uk`-доменов
-  из `cf-domains.txt`.
+- Профиль `fake + multidisorder` совпадает с рабочим Windows-конфигом.
+- Публичный GitHub-список `cfproxy-domains.txt` закодирован: `.com`-строки —
+  это коды (`virkgj.com` → `pclead.co.uk`). LinFix декодирует их тем же
+  алгоритмом, что и TgWsProxy, и получает те же 20 `.co.uk`-доменов.
+  Прямой DNS-запрос к `.com`-коду даёт NXDOMAIN — это ожидаемо.

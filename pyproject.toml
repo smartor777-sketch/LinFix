@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "linfix"
-version = "0.5.27"
+version = "0.5.28"
 description = "LinFix: графическая панель для zapret2 + TgWsProxy"
 readme = "README.md"
 requires-python = ">=3.10"

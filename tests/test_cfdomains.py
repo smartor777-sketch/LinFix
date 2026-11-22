@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import socket
 import unittest
+from unittest import mock
 
 from linfix import cfdomains
 
@@ -128,3 +130,55 @@ class FallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PinnedGithubTests(unittest.TestCase):
+    """Пин IP GitHub на случай подмены DNS провайдером."""
+
+    def test_resolve_timeout_helper(self) -> None:
+        from linfix import cfdomains
+
+        with mock.patch("socket.getaddrinfo", side_effect=socket.gaierror(-2, "no dns")):
+            with self.assertRaises(OSError):
+                cfdomains._resolve_with_timeout("raw.githubusercontent.com", 0.5)
+
+    def test_falls_back_to_pinned_ip(self) -> None:
+        from linfix import cfdomains
+
+        body = b"virkgj.com\nvmmzovy.com\nmkuosckvso.com\n"
+        fake = mock.Mock()
+        fake.status = 200
+        fake.read.return_value = body
+
+        conn = mock.Mock()
+        conn.getresponse.return_value = fake
+
+        with mock.patch.object(
+            cfdomains, "_resolve_with_timeout", side_effect=OSError("no dns")
+        ), mock.patch.object(
+            cfdomains, "_PinnedHTTPSConnection", return_value=conn
+        ) as pinned:
+            text = cfdomains.fetch_text(timeout=1.0)
+
+        self.assertEqual(text, body.decode())
+        pinned.assert_called_once()
+        conn.request.assert_called_once()
+        # Host и SNI остаются настоящими — пин меняет только IP.
+        kwargs = conn.request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Host"], "raw.githubusercontent.com")
+
+    def test_uses_dns_when_it_works(self) -> None:
+        from linfix import cfdomains
+
+        with mock.patch.object(
+            cfdomains, "_resolve_with_timeout", return_value=["185.199.109.133"]
+        ), mock.patch.object(
+            cfdomains, "_PinnedHTTPSConnection"
+        ) as pinned, mock.patch(
+            "urllib.request.urlopen"
+        ) as opener:
+            opener.return_value.__enter__.return_value.read.return_value = b"ok"
+            text = cfdomains.fetch_text(timeout=1.0)
+
+        self.assertEqual(text, "ok")
+        pinned.assert_not_called()

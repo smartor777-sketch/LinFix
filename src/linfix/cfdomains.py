@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import http.client
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -160,13 +162,86 @@ def source_from_domains(
     )
 
 
+#: IP GitHub Pages, к которому прибит raw.githubusercontent.com в TgWsProxy.
+#: Провайдеры в РФ подменяют DNS этого имени, поэтому при неудачном резолве
+#: пробуем закреплённый адрес — SNI и Host при этом остаются настоящими.
+PINNED_GITHUB_IP = "185.199.109.133"
+
+
+class _DnsTimeout(Exception):
+    """Резолв имени не удался за отведённое время."""
+
+
+def _resolve_with_timeout(host: str, timeout: float) -> list[str]:
+    """Резолв имени с жёстким дедлайном (иначе DNS может висеть минутами)."""
+
+    result: list[str] = []
+    error: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            result.extend(sorted({info[4][0] for info in infos}))
+        except BaseException as exc:  # noqa: BLE001
+            error.append(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise _DnsTimeout(host)
+    if error:
+        raise error[0]
+    return result
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS к GitHub по закреплённому IP, с настоящим SNI и проверкой сертификата."""
+
+    def __init__(self, host: str, timeout: float = 15.0) -> None:
+        super().__init__(host, 443, timeout=timeout)
+        self._pinned_ip = PINNED_GITHUB_IP
+
+    def connect(self) -> None:  # type: ignore[override]
+        sock = socket.create_connection((self._pinned_ip, 443), self.timeout)
+        context = ssl.create_default_context()
+        self.sock = context.wrap_socket(sock, server_hostname=self.host)
+
+
 def fetch_text(url: str = DEFAULT_CF_DOMAINS_URL, timeout: float = 15.0) -> str:
     # SPEC 15.1: скачивание только по HTTPS.
     if not url.lower().startswith("https://"):
         raise ValueError("скачивание разрешено только по HTTPS")
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - только HTTPS из конфига
+
+    host = urllib.request.urlparse(url).hostname or ""
+    with_dns = True
+    if host == "raw.githubusercontent.com":
+        try:
+            _resolve_with_timeout(host, min(timeout, 4.0))
+        except (OSError, _DnsTimeout):
+            with_dns = False
+
+    if with_dns:
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - только HTTPS из конфига
+            payload = response.read()
+        return payload.decode("utf-8-sig")
+
+    # DNS не отдал адрес — идём по закреплённому IP GitHub Pages.
+    parsed = urllib.request.urlparse(url)
+    connection = _PinnedHTTPSConnection(host, timeout=timeout)
+    try:
+        connection.request(
+            "GET",
+            parsed.path + (f"?{parsed.query}" if parsed.query else ""),
+            headers={"User-Agent": USER_AGENT, "Host": host},
+        )
+        response = connection.getresponse()
+        if response.status != 200:
+            raise OSError(f"GitHub ответил HTTP {response.status}")
         payload = response.read()
+    finally:
+        connection.close()
     return payload.decode("utf-8-sig")
 
 
