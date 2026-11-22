@@ -1169,6 +1169,23 @@ def blockcheck_status(cfg: Config) -> tuple[bool, str]:
     return blockcheck.check_readiness(cfg)
 
 
+def set_blockcheck_domains(domains: list[str]) -> tuple[int, dict[str, object]]:
+    """Сохранить список доменов для подбора стратегий (через helper)."""
+
+    cleaned = [item.strip().lower() for item in domains if item and item.strip()]
+    if not cleaned:
+        return EXIT_USAGE, {"ok": False, "error": "нужен хотя бы один домен"}
+    args: list[str] = []
+    for domain in cleaned:
+        args.extend(["--domain", domain])
+    try:
+        return util.run_helper("config.blockcheck", args, timeout=60)
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"config.blockcheck: {exc}"}
+
+
 def pick_strategy(
     cfg: Config,
     *,
@@ -1197,7 +1214,8 @@ def pick_strategy(
         "--timeout",
         str(timeout),
     ]
-    for domain in domains or ["rutracker.org", "telegram.org"]:
+    selected = list(domains) if domains else list(cfg.blockcheck.effective_domains)
+    for domain in selected:
         args.extend(["--domain", domain])
 
     was_active = info.active

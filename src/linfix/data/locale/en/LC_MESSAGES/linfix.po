@@ -485,3 +485,26 @@ msgstr "Switch anyway"
 
 msgid "Переключить"
 msgstr "Switch"
+
+
+
+msgid "Домены для подбора:"
+msgstr "Domains to test:"
+
+msgid "Через запятую. Подбор останавливает zapret и проверяет именно эти домены."
+msgstr "Comma separated. The scan stops zapret and tests exactly these domains."
+
+msgid "Сохранить список"
+msgstr "Save list"
+
+msgid "Укажите хотя бы один домен — иначе подбор нечего проверять"
+msgstr "Enter at least one domain — otherwise there is nothing to test"
+
+msgid "Сохранено: {list}"
+msgstr "Saved: {list}"
+
+msgid "Список доменов для подбора обновлён"
+msgstr "Domain list for the scan updated"
+
+msgid "Проверяются домены: {domains}.\n\n"
+msgstr "Domains to test: {domains}.\n\n"

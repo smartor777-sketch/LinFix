@@ -37,6 +37,7 @@ ALLOWED_SYSCTLS = {"net.ipv4.tcp_mtu_probing"}
 DEFAULT_ZAPRET2_GIT_URL = "https://github.com/bol-van/zapret2"
 ALLOWED_ACTIONS = {
     "config.guard",
+    "config.blockcheck",
     "domains.apply",
     "mtu.set",
     "zapret.neutralize_hostlist_args",
@@ -320,6 +321,57 @@ def action_config_guard(args: argparse.Namespace) -> tuple[int, dict[str, object
         "path": str(target),
         "backup": str(backup) if backup else None,
         "enabled": want,
+    }
+
+
+def action_config_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
+    """Записать список доменов для подбора стратегий в конфиг LinFix."""
+
+    from .config import set_blockcheck_domains
+
+    domains = [item for item in (args.domain or []) if item and item.strip()]
+    if not domains:
+        raise HelperError("config.blockcheck: нужен хотя бы один --domain")
+
+    target = validate_path(args.config or str(DEFAULT_CONFIG_PATH), must_exist=False)
+    existed = target.exists()
+    text = ""
+    if existed:
+        with target.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            text = handle.read()
+
+    try:
+        new_text = set_blockcheck_domains(text, domains)
+    except ValueError as exc:
+        raise HelperError(str(exc)) from exc
+
+    changed = new_text != text
+    backup = None
+    if changed:
+        if existed:
+            backup = util.backup_file(target)
+        util.atomic_write(target, new_text, mode=0o644)
+        try:
+            updated = load_config(target)
+        except ConfigError as exc:
+            if backup is not None:
+                util.restore_file(backup, target)
+            elif target.exists():
+                target.unlink()
+            raise HelperError(f"после правки конфиг некорректен: {exc}") from exc
+        if tuple(updated.blockcheck.domains) != tuple(
+            item.strip().lower() for item in domains
+        ):
+            if backup is not None:
+                util.restore_file(backup, target)
+            raise HelperError("не удалось изменить [blockcheck] domains")
+
+    return 0, {
+        "ok": True,
+        "changed": changed,
+        "path": str(target),
+        "backup": str(backup) if backup else None,
+        "domains": [item.strip().lower() for item in domains],
     }
 
 
@@ -828,6 +880,8 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
     level = args.level or "quick"
     if level not in blockcheck.SCAN_LEVELS:
         raise HelperError(f"недопустимый уровень сканирования: {level}")
+    # Список приходит из [blockcheck] domains в конфиге LinFix. Здесь
+    # остаётся только страховка на случай вызова helper'а напрямую.
     domains = list(args.domain or []) or ["rutracker.org", "telegram.org"]
 
     was_active = (
@@ -983,6 +1037,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_tgws_install(args)
         elif args.action == "config.guard":
             code, payload = action_config_guard(args)
+        elif args.action == "config.blockcheck":
+            code, payload = action_config_blockcheck(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
         elif args.action == "zapret.install_easy":

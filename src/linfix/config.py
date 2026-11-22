@@ -62,6 +62,17 @@ class GuardConfig:
 
 
 @dataclass(frozen=True)
+class BlockcheckConfig:
+    """Домены для подбора стратегий через blockcheck2."""
+
+    domains: tuple[str, ...] = ("rutracker.org", "telegram.org")
+
+    @property
+    def effective_domains(self) -> tuple[str, ...]:
+        return self.domains or ("rutracker.org", "telegram.org")
+
+
+@dataclass(frozen=True)
 class ProfilesConfig:
     enabled: bool = False
 
@@ -73,6 +84,7 @@ class Config:
     tgws: TgwsConfig = field(default_factory=TgwsConfig)
     lists: ListsConfig = field(default_factory=ListsConfig)
     guard: GuardConfig = field(default_factory=GuardConfig)
+    blockcheck: BlockcheckConfig = field(default_factory=BlockcheckConfig)
     profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
     source: Path | None = None
     warnings: tuple[str, ...] = ()
@@ -157,6 +169,49 @@ def set_guard_enabled(text: str, enabled: bool) -> str:
     return "".join(lines)
 
 
+def set_blockcheck_domains(text: str, domains: list[str]) -> str:
+    """Вернуть текст конфига с обновлённым ``[blockcheck] domains``.
+
+    Сохраняет остальные ключи и комментарии; при отсутствии секции или ключа
+    добавляет их в конец секции.
+    """
+
+    items = [item.strip().lower() for item in domains if item.strip()]
+    if not items:
+        raise ValueError("список доменов не может быть пустым")
+    rendered = ", ".join(f'"{item}"' for item in items)
+    newline = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines(keepends=True)
+
+    section_start: int | None = None
+    section_end = len(lines)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if section_start is not None:
+                section_end = index
+                break
+            if stripped == "[blockcheck]":
+                section_start = index
+
+    if section_start is None:
+        if text and not text.endswith(("\n", "\r")):
+            text += newline
+        separator = "" if not text else newline
+        return f"{text}{separator}[blockcheck]{newline}domains = [{rendered}]{newline}"
+
+    for index in range(section_start + 1, section_end):
+        if lines[index].strip().startswith("domains"):
+            indent = lines[index][: len(lines[index]) - len(lines[index].lstrip())]
+            lines[index] = f"{indent}domains = [{rendered}]{newline}"
+            return "".join(lines)
+
+    header = lines[section_start]
+    header_newline = "\r\n" if header.endswith("\r\n") else newline
+    lines.insert(section_start + 1, f"domains = [{rendered}]{header_newline}")
+    return "".join(lines)
+
+
 def load_config(path: str | Path | None = None) -> Config:
     """Загрузить конфиг или вернуть значения по умолчанию.
 
@@ -187,6 +242,7 @@ def load_config(path: str | Path | None = None) -> Config:
     tgws_raw = _expect_section(raw, "tgws")
     lists_raw = _expect_section(raw, "lists")
     guard_raw = _expect_section(raw, "guard")
+    blockcheck_raw = _expect_section(raw, "blockcheck")
     profiles_raw = _expect_section(raw, "profiles")
 
     _warn_unknown(general_raw, "general", {"log_level", "language"}, warnings)
@@ -204,8 +260,9 @@ def load_config(path: str | Path | None = None) -> Config:
     )
     _warn_unknown(lists_raw, "lists", {"cf_domains_url", "update_days", "marker"}, warnings)
     _warn_unknown(guard_raw, "guard", {"enabled", "window_seconds", "error_threshold"}, warnings)
+    _warn_unknown(blockcheck_raw, "blockcheck", {"domains"}, warnings)
     _warn_unknown(profiles_raw, "profiles", {"enabled"}, warnings)
-    for key in sorted(set(raw) - {"general", "zapret", "tgws", "lists", "guard", "profiles"}):
+    for key in sorted(set(raw) - {"general", "zapret", "tgws", "lists", "guard", "blockcheck", "profiles"}):
         warnings.append(f"неизвестная секция [{key}] — игнорируется")
 
     general_defaults = GeneralConfig()
@@ -213,6 +270,7 @@ def load_config(path: str | Path | None = None) -> Config:
     tgws_defaults = TgwsConfig()
     lists_defaults = ListsConfig()
     guard_defaults = GuardConfig()
+    blockcheck_defaults = BlockcheckConfig()
     profiles_defaults = ProfilesConfig()
 
     general = GeneralConfig(
@@ -252,6 +310,23 @@ def load_config(path: str | Path | None = None) -> Config:
             guard_raw, "guard", "error_threshold", guard_defaults.error_threshold, warnings
         ),
     )
+    raw_domains = blockcheck_raw.get("domains")
+    blockcheck_domains = blockcheck_defaults.domains
+    if raw_domains is not None:
+        if not isinstance(raw_domains, list) or not all(
+            isinstance(item, str) for item in raw_domains
+        ):
+            warnings.append("[blockcheck] domains: ожидается список строк — игнорируется")
+        else:
+            cleaned = tuple(
+                item.strip().lower() for item in raw_domains if item.strip()
+            )
+            if cleaned:
+                blockcheck_domains = cleaned
+            else:
+                warnings.append("[blockcheck] domains: пустой список — берутся значения по умолчанию")
+    blockcheck = BlockcheckConfig(domains=blockcheck_domains)
+
     profiles = ProfilesConfig(
         enabled=_get_typed(profiles_raw, "profiles", "enabled", profiles_defaults.enabled, warnings),
     )
@@ -273,6 +348,7 @@ def load_config(path: str | Path | None = None) -> Config:
         tgws=tgws,
         lists=lists,
         guard=guard,
+        blockcheck=blockcheck,
         profiles=profiles,
         source=config_path,
         warnings=tuple(warnings),
