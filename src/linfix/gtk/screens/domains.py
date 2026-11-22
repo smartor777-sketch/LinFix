@@ -13,21 +13,31 @@ from ..i18n import _
 from ..worker import run_in_thread
 from . import common
 
+#: Какой список показывать в таблице.
+SOURCE_GITHUB = "github"
+SOURCE_USER = "user"
+SOURCE_MODES = (SOURCE_GITHUB, SOURCE_USER)
+
 
 class DomainsScreen:
     def __init__(self, app) -> None:
         self.app = app
         self.box = common.screen_box(_("Домены"))
 
+        # Какой список показывать: сохранённый с GitHub или текущий
+        # пользовательский (он же — реальная ротация TgWsProxy).
+        self.source_combo = Gtk.ComboBoxText()
+        self.source_combo.append(SOURCE_GITHUB, _("Список с GitHub"))
+        self.source_combo.append(SOURCE_USER, _("Пользовательский (ротация)"))
+        self.source_combo.set_active_id(SOURCE_GITHUB)
+        self.source_combo.connect("changed", self._on_source_changed)
+        source_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
+        common.pack(source_row, common.label(_("Показать:")))
+        common.pack(source_row, self.source_combo)
+        self._source: str = SOURCE_GITHUB
+
         self.info = common.label(_("—"), wrap=True)
-        self.note = common.label(
-            _(
-                "Список ниже — CF-домены из GitHub для hostlist zapret, а не "
-                "текущая ротация TgWsProxy. Все домены должны быть в hostlist "
-                "zapret — иначе прокси ходит через заблокированный SNI."
-            ),
-            wrap=True,
-        )
+        self.note = common.label(_(""), wrap=True)
 
         # Источник ротации показываем отдельно: это конфиг TgWsProxy,
         # а не список доменов для hostlist zapret.
@@ -51,6 +61,12 @@ class DomainsScreen:
         self.profile_button = common.button(
             _("Проверить профиль CF"), lambda _: self.run_profile_check()
         )
+        self.add_rotation_button = common.button(
+            _("Добавить в ротацию"), lambda _: self.add_rotation_domain()
+        )
+        self.remove_rotation_button = common.button(
+            _("Удалить из ротации"), lambda _: self.remove_rotation_domain()
+        )
         for button in (
             self.refresh_button,
             self.test_button,
@@ -58,6 +74,8 @@ class DomainsScreen:
             self.profile_button,
             self.add_button,
             self.remove_button,
+            self.add_rotation_button,
+            self.remove_rotation_button,
         ):
             common.pack(self.buttons, button)
 
@@ -76,18 +94,72 @@ class DomainsScreen:
 
         common.pack(self.box, self.rotation_label)
         common.pack(self.box, rotation_row)
+        common.pack(self.box, source_row)
         common.pack(self.box, self.info)
         common.pack(self.box, self.note)
         common.pack(self.box, self.buttons)
         common.pack_expand(self.box, self.scrolled)
 
         self._domains: list[str] = []
+        self._payload: dict[str, object] = {}
+        self._sync_buttons()
         self.refresh()
 
     # ------------------------------------------------------------------
 
     def on_shown(self) -> None:
         self.refresh()
+
+    def _on_source_changed(self, _combo=None) -> None:
+        source = self.source_combo.get_active_id() or SOURCE_GITHUB
+        if source == self._source:
+            return
+        self._source = source
+        self._fill_table()
+        self._sync_buttons()
+
+    def _domains_for_source(self, payload: dict[str, object]) -> list[str]:
+        if self._source == SOURCE_USER:
+            return list(payload.get("user_domains") or [])
+        return list(payload.get("domains") or [])
+
+    def _fill_table(self) -> None:
+        """Заполнить таблицу выбранным списком, сохранив отметки пользователя."""
+
+        payload = self._payload or {}
+        missing = set(payload.get("missing") or [])
+        previous = {row[1] for row in self.store if row[0]}
+        self._domains = self._domains_for_source(payload)
+        self.store.clear()
+        for domain in self._domains:
+            if self._source == SOURCE_GITHUB:
+                status = _("MISSING") if domain in missing else _("OK")
+            else:
+                status = _("ROTATION")
+            self.store.append([domain in previous, domain, status, ""])
+
+    def _sync_buttons(self) -> None:
+        """Кнопки, которые меняют списки, имеют смысл только для своего источника."""
+
+        github = self._source == SOURCE_GITHUB
+        user = self._source == SOURCE_USER
+        # show_all() в GTK игнорирует set_visible(False), поэтому скрытые
+        # кнопки помечаем no_show_all: иначе после show_all они снова видны.
+        mapping = {
+            self.refresh_button: github,
+            self.add_button: github,
+            self.remove_button: github,
+            self.add_rotation_button: user,
+            self.remove_rotation_button: user,
+            self.test_button: True,
+            self.test_all_button: True,
+            self.profile_button: True,
+        }
+        for button, visible in mapping.items():
+            button.set_no_show_all(not visible)
+            button.set_visible(visible)
+            if visible:
+                button.show()
 
     def refresh(self) -> None:
         def job():
@@ -100,12 +172,38 @@ class DomainsScreen:
             if code != api.EXIT_OK or payload.get("ok") is False:
                 self.info.set_text(str(payload.get("error") or _("Не удалось прочитать список")))
                 return
-            self._domains = list(payload.get("domains") or [])
-            updated = payload.get("updated_at") or _("никогда")
+            self._payload = dict(payload)
+            self._fill_table()
+            self._sync_buttons()
+            self._update_info()
+
+        run_in_thread(job, on_done=done)
+
+    def _update_info(self) -> None:
+        payload = self._payload or {}
+        if self._source == SOURCE_USER:
+            active = payload.get("active_mode") == api.ROTATION_USER
+            self.info.set_text(
+                _("Пользовательских доменов: {n}. {state}").format(
+                    n=len(payload.get("user_domains") or []),
+                    state=_("Используются прокси сейчас.")
+                    if active
+                    else _("Сохранены, но прокси сейчас в режиме GitHub."),
+                )
+            )
+            self.note.set_text(
+                _(
+                    "Это текущая ротация TgWsProxy: именно эти домены прокси "
+                    "перебирает при подключении. Добавление и удаление меняет "
+                    "конфиг прокси и перезапускает службу."
+                )
+            )
+        else:
             missing = payload.get("missing") or []
+            updated = payload.get("updated_at") or _("никогда")
             self.info.set_text(
                 _("Доменов: {n}, в hostlist zapret: {m}, обновлено: {when}").format(
-                    n=len(self._domains),
+                    n=len(payload.get("domains") or []),
                     m=payload.get("in_hostlist", 0),
                     when=updated,
                 )
@@ -113,13 +211,13 @@ class DomainsScreen:
                     _(" — нет в hostlist: {n}").format(n=len(missing)) if missing else ""
                 )
             )
-            previous = {row[1] for row in self.store if row[0]}
-            self.store.clear()
-            for domain in self._domains:
-                status = _("MISSING") if domain in missing else _("OK")
-                self.store.append([domain in previous, domain, status, ""])
-
-        run_in_thread(job, on_done=done)
+            self.note.set_text(
+                _(
+                    "Список с GitHub для hostlist zapret — это не ротация "
+                    "прокси. Все домены должны быть в hostlist zapret, иначе "
+                    "прокси ходит через заблокированный SNI."
+                )
+            )
 
     def _update_rotation(self, result) -> None:
         code, payload = result
@@ -333,6 +431,107 @@ class DomainsScreen:
             common.message(self.app, _("Ошибка: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
+
+    def _edit_rotation(
+        self, *, add: list[str] | None = None, remove: list[str] | None = None
+    ) -> None:
+        def job():
+            return api.update_user_rotation_domains(self.app.cfg, add=add, remove=remove)
+
+        def done(result) -> None:
+            code, payload = result
+            if code != api.EXIT_OK or payload.get("ok") is False:
+                common.message(self.app, str(payload.get("error") or _("Ошибка")))
+                return
+            if payload.get("saved_only"):
+                common.toast(
+                    self.app,
+                    _(
+                        "Список сохранён. Прокси в режиме GitHub — переключите "
+                        "ротацию на «Пользовательские домены», чтобы применить."
+                    ),
+                )
+            elif payload.get("changed"):
+                common.toast(
+                    self.app,
+                    _("Ротация обновлена: {n} доменов").format(
+                        n=len(payload.get("domains") or [])
+                    ),
+                )
+                if payload.get("restarted") is False:
+                    common.message(
+                        self.app,
+                        _("Список сохранён, но служба не перезапустилась — перезапустите TgWsProxy"),
+                    )
+            self.refresh()
+
+        def failed(exc: Exception) -> None:
+            common.message(self.app, _("Ошибка: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def add_rotation_domain(self) -> None:
+        dialog = Gtk.Dialog(
+            title=_("Добавить домен в ротацию"), transient_for=self.app.window
+        )
+        dialog.add_buttons(
+            _("Отмена"), Gtk.ResponseType.CANCEL, _("Добавить"), Gtk.ResponseType.OK
+        )
+        box = dialog.get_content_area()
+        box.set_spacing(8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.pack_start(
+            common.label(
+                _("Домен для ротации TgWsProxy (например, pclead.co.uk):"), wrap=True
+            ),
+            False,
+            False,
+            0,
+        )
+        entry = common.entry()
+        entry.set_placeholder_text("example.co.uk")
+        box.pack_start(entry, False, False, 0)
+        box.show_all()
+        response = dialog.run()
+        text = entry.get_text().strip()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK or not text:
+            return
+        self._edit_rotation(add=[text])
+
+    def remove_rotation_domain(self) -> None:
+        selected = self._selected()
+        if not selected:
+            common.message(self.app, _("Отметьте домены галочками"))
+            return
+        if len(selected) >= len(self._domains):
+            common.message(
+                self.app,
+                _("Нельзя удалить все домены: ротация останется пустой"),
+            )
+            return
+        confirm = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=_("Убрать выбранные домены из ротации?"),
+        )
+        confirm.format_secondary_text(
+            _(
+                "{n} домен(ов) будут убраны из пользовательской ротации, "
+                "конфиг прокси обновится, служба перезапустится.\n\n"
+                "Список hostlist zapret при этом не меняется."
+            ).format(n=len(selected))
+        )
+        response = confirm.run()
+        confirm.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        self._edit_rotation(remove=selected)
 
     def add_domain(self) -> None:
         dialog = Gtk.Dialog(title=_("Добавить CF-домен"), transient_for=self.app.window)

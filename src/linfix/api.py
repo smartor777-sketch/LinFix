@@ -1035,8 +1035,90 @@ def add_to_cf_domains(cfg: Config, domains: list[str], *, restart: bool = True) 
         return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
 
 
+def update_user_rotation_domains(
+    cfg: Config,
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+) -> tuple[int, dict[str, object]]:
+    """Изменить пользовательский список ротации TgWsProxy.
+
+    Меняется и сохранённый список (`tgws-rotation.json`), и конфиг прокси,
+    если сейчас активен режим пользовательских доменов. В режиме GitHub
+    список только сохраняется — чтобы не переключать прокси неявно.
+    """
+
+    path = tgws.find_config_path()
+    data: dict[str, object] = {}
+    if path is not None:
+        try:
+            data = tgws.load_json_config(path)
+        except tgws.TgwsError as exc:
+            return EXIT_ERROR, {"ok": False, "error": str(exc)}
+
+    current = _rotation_list(data, "cfproxy_user_domain") or tgws.load_rotation_domains()
+    target = list(current)
+
+    for domain in add or []:
+        item = domain.strip().lower()
+        if item and item not in target:
+            target.append(item)
+    for domain in remove or []:
+        item = domain.strip().lower()
+        if item in target:
+            target.remove(item)
+
+    if not target:
+        return EXIT_USAGE, {
+            "ok": False,
+            "error": "пользовательский список не может быть пустым",
+        }
+    if target == current:
+        return EXIT_OK, {"ok": True, "changed": False, "domains": target}
+
+    try:
+        tgws.save_rotation_domains(target)
+    except tgws.TgwsError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+
+    active_mode = ROTATION_USER if _rotation_list(data, "cfproxy_user_domain") else ROTATION_GITHUB
+    if active_mode == ROTATION_USER:
+        code, payload = set_tgws_config({"cfproxy_user_domain": target})
+        if code != EXIT_OK or payload.get("ok") is False:
+            return code, payload
+        updated = tgws.load_json_config(path) if path is not None else {}
+        try:
+            tgws.install_user_unit(
+                cfg.tgws.binary, mode=tgws.effective_mode(path), data=updated
+            )
+        except tgws.TgwsError as exc:
+            return EXIT_ERROR, {"ok": False, "error": str(exc)}
+        util.run(["systemctl", "--user", "daemon-reload"], check=False, timeout=20)
+        restarted = util.run(
+            ["systemctl", "--user", "restart", tgws.UNIT_NAME], check=False, timeout=60
+        )
+    else:
+        restarted = None
+
+    return EXIT_OK, {
+        "ok": True,
+        "changed": True,
+        "domains": target,
+        "active_mode": active_mode,
+        "saved_only": active_mode == ROTATION_GITHUB,
+        "restarted": None if restarted is None else restarted.returncode == 0,
+    }
+
+
 def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
-    """Список CF-доменов TgWsProxy: из state, иначе из блока hostlist."""
+    """CF-домены для hostlist (state или блок hostlist) + пользовательская ротация.
+
+    ``domains`` — список, который показывается в таблице по умолчанию
+    (исторический источник hostlist). Отдельно возвращаются:
+
+    - ``user_domains`` — то, что реально прописано в конфиге TgWsProxy;
+    - ``saved_domains`` — сохранённый пользовательский список ротации;
+    - ``active_mode`` — какой источник сейчас у прокси.
+    """
 
     from . import hostlist as hostlist_mod
 
@@ -1047,6 +1129,19 @@ def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
     domains = stored or in_hostlist
     present = set(in_hostlist)
     missing = [domain for domain in domains if domain not in present]
+
+    config_domains: list[str] = []
+    config_path = tgws.find_config_path()
+    if config_path is not None:
+        try:
+            config_domains = _rotation_list(
+                tgws.load_json_config(config_path), "cfproxy_user_domain"
+            )
+        except tgws.TgwsError:
+            config_domains = []
+
+    saved = tgws.load_rotation_domains()
+    active_mode = ROTATION_USER if config_domains else ROTATION_GITHUB
     return EXIT_OK, {
         "ok": True,
         "hostlist": path,
@@ -1055,6 +1150,9 @@ def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
         "domains": domains,
         "missing": missing,
         "in_hostlist": len(present),
+        "user_domains": config_domains,
+        "saved_domains": saved,
+        "active_mode": active_mode,
     }
 
 
@@ -1374,29 +1472,6 @@ def add_to_cf_domains(cfg: Config, domains: list[str], *, restart: bool = True) 
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
     except util.CommandError as exc:
         return EXIT_ERROR, {"ok": False, "error": f"hostlist.import: {exc}"}
-
-
-def get_cf_domains(cfg: Config) -> tuple[int, dict[str, object]]:
-    """Список CF-доменов TgWsProxy: из state, иначе из блока hostlist."""
-
-    from . import hostlist as hostlist_mod
-
-    state_info = state.load_state()
-    path = hostlist_path(cfg)
-    in_hostlist = hostlist_mod.cf_domains(path) if path else []
-    stored = list(state_info.domains)
-    domains = stored or in_hostlist
-    present = set(in_hostlist)
-    missing = [domain for domain in domains if domain not in present]
-    return EXIT_OK, {
-        "ok": True,
-        "hostlist": path,
-        "source": "state" if stored else "hostlist",
-        "updated_at": state_info.domains_updated_at,
-        "domains": domains,
-        "missing": missing,
-        "in_hostlist": len(present),
-    }
 
 
 def _ensure_zapret_running(cfg: Config, was_active: bool) -> None:
