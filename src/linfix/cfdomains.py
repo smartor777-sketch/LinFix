@@ -69,6 +69,29 @@ def decode_cf_domain(value: str) -> str:
     return "".join(decoded) + ".co.uk"
 
 
+def encode_cf_domain(value: str) -> str:
+    """Обратное к ``decode_cf_domain``: ``pclead.co.uk`` -> ``virkgj.com``.
+
+    Нужен для проверки симметрии кодека и для отладки: можно убедиться, что
+    строка из upstream действительно даёт ожидаемый домен.
+    """
+
+    domain = normalize_domain(value)
+    if not domain.endswith(".co.uk"):
+        return domain
+
+    core = domain[: -len(".co.uk")]
+    shift = sum(ch.isalpha() for ch in core)
+    encoded: list[str] = []
+    for ch in core:
+        if ch.isalpha():
+            base = ord("a") if ch.islower() else ord("A")
+            encoded.append(chr((ord(ch) - base + shift) % 26 + base))
+        else:
+            encoded.append(ch)
+    return "".join(encoded) + ".com"
+
+
 def normalize_domain(value: str) -> str:
     return value.strip().lower().rstrip(".")
 

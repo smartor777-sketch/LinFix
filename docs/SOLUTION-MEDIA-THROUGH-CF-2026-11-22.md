@@ -48,7 +48,8 @@
 ```
 
 Список `/opt/zapret2/ipset/linfix-cf-hosts.txt` — 120 хостов:
-`kws1..kws5` и `kws203` × 20 доменов из `cf-domains.txt`.
+`kws1..kws5` и `kws203` × 20 доменов из fallback-списка
+(`linfix.cfdomains.FALLBACK_DOMAINS`, он же — раскодированный upstream).
 
 Бэкап: `/opt/zapret2/config.bak-linfix-20261122-0428`.
 

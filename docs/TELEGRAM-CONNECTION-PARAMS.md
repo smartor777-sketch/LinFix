@@ -70,7 +70,9 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
 ```
 
 Источник пула: `https://raw.githubusercontent.com/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt`.
-Локальная копия доменов (на 19.11.2026) лежит в [`cf-domains.txt`](../cf-domains.txt) этого репозитория. **На 22.11.2026 удалённый файл содержит уже другие случайные `.com`-домены**, поэтому локальная копия устарела.
+Локальная копия списка не нужна: `scripts/decode-cf-domains.py --upstream`
+скачивает файл и раскодирует его. В файле лежат `.com`-коды
+(`virkgj.com` → `pclead.co.uk`), а не сами домены.
 
 ### Текущий CF-сервер (22.11.2026 04:47 MSK)
 
@@ -96,7 +98,7 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
 
 Ранее для `DC4 media` также использовались `kw*.sorokdva.co.uk` / `kw*.sorokodin.co.uk`.
 
-В логе имена маскируются (`kw**.nothin******.c*.uk`, `kw**.note****.c*.uk`); полные имена восстановлены по шаблону маски и списку доменов из `cf-domains.txt`. У этих `*.co.uk`-доменов нет A-записей в DNS (только SOA `ingrid.ns.cloudflare.com`), то есть прокси подключается напрямую к IP Cloudflare, а домен использует как SNI/Host.
+В логе имена маскируются (`kw**.nothin******.c*.uk`, `kw**.note****.c*.uk`); полные имена восстановлены по шаблону маски и раскодированному списку доменов. У этих `*.co.uk`-доменов нет A-записей в DNS (только SOA `ingrid.ns.cloudflare.com`), то есть прокси подключается напрямую к IP Cloudflare, а домен использует как SNI/Host.
 
 ### Фактический роутинг по логу
 
