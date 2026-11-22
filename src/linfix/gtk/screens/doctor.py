@@ -9,7 +9,7 @@ import time
 
 from gi.repository import GLib, Gdk, Gtk
 
-from ... import api, blockcheck, netdiag, tgws, util, zapret
+from ... import api, blockcheck, netdiag, netdiag_history, tgws, util, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -37,15 +37,19 @@ class DoctorScreen:
             orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=4
         )
         self.net_button = common.button(
-            _("Диагностика Telegram"), lambda _: self.run_network_diag()
+            _("Обновить"), lambda _: self.run_network_diag()
         )
         common.pack(self.net_buttons, self.net_button)
-        common.pack(self.net_buttons, common.button(_("Обновить"), lambda _: self.refresh()))
+        self.history_button = common.button(
+            _("Очистить историю"), lambda _: self.clear_history()
+        )
+        common.pack(self.net_buttons, self.history_button)
         self.net_caption = common.label(
             _(
-                "Проверяет весь путь до Telegram: доступность дата-центров и "
-                "портов, подмену DNS, задержки и скорость медиа. Для разбора "
-                "конкретного сайта используйте раздел «Сайты»."
+                "История прогонов: время, вердикт и были ли доступны DC и "
+                "прокси. «Обновить» запускает новый прогон (до 20 секунд) и "
+                "добавляет его в историю. Для разбора конкретного сайта "
+                "используйте раздел «Сайты»."
             ),
             wrap=True,
         )
@@ -82,12 +86,13 @@ class DoctorScreen:
 
         # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
         self.verdict_label = common.label("", wrap=True, css_class="screen-title")
-        self.net_store = Gtk.ListStore(str, str, str, str)
+        self.net_store = Gtk.ListStore(str, str, str, str, str)
         self.net_tree = common.table_from_store(
             self.net_store,
-            [_("Проверка"), _("Напрямую"), _("Через TgWsProxy"), _("Детали")],
-            tooltip_column=3,
+            [_("Когда"), _("Вердикт"), _("Напрямую"), _("Прокси"), _("Медиа")],
+            tooltip_column=1,
         )
+        self.net_tree.connect("row-activated", self._on_history_row)
         # Без ScrolledWindow: TreeView запрашивает высоту по числу строк,
         # внешняя прокрутка страницы уже есть.
         self.net_scrolled = self.net_tree
@@ -97,8 +102,8 @@ class DoctorScreen:
         self.net_scrolled.set_visible(False)
         self.reco_label = common.label("", wrap=True)
         self.net_hint = common.label(
-            _("Нажмите «Диагностика Telegram», чтобы проверить дата-центры, "
-              "DNS, задержки и скорость медиа"),
+            _("История пуста. Нажмите «Обновить», чтобы проверить "
+              "дата-центры, DNS, задержки и скорость медиа"),
             wrap=True,
         )
 
@@ -140,8 +145,10 @@ class DoctorScreen:
         # Результат подбора живёт только в памяти этого запуска GUI:
         # старые ошибки blockcheck не должны видеть при следующем старте.
         self._pick_result: blockcheck.BlockcheckResult | None = None
+        self._history: list[netdiag_history.HistoryEntry] = []
         self.refresh()
         self.refresh_profiles()
+        self.refresh_netdiag_history()
 
     def _stop_pick_timer(self) -> None:
         if self._pick_timer is not None:
@@ -423,10 +430,10 @@ class DoctorScreen:
         run_in_thread(job, on_done=done, on_error=failed)
 
     def run_network_diag(self) -> None:
-        """Проверить сеть до Telegram: DC, DNS, DPI, медиа — с вердиктом."""
+        """Запустить новый прогон диагностики и сохранить его в историю."""
 
         self.net_button.set_sensitive(False)
-        self.net_button.set_label(_("⏳ Диагностика Telegram…"))
+        self.net_button.set_label(_("⏳ Проверяется…"))
         self.verdict_label.set_text(
             _("⏳ Идёт диагностика Telegram… это занимает до 20 секунд")
         )
@@ -440,24 +447,106 @@ class DoctorScreen:
 
         def done(report) -> None:
             self.net_button.set_sensitive(True)
-            self.net_button.set_label(_("Диагностика Telegram"))
-            emoji, title, detail = report.verdict
-            self.verdict_label.set_text(f"{emoji} {title}\n{detail}")
-            self.net_hint.set_visible(False)
-            self.net_scrolled.set_visible(True)
-            self.net_store.clear()
-            for title_row, direct, via_proxy, details in report.as_rows():
-                self.net_store.append([title_row, direct, via_proxy, details])
-            self.reco_label.set_text(
-                _("Что делать:\n") + "\n".join(f"• {tip}" for tip in report.recommendations)
-            )
+            self.net_button.set_label(_("Обновить"))
+            # Ошибка записи истории не должна скрывать сам результат.
+            try:
+                netdiag_history.save(report)
+            except Exception as exc:  # noqa: BLE001
+                print(f"история диагностики: {exc}", flush=True)
+            self._show_report(report)
+            self.refresh_netdiag_history()
 
         def failed(exc: Exception) -> None:
             self.net_button.set_sensitive(True)
-            self.net_button.set_label(_("Диагностика Telegram"))
+            self.net_button.set_label(_("Обновить"))
             self.verdict_label.set_text(_("Ошибка диагностики: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
+
+    def _show_report(self, report) -> None:
+        """Показать вердикт и рекомендации конкретного прогона."""
+
+        emoji, title, detail = report.verdict
+        self.verdict_label.set_text(f"{emoji} {title}\n{detail}")
+        self.net_hint.set_visible(False)
+        self.net_scrolled.set_visible(True)
+        self.reco_label.set_text(
+            _("Что делать:\n") + "\n".join(f"• {tip}" for tip in report.recommendations)
+        )
+
+    def clear_history(self) -> None:
+        confirm = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=_("Очистить историю диагностики?"),
+        )
+        confirm.format_secondary_text(
+            _("Удалятся все сохранённые прогоны. Сами проверки не пострадают.")
+        )
+        response = confirm.run()
+        confirm.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        try:
+            netdiag_history.clear()
+        except Exception as exc:  # noqa: BLE001
+            common.message(self.app, _("Не удалось очистить историю: {err}").format(err=exc))
+            return
+        self.verdict_label.set_text("")
+        self.reco_label.set_text("")
+        self.refresh_netdiag_history()
+
+    def refresh_netdiag_history(self) -> None:
+        """Показать последние прогоны из базы; тяжёлых проверок не делает."""
+
+        def job():
+            return netdiag_history.recent(limit=20)
+
+        def done(entries) -> None:
+            self._history = list(entries)
+            self.net_store.clear()
+            for entry in self._history:
+                media = (
+                    f"{entry.media_kbps:.0f} кбит/с"
+                    if entry.media_kbps > 0
+                    else "—"
+                )
+                self.net_store.append(
+                    [
+                        entry.created_display,
+                        f"{entry.verdict_emoji} {entry.verdict_title}".strip(),
+                        "OK" if entry.direct_ok else "BLOCK",
+                        "OK" if entry.proxy_ok else "BLOCK",
+                        media,
+                    ]
+                )
+            self.net_scrolled.set_visible(bool(self._history))
+            self.net_hint.set_visible(not self._history)
+
+        def failed(exc: Exception) -> None:
+            self.net_hint.set_visible(True)
+            self.net_hint.set_text(
+                _("Не удалось прочитать историю: {err}").format(err=exc)
+            )
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def _on_history_row(self, _tree, path, _column=None) -> None:
+        """Двойной клик по прогону — показать его подробности."""
+
+        try:
+            index = int(path.to_string())
+        except (AttributeError, ValueError):
+            return
+        if not (0 <= index < len(self._history)):
+            return
+        report = self._history[index].report()
+        if report is None:
+            common.message(self.app, _("Не удалось прочитать сохранённый прогон"))
+            return
+        self._show_report(report)
 
     def refresh_profiles(self) -> None:
         """Показать профили zapret: активные и игнорируемые."""
