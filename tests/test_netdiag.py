@@ -27,17 +27,19 @@ class ClassifyTests(unittest.TestCase):
         report = _report(
             ping=[netdiag.PingResult("1.1.1.1", True, 20)],
             dc=[netdiag.DcResult(1, "1.1.1.1", 443, False)],
-            dpi=netdiag.DpiResult("timeout", "timeout", False),
         )
         self.assertIn(netdiag.BLOCK_IP, netdiag.classify(report))
 
-    def test_sni_block(self) -> None:
+    def test_no_sni_classification_anymore(self) -> None:
+        """SNI/DPI-разбор перенесён в «Сайты», здесь его быть не должно."""
+
+        self.assertFalse(hasattr(netdiag, "DpiResult"))
+        self.assertFalse(hasattr(netdiag, "BLOCK_SNI"))
         report = _report(
             ping=[netdiag.PingResult("1.1.1.1", True, 20)],
             dc=[netdiag.DcResult(1, "1.1.1.1", 443, False)],
-            dpi=netdiag.DpiResult("timeout", "ok", True),
         )
-        self.assertIn(netdiag.BLOCK_SNI, netdiag.classify(report))
+        self.assertEqual(netdiag.classify(report), [netdiag.BLOCK_IP])
 
     def test_dns_spoof(self) -> None:
         dns = netdiag.DnsResult("telegram.org", ["10.0.0.1"], ["149.154.167.51"], True)
@@ -67,7 +69,6 @@ class ClassifyTests(unittest.TestCase):
         report = _report(
             ping=[netdiag.PingResult("1.1.1.1", True, 20)],
             dc=[netdiag.DcResult(1, "1.1.1.1", 443, True, 40)],
-            dpi=netdiag.DpiResult("ok", "ok", False),
             dns=netdiag.DnsResult("x", ["1.1.1.1"], ["1.1.1.1"], False),
         )
         self.assertEqual(netdiag.classify(report), [])
@@ -85,16 +86,6 @@ class VerdictTests(unittest.TestCase):
         emoji, title, _ = netdiag.verdict(report, proxy_running=False, zapret_running=False)
         self.assertEqual(emoji, "🔴")
         self.assertIn("Интернета", title)
-
-    def test_sni_with_zapret_is_green(self) -> None:
-        report = _report(blocks=[netdiag.BLOCK_SNI])
-        emoji, _title, _ = netdiag.verdict(report, proxy_running=False, zapret_running=True)
-        self.assertEqual(emoji, "🟢")
-
-    def test_sni_without_zapret_is_red(self) -> None:
-        report = _report(blocks=[netdiag.BLOCK_SNI])
-        emoji, _title, _ = netdiag.verdict(report, proxy_running=False, zapret_running=False)
-        self.assertEqual(emoji, "🔴")
 
 
 class RecommendationsTests(unittest.TestCase):

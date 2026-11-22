@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.5.20"
+__version__ = "0.5.21"
 APP_NAME = "linfix"
 
 __all__ = ["__version__", "APP_NAME"]

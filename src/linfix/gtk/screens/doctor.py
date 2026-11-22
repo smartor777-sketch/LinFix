@@ -30,24 +30,36 @@ class DoctorScreen:
         # страница целиком. Иначе таблица обрезается на середине.
         self.scrolled = self.tree
 
-        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
+        # --- Блок 1: сетевая диагностика -------------------------------------
+        # Кнопка и её результаты — по соседству, чтобы было видно, что
+        # таблица ниже относится именно к этой проверке.
+        self.net_buttons = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=4
+        )
         self.net_button = common.button(
-            _("Сетевая диагностика"), lambda _: self.run_network_diag()
+            _("Диагностика Telegram"), lambda _: self.run_network_diag()
         )
-        common.pack(self.buttons, self.net_button)
-        self.pick_button = common.button(
-            _("Подобрать стратегию"), lambda _: self.pick_strategy()
+        common.pack(self.net_buttons, self.net_button)
+        common.pack(self.net_buttons, common.button(_("Обновить"), lambda _: self.refresh()))
+        self.net_caption = common.label(
+            _(
+                "Проверяет весь путь до Telegram: доступность дата-центров и "
+                "портов, подмену DNS, задержки и скорость медиа. Для разбора "
+                "конкретного сайта используйте раздел «Сайты»."
+            ),
+            wrap=True,
         )
-        common.pack(self.buttons, self.pick_button)
-        # Кнопка «отменить и восстановить» — видна во время прогона подбора.
-        self.cancel_button = common.button(
-            _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
-        )
-        self.cancel_button.set_visible(False)
-        common.pack(self.buttons, self.cancel_button)
-        common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
-        common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
 
+        # --- Блок 2: подбор стратегии desync ---------------------------------
+        self.strategy_caption = common.label(
+            _(
+                "Стратегия (desync) — способ, которым zapret маскирует ваши "
+                "TLS-соединения, чтобы провайдер не распознал и не заблокировал "
+                "их. Подбор перебирает готовые варианты и покажет, какие из них "
+                "открывают выбранные домены; конфиг он не меняет."
+            ),
+            wrap=True,
+        )
         # Домены для подбора: blockcheck2 проверяет именно их. Список
         # хранится в [blockcheck] domains конфига LinFix.
         domains_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
@@ -62,9 +74,20 @@ class DoctorScreen:
             _("Сохранить список"), lambda _: self.save_blockcheck_domains()
         )
         common.pack(domains_row, self.blockcheck_save)
-        self.box.pack_start(domains_row, False, False, 0)
         self.blockcheck_label = common.label("", wrap=True)
-        self.box.pack_start(self.blockcheck_label, False, False, 0)
+
+        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
+        self.pick_button = common.button(
+            _("Подобрать стратегию"), lambda _: self.pick_strategy()
+        )
+        common.pack(self.buttons, self.pick_button)
+        # Кнопка «отменить и восстановить» — видна во время прогона подбора.
+        self.cancel_button = common.button(
+            _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
+        )
+        self.cancel_button.set_visible(False)
+        common.pack(self.buttons, self.cancel_button)
+        common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
 
         # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
         self.verdict_label = common.label("", wrap=True, css_class="screen-title")
@@ -83,8 +106,8 @@ class DoctorScreen:
         self.net_scrolled.set_visible(False)
         self.reco_label = common.label("", wrap=True)
         self.net_hint = common.label(
-            _("Нажмите «Сетевая диагностика», чтобы проверить DC Telegram, "
-              "DNS, SNI и скорость медиа"),
+            _("Нажмите «Диагностика Telegram», чтобы проверить дата-центры, "
+              "DNS, задержки и скорость медиа"),
             wrap=True,
         )
 
@@ -102,16 +125,25 @@ class DoctorScreen:
         self._pick_start: float | None = None
         self._pick_timer: int | None = None
 
+        # Порядок: сначала диагностика со своими результатами, затем
+        # пояснение и кнопки подбора, затем профили и общий отчёт.
+        common.pack(self.box, self.net_buttons)
+        common.pack(self.box, self.net_caption)
+        common.pack(self.box, self.verdict_label)
+        common.pack(self.box, self.net_hint)
+        common.pack(self.box, self.net_scrolled)
+        common.pack(self.box, self.reco_label)
+
+        common.pack(self.box, self.strategy_caption)
+        common.pack(self.box, domains_row)
+        common.pack(self.box, self.blockcheck_label)
         common.pack(self.box, self.buttons)
         # Краткая информация по стратегиям — отдельной строкой под кнопками,
         # а не между «Подобрать стратегию» и «Отмена подбора».
         self.strat_label = common.label(_("Текущая: —"), css_class="strategy-info")
         self.strat_label.set_margin_bottom(2)
         common.pack(self.box, self.strat_label)
-        common.pack(self.box, self.verdict_label)
-        common.pack(self.box, self.net_hint)
-        common.pack(self.box, self.net_scrolled)
-        common.pack(self.box, self.reco_label)
+
         common.pack(self.box, self.profile_note)
         common.pack(self.box, self.profile_scrolled)
         common.pack(self.box, self.scrolled)
