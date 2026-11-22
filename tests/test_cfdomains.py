@@ -182,3 +182,23 @@ class PinnedGithubTests(unittest.TestCase):
 
         self.assertEqual(text, "ok")
         pinned.assert_not_called()
+
+
+class EncodeTests(unittest.TestCase):
+    """Обратное кодирование — проверка симметрии кодека _dd."""
+
+    def test_encode_known_values(self) -> None:
+        self.assertEqual(cfdomains.encode_cf_domain("pclead.co.uk"), "virkgj.com")
+        self.assertEqual(cfdomains.encode_cf_domain("offshor.co.uk"), "vmmzovy.com")
+        self.assertEqual(
+            cfdomains.encode_cf_domain("cakeisalie.co.uk"), "mkuosckvso.com"
+        )
+
+    def test_roundtrip_all_fallback(self) -> None:
+        for domain in cfdomains.FALLBACK_DOMAINS:
+            encoded = cfdomains.encode_cf_domain(domain)
+            self.assertTrue(encoded.endswith(".com"), domain)
+            self.assertEqual(cfdomains.decode_cf_domain(encoded), domain)
+
+    def test_non_co_uk_passthrough(self) -> None:
+        self.assertEqual(cfdomains.encode_cf_domain("example.com"), "example.com")

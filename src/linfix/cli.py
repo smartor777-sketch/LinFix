@@ -403,6 +403,35 @@ def cmd_domains_test(cfg: Config, args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_CHECK_FAILED
 
 
+def cmd_domains_decode(*, values: list[str], as_json: bool = False) -> int:
+    """Показать, во что декодируются строки из upstream-файла."""
+
+    rows: list[dict[str, object]] = []
+    for raw in values:
+        item = cfdomains.normalize_domain(raw)
+        decoded = cfdomains.decode_cf_domain(item)
+        rows.append(
+            {
+                "source": item,
+                "decoded": decoded,
+                "valid": cfdomains.is_valid_domain(decoded),
+            }
+        )
+
+    if as_json:
+        print(json.dumps({"ok": True, "results": rows}, ensure_ascii=False, indent=2))
+        return EXIT_OK
+
+    _table(
+        ["Код из upstream", "Домен", "Валиден"],
+        [
+            [row["source"], row["decoded"], "да" if row["valid"] else "нет"]
+            for row in rows
+        ],
+    )
+    return EXIT_OK if all(bool(row["valid"]) for row in rows) else EXIT_CHECK_FAILED
+
+
 def cmd_cf_profile(cfg: Config, *, as_json: bool = False, timeout: float = 8.0) -> int:
     """Проверить, что профиль zapret не ломает H2-медиа для CF-доменов."""
 
@@ -1176,6 +1205,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_test.add_argument("--json", action="store_true", help="JSON для GUI")
     p_test.add_argument("--timeout", type=float, default=5.0, help="таймаут TLS, секунды")
     p_test.add_argument("--offline", action="store_true", help="использовать fallback-список")
+    p_decode = domains_sub.add_parser(
+        "decode", help="раскодировать строку из cfproxy-domains.txt"
+    )
+    p_decode.add_argument(
+        "values", nargs="+", metavar="КОД", help="например, virkgj.com"
+    )
+    p_decode.add_argument("--json", action="store_true", help="JSON для GUI")
     p_cf_profile = domains_sub.add_parser(
         "profile", help="проверить, что профиль zapret пропускает H2-медиа"
     )
@@ -1292,6 +1328,8 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_domains_test(cfg, args)
             if args.domains_command == "update":
                 return cmd_domains_update(cfg, args)
+            if args.domains_command == "decode":
+                return cmd_domains_decode(values=args.values, as_json=args.json)
             if args.domains_command == "profile":
                 return cmd_cf_profile(cfg, as_json=args.json, timeout=args.timeout)
             return _not_implemented("linfix domains update", "M1")

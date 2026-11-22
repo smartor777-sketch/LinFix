@@ -140,7 +140,7 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
-## Медиа Telegram: профиль zapret для CF (0.5.28)
+## Медиа Telegram: профиль zapret для CF (0.5.29)
 
 Если текст в Telegram работает, а медиа не грузится, причина обычно в
 профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
@@ -153,6 +153,21 @@ sudo scripts/apply-cf-profile.sh
 Скрипт делает бэкап конфига, создаёт hostlist CF-хостов, добавляет профиль
 и проверяет H2 запросом на 256 КБ. Подробности:
 [docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md](docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md).
+
+### Кодировка списка доменов
+
+В репозитории TgWsProxy домены лежат не открытым текстом, а «кодами»:
+`.com`-строка сдвигается по буквам на число букв в имени и меняет TLD на
+`.co.uk` (`virkgj.com` → `pclead.co.uk`). LinFix декодирует их тем же
+алгоритмом, что и сам прокси.
+
+```bash
+linfix domains decode virkgj.com          # что это за домен
+linfix domains decode --json khgrre.com   # машинный вывод
+scripts/decode-cf-domains.py --upstream   # скачать и раскодировать список
+```
+
+Подробное описание алгоритма — в `scripts/decode-cf-domains.py`.
 
 ### Проверка профиля CF
 
@@ -190,7 +205,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.5.28_all.deb
+sudo apt install ./linfix_0.5.29_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
