@@ -518,8 +518,8 @@ msgstr "Checks the whole path to Telegram: data-centre and port reachability, DN
 msgid "Нажмите «Диагностика Telegram», чтобы проверить дата-центры, DNS, задержки и скорость медиа"
 msgstr "Press “Telegram diagnostics” to check data centres, DNS, latency and media speed"
 
-msgid "Стратегия (desync) — способ, которым zapret маскирует ваши TLS-соединения, чтобы провайдер не распознал и не заблокировал их. Подбор перебирает готовые варианты и покажет, какие из них открывают выбранные домены; конфиг он не меняет."
-msgstr "A strategy (desync) is how zapret disguises your TLS connections so the provider cannot recognise and block them. The scan tries ready-made variants and shows which ones open the selected domains; it does not change the config."
-
 msgid "Проверяет доступность DC Telegram, DNS, SNI и скорость медиа и показывает вердикт: что именно мешает."
 msgstr "Checks Telegram DC reachability, DNS and media speed and gives a verdict on what is blocking."
+
+msgid "Стратегия (desync) — это способ, которым zapret обрабатывает первые пакеты TLS-соединения, чтобы провайдер не распознал домен и не заблокировал его.\nКнопка запускает штатный blockcheck2 из zapret: он на время замеров останавливает zapret и перебирает десятки готовых вариантов маскировки — fake, multisplit, multidisorder и их комбинации — на выбранных ниже доменах.\nВ результате вы получите список стратегий с оценкой вида «4/4» и увидите, какие из них открывают домены у вашего провайдера. Конфиг при этом не меняется: применить найденное нужно вручную."
+msgstr "A strategy (desync) is how zapret processes the first packets of a TLS connection so the provider cannot recognise the domain and block it.\nThe button runs zapret's stock blockcheck2: it stops zapret for the duration and tries dozens of ready-made masking variants — fake, multisplit, multidisorder and combinations — against the domains selected below.\nYou will get a list of strategies with a score like “4/4” and see which of them open the domains with your provider. The config is not changed: applying the result is manual."
