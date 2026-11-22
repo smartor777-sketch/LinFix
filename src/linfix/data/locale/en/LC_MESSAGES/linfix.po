@@ -517,3 +517,39 @@ msgstr "Via TgWsProxy"
 
 msgid "MTProto через TgWsProxy"
 msgstr "MTProto via TgWsProxy"
+
+msgid "⏳ Диагностика Telegram…"
+msgstr "⏳ Telegram diagnostics…"
+
+msgid "⏳ Идёт диагностика Telegram… это занимает до 20 секунд"
+msgstr "⏳ Telegram diagnostics in progress… this takes up to 20 seconds"
+
+msgid "⏳ Идёт подбор стратегии… ожидаем завершения прогона"
+msgstr "⏳ Strategy scan in progress… waiting for the run to finish"
+
+msgid "⏳ Подбор идёт…"
+msgstr "⏳ Scan in progress…"
+
+msgid "⏳ Идёт подбор стратегии… прошло ~{n} мин"
+msgstr "⏳ Strategy scan in progress… ~{n} min elapsed"
+
+msgid "⏳ Проверяется…"
+msgstr "⏳ Checking…"
+
+msgid "⏳ Идёт проверка сайта…"
+msgstr "⏳ Site check in progress…"
+
+msgid "Активна, только если проверка показала «Блокировка SNI»: тогда zapret поможет. При блокировке по IP или TLS кнопка не нужна."
+msgstr "Enabled only when the check reports “SNI blocking”: then zapret can help. Not needed for IP or TLS blocking."
+
+msgid "Активна, если сайт уже в hostlist, но TLS ломается — значит текущая стратегия ему мешает."
+msgstr "Enabled when the site is already in the hostlist but TLS breaks — the current strategy interferes."
+
+msgid "Добавлять в hostlist бесполезно: режется сам IP, а не имя — zapret такой случай не обходит."
+msgstr "Adding to the hostlist is useless: the IP itself is blocked, not the name — zapret cannot bypass that."
+
+msgid "TCP не устанавливается: hostlist и zapret тут не помогут, нужен прокси или VPN."
+msgstr "TCP does not connect: hostlist and zapret will not help here, a proxy or VPN is needed."
+
+msgid "Сайт открывается — добавлять в hostlist не нужно."
+msgstr "The site opens — no need to add it to the hostlist."

@@ -47,6 +47,19 @@ class SiteCheckScreen:
             _("Исключить из hostlist"), lambda _: self.exclude_from_hostlist()
         )
         self.add_button.set_sensitive(False)
+        self.add_button.set_tooltip_text(
+            _(
+                "Активна, только если проверка показала «Блокировка SNI»: "
+                "тогда zapret поможет. При блокировке по IP или TLS кнопка "
+                "не нужна."
+            )
+        )
+        self.exclude_button.set_tooltip_text(
+            _(
+                "Активна, если сайт уже в hostlist, но TLS ломается — "
+                "значит текущая стратегия ему мешает."
+            )
+        )
         self.mtu_button = common.button(_("Починить MTU"), lambda _: self.fix_mtu())
         common.pack(self.buttons, self.add_button)
         common.pack(self.buttons, self.exclude_button)
@@ -211,7 +224,8 @@ class SiteCheckScreen:
             return
 
         self.check_button.set_sensitive(False)
-        self.result.set_text(_("Проверяется…"))
+        self.check_button.set_label(_("⏳ Проверяется…"))
+        self.result.set_text(_("⏳ Идёт проверка сайта…"))
         self.buffer.set_text("")
         self.add_button.set_sensitive(False)
 
@@ -220,6 +234,7 @@ class SiteCheckScreen:
 
         def done(result: sitecheck.SiteCheck) -> None:
             self.check_button.set_sensitive(True)
+            self.check_button.set_label(_("Проверить"))
             self._last = result
             label = STATUS_LABELS.get(result.status, result.status)
             self.result.set_text(f"{label}: {result.summary}")
@@ -231,11 +246,31 @@ class SiteCheckScreen:
                 lines.append(f"{_('Что делать:')} {result.advice}")
             self.add_button.set_sensitive(result.status == "sni")
             self.exclude_button.set_sensitive(result.status == "desync")
+            if result.status == "tls_ip":
+                lines.append("")
+                lines.append(
+                    _(
+                        "Добавлять в hostlist бесполезно: режется сам IP, "
+                        "а не имя — zapret такой случай не обходит."
+                    )
+                )
+            elif result.status == "ip_block":
+                lines.append("")
+                lines.append(
+                    _(
+                        "TCP не устанавливается: hostlist и zapret тут не "
+                        "помогут, нужен прокси или VPN."
+                    )
+                )
+            elif result.status == "ok":
+                lines.append("")
+                lines.append(_("Сайт открывается — добавлять в hostlist не нужно."))
             self.buffer.set_text("\n".join(lines))
             self._update_mtu_button()
 
         def failed(exc: Exception) -> None:
             self.check_button.set_sensitive(True)
+            self.check_button.set_label(_("Проверить"))
             self.result.set_text(_("Ошибка проверки: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)

@@ -150,8 +150,9 @@ class DoctorScreen:
 
     def _tick_pick(self) -> bool:
         base = self._pick_start or time.monotonic()
+        elapsed = int((time.monotonic() - base) // 60)
         self.verdict_label.set_text(
-            _("Подбираю стратегию… (прошло ~{n} минут)").format(n=int((time.monotonic() - base) // 60))
+            _("⏳ Идёт подбор стратегии… прошло ~{n} мин").format(n=elapsed)
         )
         return True
 
@@ -207,6 +208,10 @@ class DoctorScreen:
 
         def done(result):
             zapret_state, tgws_state = result
+            self._stop_pick_timer()
+            self.pick_button.set_sensitive(True)
+            self.pick_button.set_label(_("Подобрать стратегию"))
+            self.cancel_button.set_visible(False)
             self._refresh_strategy_info()
             common.toast(
                 self.app,
@@ -336,8 +341,9 @@ class DoctorScreen:
         # Новый прогон: результат прошлого в этом запуске больше не актуален.
         self._pick_result = None
         self._refresh_strategy_info()
+        self.pick_button.set_label(_("⏳ Подбор идёт…"))
         self.verdict_label.set_text(
-            _("Подбираю стратегию… ожидаем завершения прогона")
+            _("⏳ Идёт подбор стратегии… ожидаем завершения прогона")
         )
         self._pick_start = time.monotonic()
         self._pick_timer = GLib.timeout_add_seconds(10, self._tick_pick)
@@ -348,6 +354,7 @@ class DoctorScreen:
         def done(result) -> None:
             self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
+            self.pick_button.set_label(_("Подобрать стратегию"))
             self.cancel_button.set_visible(False)
             code, payload = result
             if code == api.EXIT_OK:
@@ -409,6 +416,7 @@ class DoctorScreen:
         def failed(exc: Exception) -> None:
             self._stop_pick_timer()
             self.pick_button.set_sensitive(True)
+            self.pick_button.set_label(_("Подобрать стратегию"))
             self.cancel_button.set_visible(False)
             common.message(self.app, _("Ошибка подбора: {err}").format(err=exc))
 
@@ -418,7 +426,10 @@ class DoctorScreen:
         """Проверить сеть до Telegram: DC, DNS, DPI, медиа — с вердиктом."""
 
         self.net_button.set_sensitive(False)
-        self.verdict_label.set_text(_("Проверяется… это занимает до 20 секунд"))
+        self.net_button.set_label(_("⏳ Диагностика Telegram…"))
+        self.verdict_label.set_text(
+            _("⏳ Идёт диагностика Telegram… это занимает до 20 секунд")
+        )
 
         def job():
             return netdiag.run_network_diagnostics(
@@ -429,6 +440,7 @@ class DoctorScreen:
 
         def done(report) -> None:
             self.net_button.set_sensitive(True)
+            self.net_button.set_label(_("Диагностика Telegram"))
             emoji, title, detail = report.verdict
             self.verdict_label.set_text(f"{emoji} {title}\n{detail}")
             self.net_hint.set_visible(False)
@@ -442,6 +454,7 @@ class DoctorScreen:
 
         def failed(exc: Exception) -> None:
             self.net_button.set_sensitive(True)
+            self.net_button.set_label(_("Диагностика Telegram"))
             self.verdict_label.set_text(_("Ошибка диагностики: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
