@@ -473,3 +473,15 @@ msgstr "Rotation updated: {n} domains"
 
 msgid "Список сохранён, но служба не перезапустилась — перезапустите TgWsProxy"
 msgstr "List saved, but the service did not restart — restart TgWsProxy"
+
+msgid "Это может сразу сломать доступ к Telegram, включая медиа.\n\nЧто произойдёт:\n• TgWsProxy перестанет использовать ваш проверенный список и начнёт брать домены из списка на GitHub;\n• включится автообновление этого списка;\n• конфиг прокси изменится, служба перезапустится, текущие соединения оборвутся.\n\nПочему это опасно сейчас:\n• список на GitHub содержит .com-домены, которые уже не резолвятся (NXDOMAIN);\n• рабочий профиль zapret для CF-доменов привязан к вашему списку .co.uk — чужие домены он не обходит;\n• в итоге прокси может остаться без единого рабочего домена: перестанут загружаться сообщения, фото и видео.\n\nКогда это допустимо:\n• только если пользовательский набор доменов полностью перестал работать (проверено «Тест TLS» и «Проверить профиль CF»), и вы хотите попробовать официальный список.\n\nПеред переключением стоит сделать бэкап конфига: linfix tgws config сохраняет резервную копию сам.\n\nВаш список сохранится — вернуться можно тем же выпадающим списком или через «Пользовательские домены»."
+msgstr "This can immediately break access to Telegram, including media.\n\nWhat will happen:\n• TgWsProxy will stop using your verified list and start taking domains from the GitHub list;\n• auto-refresh of that list will be enabled;\n• the proxy config will change, the service will restart and current connections will drop.\n\nWhy it is risky now:\n• the GitHub list contains .com domains that no longer resolve (NXDOMAIN);\n• the working zapret profile for CF domains is bound to your .co.uk list — it does not bypass foreign domains;\n• the proxy may end up with no working domain at all: messages, photos and videos will stop loading.\n\nWhen it is acceptable:\n• only if your custom domain set has completely stopped working (verified via “TLS test” and “Check CF profile”) and you want to try the official list.\n\nIt is worth backing up the config first: linfix tgws config creates a backup automatically.\n\nYour list is kept — you can switch back with the same dropdown or via “Custom domains”."
+
+msgid "Вернуть ротацию на пользовательские домены?"
+msgstr "Switch rotation back to custom domains?"
+
+msgid "Всё равно переключить"
+msgstr "Switch anyway"
+
+msgid "Переключить"
+msgstr "Switch"
