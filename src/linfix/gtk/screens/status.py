@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from gi.repository import Gtk
 
-from ... import api, blockcheck, tgws, updates, util, zapret
+from ... import api, blockcheck, doctor, tgws, updates, util, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -103,6 +103,27 @@ class StatusScreen:
         self.check_result_box.set_visible(False)
         common.pack(self.box, self.check_result_box)
 
+        # --- Висячие IPv6-заглушки: видно сразу на «Статусе» ----------------
+        # Пока они есть, весь IPv6 уходит в никуда: браузер ждёт таймаут и
+        # сайты «не открываются». Поэтому не только в «Диагностике», но и на
+        # первом экране, с кнопкой — ровно там, где ищут причину.
+        self.blackhole_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_bottom=8
+        )
+        self.blackhole_box.set_no_show_all(True)
+        self.blackhole_box.set_visible(False)
+        self.blackhole_label = common.label("", wrap=True, css_class="banner-error")
+        self.blackhole_button = common.button(
+            _("Убрать заглушки"), lambda _: self.clear_blackholes()
+        )
+        common.pack(self.blackhole_box, self.blackhole_label)
+        # Кнопка слева, а не на всю ширину: растянутая кнопка выглядит как
+        # панель и не читается как действие.
+        blackhole_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        common.pack(blackhole_row, self.blackhole_button)
+        common.pack(self.blackhole_box, blackhole_row)
+        common.pack(self.box, self.blackhole_box)
+
         common.pack(self.box, self.zapret_card)
         common.pack(self.box, self.tgws_card)
         common.pack(self.box, self.domains_card)
@@ -124,6 +145,8 @@ class StatusScreen:
         def job():
             status = api.get_status(self.app.cfg)
             info = status.zapret
+            blackholes = doctor.ipv6_blackhole_routes()
+            vpn = doctor.vpn_interfaces()
             connections = len(zapret.listening_addresses(self.app.cfg.tgws.port))
             telegram_settings = self._telegram_settings()
             if info.active:
@@ -156,6 +179,8 @@ class StatusScreen:
                 "domains_updated": status.state_info.domains_updated_at or _("никогда"),
                 "connections": str(connections),
                 "telegram_status": _("active") if connections else _("inactive"),
+                "blackholes": blackholes,
+                "vpn": vpn,
             }
 
         def apply_data(data):
@@ -180,6 +205,7 @@ class StatusScreen:
             self.telegram_card.set("server", data["server"])
             self.telegram_card.set("port", data["port"])
             self.telegram_card.set("secret", data["secret"])
+            self._show_blackholes(data["blackholes"], data["vpn"])
 
         run_in_thread(job, on_done=apply_data)
 
@@ -396,6 +422,65 @@ class StatusScreen:
         """
 
         self.check_updates(quiet=True)
+
+    def _show_blackholes(self, routes: list[str], vpn: list[str]) -> None:
+        """Показать предупреждение о висячих IPv6-заглушках."""
+
+        if not routes:
+            self.blackhole_box.set_visible(False)
+            return
+
+        if vpn:
+            self.blackhole_label.set_text(
+                _(
+                    "Обнаружены висячие IPv6-заглушки, но VPN ещё работает "
+                    "({vpn}): маршруты нужны ему. Отключите VPN штатно."
+                ).format(vpn=", ".join(vpn))
+            )
+            self.blackhole_button.set_visible(False)
+        else:
+            self.blackhole_label.set_text(
+                _(
+                    "Обнаружены висячие IPv6-заглушки ({n}). Из-за них весь "
+                    "IPv6 уходит в никуда: браузер ждёт таймаут и сайты "
+                    "кажутся недоступными."
+                ).format(n=len(routes))
+            )
+            self.blackhole_button.set_visible(True)
+            self.blackhole_button.set_sensitive(True)
+            self.blackhole_button.set_label(_("Убрать заглушки"))
+
+        self.blackhole_box.set_no_show_all(False)
+        self.blackhole_box.show_all()
+        if vpn:
+            self.blackhole_button.set_visible(False)
+
+    def clear_blackholes(self) -> None:
+        """Убрать заглушки через helper и обновить экран."""
+
+        self.blackhole_button.set_sensitive(False)
+        self.blackhole_button.set_label(_("⏳ Убираю…"))
+
+        def job():
+            return api.clear_ipv6_blackholes()
+
+        def done(result) -> None:
+            ok, message = result
+            self.blackhole_button.set_sensitive(True)
+            self.blackhole_button.set_label(_("Убрать заглушки"))
+            common.toast(self.app, message)
+            if ok:
+                self.blackhole_box.set_visible(False)
+            self.refresh()
+
+        def failed(exc: Exception) -> None:
+            self.blackhole_button.set_sensitive(True)
+            self.blackhole_button.set_label(_("Убрать заглушки"))
+            self.blackhole_label.set_text(
+                _("Не удалось убрать заглушки: {err}").format(err=exc)
+            )
+
+        run_in_thread(job, on_done=done, on_error=failed)
 
     def _telegram_settings(self) -> dict[str, str]:
         path = tgws.find_config_path()
