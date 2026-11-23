@@ -471,6 +471,63 @@ def _route_check() -> Check:
     return Check("route.vpn", "Маршрут по умолчанию", PASS, "без VPN/TUN")
 
 
+def _ipv6_blackhole_check() -> Check:
+    """Маршруты-заглушки IPv6: их ставит VPN-клиент (qeli и подобные).
+
+    Такие маршруты молча уводят весь IPv6 в никуда. Браузер пробует AAAA,
+    ждёт таймаут и только потом переходит на IPv4 — сайты «не открываются»,
+    хотя curl -4 работает. Если маршруты остались, значит VPN-клиент вышел
+    аварийно и не прибрал за собой.
+    """
+
+    completed = util.run(["ip", "-6", "route", "show"], check=False, timeout=10)
+    lines = [
+        line.strip()
+        for line in (completed.stdout or "").splitlines()
+        if line.strip()
+    ]
+    blackholes = [line for line in lines if line.startswith("blackhole")]
+
+    link = util.run(["ip", "-brief", "link"], check=False, timeout=10)
+    vpn_interfaces = [
+        parts[0]
+        for parts in (line.split() for line in (link.stdout or "").splitlines())
+        if parts and parts[0].startswith(("tun", "vpn", "wg", "qeli"))
+    ]
+
+    if not blackholes:
+        if vpn_interfaces:
+            return Check(
+                "ipv6.blackhole",
+                "IPv6-заглушки",
+                WARN,
+                f"VPN активен: {', '.join(vpn_interfaces)}",
+                "при аварийном выходе клиент оставит blackhole-маршруты",
+            )
+        return Check(
+            "ipv6.blackhole", "IPv6-заглушки", PASS, "не обнаружены"
+        )
+
+    looks_like_qeli = any(
+        marker in " ".join(blackholes)
+        for marker in ("::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7")
+    )
+    advice = (
+        "sudo scripts/qeli-cleanup.sh  (убирает маршруты qeli)"
+        if looks_like_qeli
+        else "проверьте, какой VPN-клиент оставил маршруты, и отключите его"
+    )
+    if vpn_interfaces:
+        advice = "VPN ещё работает — маршруты нужны ему; отключите VPN штатно"
+    return Check(
+        "ipv6.blackhole",
+        "IPv6-заглушки",
+        WARN,
+        f"blackhole-маршрутов: {len(blackholes)} — IPv6 уходит в никуда",
+        advice,
+    )
+
+
 def _guard_check(cfg: Config) -> Check:
     if not cfg.guard.enabled:
         return Check("guard", "Guard", WARN, "выключен", "linfix guard on")
@@ -531,5 +588,6 @@ def run_doctor(
     checks.extend(_tgws_checks(cfg))
     checks.append(_telegram_check(cfg))
     checks.append(_route_check())
+    checks.append(_ipv6_blackhole_check())
     checks.append(_guard_check(cfg))
     return Report(tuple(checks))
