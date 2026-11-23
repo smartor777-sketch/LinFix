@@ -31,6 +31,15 @@ install -m 755 "$ROOT/packaging/debian/linfix.launcher" "$STAGE/usr/bin/linfix"
 install -m 755 "$ROOT/packaging/debian/linfix-gui.launcher" "$STAGE/usr/bin/linfix-gui"
 install -m 755 "$ROOT/packaging/debian/linfix-helper.launcher" "$STAGE/usr/libexec/linfix-helper"
 
+# Вспомогательные скрипты (документированные, запускаются под root).
+if [ -d "$ROOT/scripts" ]; then
+    mkdir -p "$STAGE/usr/share/linfix/scripts"
+    for script in "$ROOT"/scripts/*.sh "$ROOT"/scripts/*.py; do
+        [ -f "$script" ] || continue
+        install -m 755 "$script" "$STAGE/usr/share/linfix/scripts/"
+    done
+fi
+
 # .desktop, иконка, polkit.
 install -m 644 "$ROOT/packaging/debian/linfix.desktop" "$STAGE/usr/share/applications/linfix.desktop"
 install -m 644 "$ROOT/src/linfix/data/icons/linfix.svg" "$STAGE/usr/share/icons/hicolor/scalable/apps/linfix.svg"
