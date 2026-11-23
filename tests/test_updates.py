@@ -254,9 +254,14 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
                 return 0, {"ok": True, "restored": ["config"]}
             return 0, {"ok": True}
 
+        remote = updates.Remote(
+            zapret_tag="v1.0.7",
+            zapret_asset="zapret2-v1.0.7.tar.gz",
+        )
         with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
             with mock.patch.object(api, "restart_zapret", return_value=0):
-                code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
+                with mock.patch.object(api.updates, "fetch_remote", return_value=remote):
+                    code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
 
         actions = [action for action, _ in calls]
         self.assertIn("zapret.save_profile", actions)
