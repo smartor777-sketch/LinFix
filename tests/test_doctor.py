@@ -81,3 +81,59 @@ class GuardDoctorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class Ipv6BlackholeTests(unittest.TestCase):
+    def test_clean(self) -> None:
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(stdout="fe80::/64 dev wlo1 proto kernel\n")
+            return SimpleNamespace(stdout="lo UNKNOWN\nwlo1 UP\n")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            check = doctor._ipv6_blackhole_check()
+        self.assertEqual(check.status, doctor.PASS)
+
+    def test_blackholes_detected(self) -> None:
+        routes = (
+            "blackhole ::/1 dev lo metric 1024\n"
+            "blackhole 8000::/1 dev lo metric 1024\n"
+            "blackhole 2000::/4 dev lo metric 1024\n"
+        )
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(stdout=routes)
+            return SimpleNamespace(stdout="lo UNKNOWN\nwlo1 UP\n")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            check = doctor._ipv6_blackhole_check()
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertIn("3", check.details)
+        self.assertIn("qeli-cleanup", check.hint)
+
+    def test_blackholes_with_active_vpn(self) -> None:
+        routes = "blackhole 2000::/4 dev lo metric 1024\n"
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(stdout=routes)
+            return SimpleNamespace(stdout="lo UNKNOWN\nvpn0 UP\n")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            check = doctor._ipv6_blackhole_check()
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertIn("VPN ещё работает", check.hint)
+
+    def test_foreign_blackhole_hint(self) -> None:
+        routes = "blackhole 2606:4700::/32 dev lo metric 1024\n"
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(stdout=routes)
+            return SimpleNamespace(stdout="lo UNKNOWN\nwlo1 UP\n")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            check = doctor._ipv6_blackhole_check()
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertNotIn("qeli-cleanup", check.hint)
+
