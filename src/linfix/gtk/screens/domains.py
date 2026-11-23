@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gtk, Pango
 
 from ... import api, cfdomains, cfprofile
 from ..i18n import _
@@ -43,6 +43,10 @@ class DomainsScreen:
         # Источник ротации показываем отдельно: это конфиг TgWsProxy,
         # а не список доменов для hostlist zapret.
         self.rotation_label = common.label(_("—"), wrap=True)
+        # Без hexpand длинная строка не переносится, а обрезается справа:
+        # label считает своей шириной натуральную длину текста.
+        self.rotation_label.set_hexpand(True)
+        self.rotation_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.rotation_combo = Gtk.ComboBoxText()
         self.rotation_combo.append(api.ROTATION_USER, _("Пользовательские домены"))
         self.rotation_combo.append(api.ROTATION_GITHUB, _("Домены с GitHub (авто)"))
@@ -233,13 +237,18 @@ class DomainsScreen:
         self.rotation_combo.set_active_id(mode)
         shown = ", ".join(domains[:4]) + (" …" if len(domains) > 4 else "")
         if mode == api.ROTATION_USER:
-            text = _("Ротация TgWsProxy: пользовательские домены ({n}): {list}. Автообновление с GitHub выключено.").format(
-                n=len(domains), list=shown or "—"
-            )
+            # «Автообновление» здесь — про список доменов для ротации, а не
+            # про проверку версий программы. Формулируем так, чтобы не путать
+            # с кнопкой «Проверить обновления» на «Статусе».
+            text = _(
+                "Ротация TgWsProxy: свои домены ({n}): {list}. "
+                "Список зафиксирован — новые с GitHub не подтягиваются."
+            ).format(n=len(domains), list=shown or "—")
         else:
-            text = _("Ротация TgWsProxy: домены с GitHub ({n}, автообновление включено): {list}").format(
-                n=len(domains), list=shown or "—"
-            )
+            text = _(
+                "Ротация TgWsProxy: домены с GitHub ({n}): {list}. "
+                "Список обновляется автоматически при старте прокси."
+            ).format(n=len(domains), list=shown or "—")
         self.rotation_label.set_text(text)
 
     def apply_rotation(self, _button=None) -> None:
