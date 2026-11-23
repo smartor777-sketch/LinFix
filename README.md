@@ -181,7 +181,7 @@ sudo scripts/scope-tls-profile.sh path/to/list.txt
 этом «не открываются», хотя `curl -4` работает.
 
 ```bash
-sudo scripts/qeli-cleanup.sh
+sudo /usr/share/linfix/scripts/qeli-cleanup.sh
 ```
 
 Скрипт снимает только маршруты qeli и только если клиент уже не запущен.
