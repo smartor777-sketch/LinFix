@@ -62,6 +62,7 @@ class GuardReport:
     stopped: bool | None = None
     log_path: str | None = None
     h2_disabled: bool = False
+    ipv6_blackholes: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -325,6 +326,24 @@ def _disable_h2(home: str | Path | None, stalls: int, cf_failures: int, cfg: Con
     return report
 
 
+def _ipv6_blackhole_count() -> int:
+    """Сколько маршрутов-заглушек IPv6 висит сейчас.
+
+    Читается без root: `ip -6 route show` доступен обычному пользователю.
+    """
+
+    completed = util.run(["ip", "-6", "route", "show"], check=False, timeout=10)
+    stdout = getattr(completed, "stdout", "") or ""
+    if not isinstance(stdout, str):
+        # В тестах util.run может быть заглушён произвольным объектом.
+        return 0
+    return sum(
+        1
+        for line in stdout.splitlines()
+        if line.strip().startswith("blackhole")
+    )
+
+
 def check_guard(
     cfg: Config,
     *,
@@ -336,6 +355,20 @@ def check_guard(
 ) -> GuardReport:
     if not cfg.guard.enabled:
         return GuardReport("disabled", "guard выключен в конфиге", 0, cfg.guard.error_threshold)
+
+    # Висячие IPv6-заглушки проверяются первыми: пока весь IPv6 уходит в
+    # blackhole, любые сетевые замеры врут, а пользователь видит «сайты не
+    # открываются» без внятной причины.
+    blackholes = _ipv6_blackhole_count()
+    if blackholes:
+        return GuardReport(
+            "warn",
+            f"висячих IPv6-заглушек: {blackholes} — IPv6 уходит в никуда. "
+            "Убрать: linfix net cleanup (или кнопка в «Диагностике»)",
+            0,
+            cfg.guard.error_threshold,
+            ipv6_blackholes=blackholes,
+        )
 
     log_path = tgws.find_log_path(home)
     if log_path is None:

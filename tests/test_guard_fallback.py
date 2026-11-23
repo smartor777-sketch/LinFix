@@ -142,3 +142,66 @@ class H2FallbackTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IPv6BlackholeGuardTests(unittest.TestCase):
+    """Guard сам замечает висячие IPv6-заглушки.
+
+    Пока весь IPv6 уходит в blackhole, сетевые замеры врут, и пользователь
+    видит «сайты не открываются» без причины.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+
+    def _cfg(self):
+        from unittest import mock as _mock
+
+        cfg = _mock.Mock()
+        cfg.guard.enabled = True
+        cfg.guard.error_threshold = 20
+        cfg.guard.window_seconds = 60
+        return cfg
+
+    def test_reports_blackholes(self) -> None:
+        from types import SimpleNamespace
+
+        routes = (
+            "blackhole 2000::/4 dev lo metric 1024\n"
+            "blackhole 8000::/1 dev lo metric 1024\n"
+            "fe80::/64 dev wlo1 proto kernel\n"
+        )
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(returncode=0, stdout=routes)
+            return SimpleNamespace(returncode=0, stdout="")
+
+        with mock.patch.object(guard.util, "run", side_effect=fake_run):
+            report = guard.check_guard(self._cfg(), home=self.home)
+
+        self.assertEqual(report.status, "warn")
+        self.assertEqual(report.ipv6_blackholes, 2)
+        self.assertIn("IPv6", report.detail)
+        self.assertIn("linfix net cleanup", report.detail)
+
+    def test_clean_passes_through(self) -> None:
+        from types import SimpleNamespace
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(returncode=0, stdout="fe80::/64 dev wlo1\n")
+            return SimpleNamespace(returncode=0, stdout="")
+
+        with mock.patch.object(guard.util, "run", side_effect=fake_run):
+            report = guard.check_guard(self._cfg(), home=self.home)
+
+        self.assertEqual(report.ipv6_blackholes, 0)
+        # Дальше идёт обычная проверка лога: лога нет — warn про лог.
+        self.assertIn(report.status, {"warn", "ok"})
+
+    def test_count_handles_bad_stdout(self) -> None:
+        with mock.patch.object(guard.util, "run", return_value=mock.Mock()):
+            self.assertEqual(guard._ipv6_blackhole_count(), 0)
