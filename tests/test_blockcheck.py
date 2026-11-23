@@ -149,3 +149,80 @@ class LastResultTests(unittest.TestCase):
             p = Path(tmp) / "garbage.json"
             p.write_text("не json", encoding="utf-8")
             self.assertIsNone(blockcheck.read_last_result(p))
+
+
+class StreamingTests(unittest.TestCase):
+    """Потоковый сбор: кандидаты берутся из AVAILABLE, не дожидаясь SUMMARY."""
+
+    def _script(self, body: str) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        script = base / "blockcheck2.sh"
+        script.write_text(body, encoding="utf-8")
+        return base
+
+    def test_collects_from_stream(self) -> None:
+        base = self._script(
+            'echo "- curl_test_https_tls12 ipv4 a.org : nfqws2 --lua-desync=fake:blob=x"\n'
+            'echo "!!!!! AVAILABLE !!!!!"\n'
+            'echo "- curl_test_https_tls12 ipv4 a.org : nfqws2 --lua-desync=multisplit:pos=1"\n'
+            'echo "UNAVAILABLE code=28"\n'
+            'echo "- curl_test_https_tls12 ipv4 a.org : nfqws2 --lua-desync=multidisorder:pos=2"\n'
+            'echo "!!!!! AVAILABLE !!!!!"\n'
+            "sleep 5\n"
+        )
+        result = blockcheck.run_blockcheck(
+            base, domains=["a.org"], level="quick", timeout=3.0
+        )
+        args = [s.args for s in result.strategies]
+        self.assertEqual(len(args), 2)
+        self.assertTrue(any("fake:blob=x" in a for a in args))
+        self.assertTrue(any("multidisorder:pos=2" in a for a in args))
+        self.assertFalse(any("multisplit" in a for a in args))
+        self.assertTrue(result.streamed)
+
+    def test_timeout_keeps_partial(self) -> None:
+        """При таймауте найденное не теряется — раньше терялось всё."""
+
+        base = self._script(
+            'echo "- curl_test_https_tls12 ipv4 a.org : nfqws2 --lua-desync=fake:blob=x"\n'
+            'echo "!!!!! AVAILABLE !!!!!"\n'
+            "sleep 30\n"
+        )
+        started = time.monotonic()
+        result = blockcheck.run_blockcheck(
+            base, domains=["a.org"], level="quick", timeout=2.0
+        )
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(len(result.strategies), 1)
+        self.assertIn("таймаут", result.error)
+        self.assertTrue(result.streamed)
+
+    def test_attempt_lines_do_not_capture(self) -> None:
+        """«[attempt 1] AVAILABLE» — это повтор, а не новый кандидат."""
+
+        base = self._script(
+            'echo "- curl_test_https_tls12 ipv4 a.org : nfqws2 --lua-desync=fake:blob=x"\n'
+            'echo "[attempt 1] AVAILABLE"\n'
+            'echo "[attempt 2] AVAILABLE"\n'
+            'echo "!!!!! AVAILABLE !!!!!"\n'
+            "sleep 5\n"
+        )
+        result = blockcheck.run_blockcheck(
+            base, domains=["a.org"], level="quick", timeout=3.0
+        )
+        self.assertEqual(len(result.strategies), 1)
+
+    def test_summary_still_parsed(self) -> None:
+        """Если SUMMARY успел напечататься, он важнее потоковых догадок."""
+
+        base = self._script(
+            'echo "2/2 : --filter-tcp=443 --lua-desync=fake:blob=x"\n'
+        )
+        result = blockcheck.run_blockcheck(
+            base, domains=["a.org"], level="quick", timeout=5.0
+        )
+        self.assertEqual(len(result.strategies), 1)
+        self.assertEqual(result.strategies[0].success, 2)
+        self.assertFalse(result.streamed)

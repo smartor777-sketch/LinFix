@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +30,9 @@ from . import util
 SCAN_LEVELS = ("veryquick", "quick", "standard", "force")
 
 RESULT_RE = re.compile(r"^(\d+)/(\d+)\s*:\s*(.+)$")
+
+#: Строка «сейчас проверяется»: «- curl_test_https_tls12 ipv4 dom : nfqws2 …»
+CURRENT_RE = re.compile(r"^-\s*\w+\s+ipv\d+\s+\S+\s*:\s*(.+)$")
 #: Строка успешного отчёта blockcheck2:
 #: ``curl_test_https_tls12 ipv4 rutracker.org : nfqws2 --filter-tcp=443 …``
 REPORT_RE = re.compile(r"^\S+ ipv\d \S+ : (.+)$")
@@ -77,6 +82,8 @@ class BlockcheckResult:
     error: str = ""
     #: Сайт открывается без обхода — подбирать нечего.
     works_without_bypass: bool = False
+    #: Кандидаты собраны из потока (SUMMARY не дождались).
+    streamed: bool = False
 
     @property
     def best(self) -> Strategy | None:
@@ -423,6 +430,40 @@ def _stop_group(proc: subprocess.Popen[str], grace: float = 10.0) -> None:
     kill(signal.SIGKILL)
 
 
+class _LineReader:
+    """Читатель строк с таймаутом: один поток на весь прогон.
+
+    Обычный ``for line in stdout`` блокируется, если скрипт молчит, и
+    таймаут не сработает. Поэтому читаем в фоновом потоке, но **одном**:
+    новый поток на каждый ``readline`` терял данные, если не успевал.
+    """
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+        self._queue: queue.Queue[str | None] = queue.Queue()
+        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread.start()
+
+    def _pump(self) -> None:
+        try:
+            for line in self._stream:
+                self._queue.put(line)
+        except (ValueError, OSError):
+            pass
+        finally:
+            self._queue.put(None)
+
+    def get(self, timeout: float) -> str | None:
+        """Следующая строка или None (конец потока либо время вышло)."""
+
+        if timeout <= 0:
+            return None
+        try:
+            return self._queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+
 def run_blockcheck(
     install_dir: str | Path,
     *,
@@ -450,8 +491,9 @@ def run_blockcheck(
         proc = subprocess.Popen(
             ["sh", str(path)],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
             env=env,
             # Своя сессия: таймаут должен гасить всю группу, а не только sh.
             start_new_session=True,
@@ -460,32 +502,77 @@ def run_blockcheck(
         raise BlockcheckError(f"не удалось запустить blockcheck2: {exc}") from exc
 
     timed_out = False
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _stop_group(proc)
-        try:
-            stdout, stderr = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            # Кто-то из внуков всё ещё держит пайп — не ждём его вечно.
-            stdout = stderr = ""
-            for stream in (proc.stdout, proc.stderr):
-                try:
-                    stream.close()  # type: ignore[union-attr]
-                except (OSError, ValueError):
-                    pass
+    lines: list[str] = []
+    streamed: dict[str, Strategy] = {}
+    current = ""
+    deadline = time.monotonic() + timeout
 
-    output = ((stdout or "") + "\n" + (stderr or "")).strip()
+    def remember(args: str) -> None:
+        """Добавить найденный вариант в потоковые результаты."""
+
+        normalized = normalize_args(args)
+        if not normalized:
+            return
+        # AVAILABLE означает «соединение открылось» — это кандидат, не гарантия.
+        streamed.setdefault(normalized, Strategy(1, 1, normalized))
+
+    try:
+        assert proc.stdout is not None
+        # Проверяем дедлайн между строками, а сам читатель — один на весь
+        # прогон. Раньше на каждый readline создавался новый поток: если
+        # строка не успевала прийти, поток оставался висеть и читал из того
+        # же буфера — строки терялись и путались.
+        reader = _LineReader(proc.stdout)
+        while True:
+            line = reader.get(deadline - time.monotonic())
+            if line is None:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                break
+            lines.append(line.rstrip("\n"))
+            stripped = line.strip()
+            match = CURRENT_RE.match(stripped)
+            if match:
+                current = match.group(1)
+            elif stripped.startswith("UNAVAILABLE"):
+                current = ""
+            elif "AVAILABLE" in stripped and not stripped.startswith("[attempt"):
+                if current:
+                    remember(current)
+                    current = ""
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+    finally:
+        if timed_out or proc.poll() is None:
+            _stop_group(proc)
+        try:
+            proc.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+
+    output = "\n".join(lines).strip()
     result = BlockcheckResult(domains=domains, level=level, output=output[-6000:])
-    result.strategies = parse_output(output)
+    # Сначала то, что напечатано блоками (настоящий SUMMARY), затем
+    # недооформленные кандидаты из потока — они не должны теряться.
+    parsed = parse_output(output)
+    # parse_output отдаёт список, а потоковые кандидаты — словарь по args.
+    known = {item.args for item in parsed}
+    for args, item in streamed.items():
+        if args not in known:
+            parsed.append(item)
+    parsed.sort(key=lambda item: (item.score, item.success), reverse=True)
+    result.strategies = parsed
     result.works_without_bypass = "working without bypass" in output.lower()
+    result.streamed = bool(streamed)
+
     if timed_out:
+        found = len(result.strategies)
         result.error = (
-            f"blockcheck2 прерван по таймауту {timeout:g} с — "
-            "проверочные процессы остановлены, zapret возвращён в работу"
+            f"подбор остановлен по таймауту {timeout:g} с; "
+            f"собрано кандидатов: {found}. zapret возвращён в работу"
         )
-    elif proc.returncode != 0 and not result.strategies:
+    elif proc.returncode not in (0, None) and not result.strategies:
         result.error = f"blockcheck2 завершился с кодом {proc.returncode}"
         tail = output.strip().splitlines()[-3:]
         if tail:
