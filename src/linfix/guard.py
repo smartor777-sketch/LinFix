@@ -361,7 +361,7 @@ def check_guard(
     # открываются» без внятной причины.
     blackholes = _ipv6_blackhole_count()
     if blackholes:
-        return GuardReport(
+        report = GuardReport(
             "warn",
             f"висячих IPv6-заглушек: {blackholes} — IPv6 уходит в никуда. "
             "Убрать: linfix net cleanup (или кнопка в «Диагностике»)",
@@ -369,6 +369,9 @@ def check_guard(
             cfg.guard.error_threshold,
             ipv6_blackholes=blackholes,
         )
+        # Событие сохраняем, иначе находку не увидит раздел «Диагностика».
+        _save_event(home, report)
+        return report
 
     log_path = tgws.find_log_path(home)
     if log_path is None:
