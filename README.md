@@ -141,7 +141,7 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
-## Медиа Telegram: профиль zapret для CF (0.5.32)
+## Медиа Telegram: профиль zapret для CF (0.5.33)
 
 Если текст в Telegram работает, а медиа не грузится, причина обычно в
 профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
@@ -171,6 +171,36 @@ sudo scripts/scope-tls-profile.sh path/to/list.txt
 списка и откатывается при ошибке. Список остаётся отдельным по назначению:
 чтобы «спрятать» новый сайт за CF, достаточно дописать домен в файл.
 
+### Firefox/Waterfox не открывает сайт, а Chromium открывает
+
+Причина — **Encrypted Client Hello (ECH)**. Cloudflare отдаёт ECH в
+HTTPS-записи DNS, и Gecko (движок Firefox и Waterfox) пытается им
+воспользоваться. Провайдерский DPI такое соединение не пропускает:
+TCP-сессия устанавливается, но ClientHello висит в очереди отправки.
+Chromium-браузеры ECH не используют, поэтому у них всё открывается.
+
+Проверить, замешан ли ECH:
+
+```bash
+dig +short HTTPS rutracker.org | grep -o 'ech=[^ ]*'
+```
+
+Если `ech=` есть — выключите ECH в браузере. В `about:config`:
+
+```text
+network.dns.echconfig.enabled = false
+network.dns.http3_echconfig.enabled = false
+network.dns.native_https_query = false
+```
+
+Для Waterfox то же самое. Файл `user.js` в профиле тоже подходит:
+
+```javascript
+user_pref("network.dns.echconfig.enabled", false);
+user_pref("network.dns.http3_echconfig.enabled", false);
+user_pref("network.dns.native_https_query", false);
+```
+
 ### После VPN-клиента с kill-switch (qeli)
 
 Некоторые VPN-клиенты (например, `qeli`) при подключении ставят в систему
@@ -181,7 +211,7 @@ sudo scripts/scope-tls-profile.sh path/to/list.txt
 этом «не открываются», хотя `curl -4` работает.
 
 ```bash
-sudo /usr/share/linfix/scripts/qeli-cleanup.sh
+sudo /usr/share/linfix/scripts/blackhole-cleanup.sh
 ```
 
 Скрипт снимает только маршруты qeli и только если клиент уже не запущен.
@@ -239,7 +269,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.5.32_all.deb
+sudo apt install ./linfix_0.5.33_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте

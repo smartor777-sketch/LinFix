@@ -109,7 +109,7 @@ class Ipv6BlackholeTests(unittest.TestCase):
             check = doctor._ipv6_blackhole_check()
         self.assertEqual(check.status, doctor.WARN)
         self.assertIn("3", check.details)
-        self.assertIn("qeli-cleanup", check.hint)
+        self.assertIn("blackhole-cleanup", check.hint)
 
     def test_blackholes_with_active_vpn(self) -> None:
         routes = "blackhole 2000::/4 dev lo metric 1024\n"
@@ -135,5 +135,5 @@ class Ipv6BlackholeTests(unittest.TestCase):
         with mock.patch.object(doctor.util, "run", side_effect=fake_run):
             check = doctor._ipv6_blackhole_check()
         self.assertEqual(check.status, doctor.WARN)
-        self.assertNotIn("qeli-cleanup", check.hint)
+        self.assertNotIn("blackhole-cleanup", check.hint)
 
