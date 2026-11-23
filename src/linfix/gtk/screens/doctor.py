@@ -77,6 +77,9 @@ class DoctorScreen:
         )
 
         # --- Блок 2: подбор стратегии desync ---------------------------------
+        self.strategy_title = common.label(
+            _("Стратегии (desync)"), css_class="section-title"
+        )
         self.strategy_caption = common.label(
             _(
                 "Стратегия (desync) — это способ, которым zapret обрабатывает "
@@ -130,6 +133,10 @@ class DoctorScreen:
         )
 
         # Профили desync — только просмотр: какие правила реально работают.
+        self.profile_title = common.label(
+            _("Профили desync"), css_class="section-title"
+        )
+        self.profile_title.set_margin_top(8)
         self.profile_store = Gtk.ListStore(str, str, str, str)
         self.profile_tree = common.table_from_store(
             self.profile_store,
@@ -152,14 +159,18 @@ class DoctorScreen:
         common.pack(self.box, self.net_scrolled)
         common.pack(self.box, self.reco_label)
 
+        common.pack(self.box, self.strategy_title)
         common.pack(self.box, self.strategy_caption)
         common.pack(self.box, self.buttons)
         # Краткая информация по стратегиям — отдельной строкой под кнопками,
         # а не между «Подобрать стратегию» и «Отмена подбора».
-        self.strat_label = common.label(_("Текущая: —"), css_class="strategy-info")
+        self.current_title = common.label(_("Текущая:"), css_class="section-title")
+        self.strat_label = common.label("—", css_class="strategy-info")
         self.strat_label.set_margin_bottom(2)
+        common.pack(self.box, self.current_title)
         common.pack(self.box, self.strat_label)
 
+        common.pack(self.box, self.profile_title)
         common.pack(self.box, self.profile_note)
         common.pack(self.box, self.profile_scrolled)
         common.pack(self.box, self.scrolled)
@@ -281,7 +292,7 @@ class DoctorScreen:
 
         def done(result):
             current, is_default, count, best_args, error = result
-            text = _("Текущая: {cur}").format(cur=current or _("не задана"))
+            text = current or _("не задана")
             if is_default:
                 text += _(" (по умолчанию)")
             if best_args:
@@ -302,7 +313,7 @@ class DoctorScreen:
             label.set_text(text)
 
         def failed(_exc: Exception) -> None:
-            self.strat_label.set_text(_("Текущая: —"))
+            self.strat_label.set_text("—")
             for cls in ("strategy-best", "strategy-none", "strategy-error"):
                 self.strat_label.get_style_context().remove_class(cls)
 
@@ -727,5 +738,6 @@ class DoctorScreen:
         clipboard = Gtk.Clipboard.get_for_display(
             Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
         )
-        clipboard.set_text(self.last_report.to_json(), len(self.last_report.to_json()))
+        payload = self.last_report.to_json()
+        clipboard.set_text(payload, len(payload.encode("utf-8")))
         common.toast(self.app, _("Отчёт скопирован"))

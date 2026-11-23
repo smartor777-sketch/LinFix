@@ -431,6 +431,90 @@ class LogsLayoutTests(unittest.TestCase):
         app.window.destroy()
 
 
+class LogsCopyTests(unittest.TestCase):
+    def test_copy_keeps_cyrillic_intact(self) -> None:
+        """Длина для clipboard — в байтах UTF-8, иначе русский текст обрезается."""
+
+        from unittest.mock import patch
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        logs = app.window.screens["logs"]
+
+        text = "=== zapret ===" + "\n" + "ноя 23 ошибка соединения" * 50
+        logs.buffer.set_text(text)
+
+        captured: dict[str, object] = {}
+
+        class FakeClipboard:
+            def set_text(self, payload, length):
+                captured["text"] = payload
+                captured["length"] = length
+
+        with patch.object(
+            Gtk.Clipboard, "get_for_display", return_value=FakeClipboard()
+        ):
+            logs.copy_logs()
+
+        self.assertEqual(captured["text"], text)
+        # Длина должна покрывать весь текст в байтах, а не в символах.
+        self.assertEqual(captured["length"], len(text.encode("utf-8")))
+        self.assertGreater(captured["length"], len(text))
+        app.window.destroy()
+
+
+class HostlistLimitTests(unittest.TestCase):
+    def test_shows_first_100_but_searches_all(self) -> None:
+        """В таблице 100 строк, но фильтр ищет по всему списку."""
+
+        from linfix import hostlist
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["hostlist"]
+
+        entries = [
+            hostlist.HostlistEntry(f"host{i:05d}.example.com", "other")
+            for i in range(500)
+        ]
+        entries.append(hostlist.HostlistEntry("zzz-target.example.com", "user"))
+        screen._entries = entries
+
+        screen.filter_entry.set_text("")
+        screen._render()
+        self.assertEqual(len(screen.store), 100)
+        self.assertIn("первые 100 из 501", screen.info.get_text())
+
+        # Домен в самом конце списка — фильтр обязан его найти.
+        screen.filter_entry.set_text("zzz-target")
+        screen._render()
+        self.assertEqual(len(screen.store), 1)
+        self.assertEqual(screen.store[0][0], "zzz-target.example.com")
+        app.window.destroy()
+
+
+class BoldTitlesTests(unittest.TestCase):
+    def test_service_headings_are_bold(self) -> None:
+        """Заголовки карточек «Статуса» жирные."""
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        status = app.window.screens["status"]
+        for card in (status.zapret_card, status.tgws_card,
+                     status.domains_card, status.telegram_card):
+            weight = card.title_label.get_style_context().get_property(
+                "font-weight", Gtk.StateFlags.NORMAL
+            )
+            self.assertGreaterEqual(
+                int(weight), 600, f"заголовок «{card.title_label.get_text()}» не жирный"
+            )
+        app.window.destroy()
+
+
 class ProfileTableLayoutTests(unittest.TestCase):
     def test_profile_table_has_height(self) -> None:
         """Таблица профилей не должна схлопываться до двух строк."""
