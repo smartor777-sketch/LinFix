@@ -70,6 +70,13 @@ _TAB_CSS = """
     padding: 8px 10px;
     font-weight: bold;
 }
+.banner-info {
+    background-color: #e8f1fb;
+    color: #1c4f82;
+    border: 1px solid #3584e4;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
 .banner-ok {
     background-color: #e6f4ea;
     color: #1e6b34;

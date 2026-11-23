@@ -1018,6 +1018,69 @@ def _domains_due(cfg: Config, state_info: state.State, *, now: datetime | None =
     return (reference - updated).days >= cfg.lists.update_days
 
 
+def cmd_updates(cfg: Config, args: argparse.Namespace) -> int:
+    """Проверить и (по --install) поставить обновления zapret2 / TgWsProxy."""
+
+    try:
+        found = api.check_updates(timeout=args.timeout)
+    except Exception as exc:  # noqa: BLE001 — CLI-уровень
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        else:
+            print(f"ОШИБКА: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "zapret_current": found.zapret_current,
+                    "zapret_new": found.zapret_new,
+                    "tgws_current": found.tgws_current,
+                    "tgws_new": found.tgws_new,
+                    "any": found.any,
+                    "checked_at": found.checked_at,
+                },
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(f"zapret2:   {found.zapret_current or '—'} → {found.zapret_new or 'актуально'}")
+        print(f"TgWsProxy: {found.tgws_current or '—'} → {found.tgws_new or 'актуально'}")
+        print("Итог:      " + (found.summary() or "обновлений нет"))
+
+    if not args.install or not found.any:
+        return EXIT_OK
+
+    want_zapret = found.has_zapret and not args.tgws_only
+    want_tgws = found.has_tgws and not args.zapret_only
+
+    if want_zapret:
+        print("=== zapret2 ===", flush=True)
+        code, payload = api.update_zapret2(cfg)
+        if code != EXIT_OK:
+            print(
+                "ОШИБКА: " + str(payload.get("error") or f"код {code}"),
+                file=sys.stderr,
+            )
+            return int(code)
+        print("zapret2 обновлён, профили восстановлены")
+
+    if want_tgws:
+        print("=== TgWsProxy ===", flush=True)
+        code, payload = api.install_tgws(cfg)
+        if code != EXIT_OK:
+            print(
+                "ОШИБКА: " + str(payload.get("error") or f"код {code}"),
+                file=sys.stderr,
+            )
+            return int(code)
+        print(f"TgWsProxy {payload.get('version') or ''} установлен".rstrip())
+
+    return EXIT_OK
+
+
 def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
     state_info = state.load_state()
     domains_due = _domains_due(cfg, state_info)
@@ -1267,6 +1330,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_logs.add_argument("--follow", action="store_true", help="следить за журналом zapret")
     p_logs.add_argument("--lines", type=int, default=50, help="сколько строк показать")
 
+    p_updates = sub.add_parser(
+        "updates", help="проверить обновления zapret2 и TgWsProxy"
+    )
+    p_updates.add_argument(
+        "--check", action="store_true", help="только проверить (по умолчанию)"
+    )
+    p_updates.add_argument(
+        "--install", action="store_true", help="установить найденные обновления"
+    )
+    p_updates.add_argument("--zapret-only", action="store_true")
+    p_updates.add_argument("--tgws-only", action="store_true")
+    p_updates.add_argument("--json", action="store_true", help="JSON для GUI")
+    p_updates.add_argument("--timeout", type=float, default=20.0)
+
     p_update = sub.add_parser("update", help="обновить TgWsProxy и CF-домены")
     p_update.add_argument("--check", action="store_true", help="только проверить версии")
     p_update.add_argument("--yes", action="store_true", help="выполнить без подтверждения")
@@ -1352,6 +1429,8 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_tgws_config(cfg, args)
         if args.command == "logs":
             return cmd_logs(cfg, args)
+        if args.command == "updates":
+            return cmd_updates(cfg, args)
         if args.command == "update":
             return cmd_update(cfg, args)
         if args.command == "setup":

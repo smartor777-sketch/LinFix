@@ -206,7 +206,7 @@ class AppTests(unittest.TestCase):
         self.assertTrue(screen.buttons.get_children())
         self.assertTrue(screen.box.get_visible())
         labels = [b.get_label() for b in screen.buttons.get_children()]
-        self.assertEqual(labels, ["Обновить"])
+        self.assertEqual(labels, ["Обновить", "Проверить обновления"])
         app.window.destroy()
 
     def test_autostarted_services_start_when_enabled(self) -> None:
@@ -372,10 +372,13 @@ class LayoutTests(unittest.TestCase):
         app.do_activate()
         status = app.window.screens["status"]
         children = status.box.get_children()
-        # 0 — заголовок раздела, 1 — панель с «Обновить», дальше карточки.
-        self.assertIs(children[1], status.buttons)
+        # 0 — заголовок раздела, 1 — баннер обновлений (скрыт, пока их нет),
+        # 2 — панель с «Обновить», дальше карточки.
+        self.assertIs(children[1], status.update_banner)
+        self.assertIs(children[2], status.buttons)
         self.assertEqual(
-            [b.get_label() for b in status.buttons.get_children()], ["Обновить"]
+            [b.get_label() for b in status.buttons.get_children()],
+            ["Обновить", "Проверить обновления"],
         )
         app.window.destroy()
 

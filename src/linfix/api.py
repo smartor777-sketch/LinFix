@@ -13,7 +13,18 @@ import time
 from pathlib import Path
 from dataclasses import dataclass
 
-from . import blockcheck, cfdomains, doctor, guard, helper, state, tgws, util, zapret
+from . import (
+    blockcheck,
+    cfdomains,
+    doctor,
+    guard,
+    helper,
+    state,
+    tgws,
+    updates,
+    util,
+    zapret,
+)
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load_config
 
 # Exit codes, идентичные cli (SPEC 6).
@@ -411,6 +422,67 @@ def connect_telegram(cfg: Config) -> str | None:
     """Ссылка для Telegram (tg://proxy)."""
 
     return tgws.read_link(cfg.tgws.host, cfg.tgws.port)
+
+
+def check_updates(*, timeout: float = 20.0) -> updates.Found:
+    """Проверить обновления zapret2 и TgWsProxy (без установки)."""
+
+    return updates.check(timeout=timeout)
+
+
+def update_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
+    """Обновить zapret2, сохранив наш конфиг и hostlists.
+
+    Порядок: сохранить профиль → git pull/install_easy.sh → вернуть профиль.
+    Если установка или восстановление не удались, возвращаем ошибку с
+    понятным текстом: конфиг к этому моменту уже восстановлен из бэкапа.
+    """
+
+    try:
+        meta = updates.save_profile()
+    except updates.UpdateError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+
+    try:
+        code, payload = util.run_helper(
+            "zapret.install_easy",
+            ["--service", "zapret2", "--git-url", ZAPRET2_GIT_URL],
+            timeout=1800,
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc), "backup": meta}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {
+            "ok": False,
+            "error": f"обновление zapret2 не завершилось за 30 минут: {exc}",
+            "backup": meta,
+        }
+
+    payload["backup"] = meta
+    if code != 0:
+        payload.setdefault("ok", False)
+        return code, payload
+
+    # install_easy.sh пишет в config — возвращаем наши профили и домены.
+    try:
+        restored = util.run_helper("zapret.restore_profile", [])
+        payload["restore"] = restored[1] if restored[0] == 0 else {"ok": False}
+    except util.NetfixError as exc:
+        payload["restore"] = {"ok": False, "error": str(exc)}
+
+    if not payload["restore"].get("ok"):
+        payload["ok"] = False
+        payload["error"] = (
+            "zapret2 обновлён, но профиль не восстановлен: "
+            + str(payload["restore"].get("error") or "неизвестная ошибка")
+            + ". Бэкап: /var/lib/linfix/zapret-profile"
+        )
+        return EXIT_CHECK_FAILED, payload
+
+    restart_code = restart_zapret(cfg)
+    payload["ok"] = restart_code == EXIT_OK
+    payload["installed"] = True
+    return EXIT_OK if payload["ok"] else EXIT_CHECK_FAILED, payload
 
 
 def install_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
