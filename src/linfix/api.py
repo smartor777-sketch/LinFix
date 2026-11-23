@@ -438,23 +438,48 @@ def update_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
     понятным текстом: конфиг к этому моменту уже восстановлен из бэкапа.
     """
 
+    # Бэкап пишется в /var/lib/linfix, то есть нужен root — идём через
+    # helper, как и для самой установки. Прямой вызов падал с
+    # PermissionError, и пользователь видел «отказано в доступе».
     try:
-        meta = updates.save_profile()
-    except updates.UpdateError as exc:
+        code, meta_payload = util.run_helper("zapret.save_profile", [], timeout=120)
+    except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    if code != 0:
+        return EXIT_NO_RIGHTS, {
+            "ok": False,
+            "error": str(meta_payload.get("error") or "не удалось сохранить профили"),
+        }
+    meta = meta_payload
+
+    # Обновляем из релизного архива: в git-архиве zapret2 бинарников нет.
+    # Конфиг не трогаем — профили CF/rutracker уже сохранены в бэкап.
+    try:
+        remote = updates.fetch_remote()
+    except updates.UpdateError as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc), "backup": meta}
+
+    helper_args = [
+        "--service", "zapret2",
+        "--update",
+        "--zapret-version", remote.zapret_tag or "",
+        "--asset", remote.zapret_asset or "",
+    ]
+    if remote.zapret_asset_url:
+        helper_args += ["--asset-url", remote.zapret_asset_url]
+    if remote.zapret_asset_sha256:
+        helper_args += ["--asset-sha256", remote.zapret_asset_sha256]
 
     try:
         code, payload = util.run_helper(
-            "zapret.install_easy",
-            ["--service", "zapret2", "--git-url", ZAPRET2_GIT_URL],
-            timeout=1800,
+            "zapret.install_easy", helper_args, timeout=900
         )
     except util.NetfixError as exc:
         return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc), "backup": meta}
     except util.CommandError as exc:
         return EXIT_ERROR, {
             "ok": False,
-            "error": f"обновление zapret2 не завершилось за 30 минут: {exc}",
+            "error": f"обновление zapret2 не завершилось за 15 минут: {exc}",
             "backup": meta,
         }
 
