@@ -329,6 +329,35 @@ def scan_in_progress() -> bool:
     return bool(running()) or bool(stray_processes())
 
 
+#: Семейства, которые для CF-доменов Telegram заведомо бесполезны.
+#: Наши домены — только TLS к Cloudflare; HTTP-порты, OOB-байты, данные в
+#: SYN и подмена Host к ним не относятся, а времени съедают больше половины.
+FAST_SKIP = (
+    # HTTP-ветки целиком: домены проверяются по TLS
+    "BASIC_HTTP",
+    "FAKE_HTTP",
+    "FAKED_HTTP",
+    "FAKE_MULTI_HTTP",
+    "FAKE_FAKED_HTTP",
+    "FAKE_HOSTFAKE_HTTP",
+    "HOSTFAKE_HTTP",
+    "SEQOVL_HTTP",
+    "SYNDATA_HTTP",
+    "MULTI_HTTP",
+    "OOB_HTTP",
+    "MISC_HTTP",
+    # TLS-семейства, не применимые к CF
+    "OOB_HTTPS",
+    "SYNDATA_HTTPS",
+    "HOSTFAKE_HTTPS",
+    "MISC_HTTPS",
+    "QUIC",
+)
+
+#: Что остаётся проверять в быстром режиме — для справки в GUI/CLI.
+FAST_KEEP = ("fake", "faked-split", "fake-multi", "multisplit", "seqovl")
+
+
 def build_env(
     install_dir: str | Path,
     domains: list[str],
@@ -336,6 +365,7 @@ def build_env(
     *,
     ipv: str = "4",
     repeats: int = DEFAULT_REPEATS,
+    fast: bool = True,
 ) -> dict[str, str]:
     """Переменные окружения для неинтерактивного запуска.
 
@@ -355,7 +385,8 @@ def build_env(
             "DOMAINS": " ".join(domains),
             "SCANLEVEL": level,
             "IPVS": ipv,
-            "ENABLE_HTTP": "1",
+            # HTTP-порт 80 к CF-доменам не относится: там только TLS.
+            "ENABLE_HTTP": "0" if fast else "1",
             "BATCH": "1",
             "REPEATS": str(max(1, repeats)),
             "PARALLEL": "1" if repeats > 1 else "0",
@@ -363,6 +394,10 @@ def build_env(
             "PACE": "0",
         }
     )
+    if fast:
+        # blockcheck2 проверяет NOTEST_<СЕМЕЙСТВО>=1 в начале каждого теста.
+        for name in FAST_SKIP:
+            env[f"NOTEST_{name}"] = "1"
     return env
 
 
@@ -395,8 +430,14 @@ def run_blockcheck(
     level: str = "quick",
     timeout: float = 600.0,
     repeats: int = DEFAULT_REPEATS,
+    fast: bool = True,
 ) -> BlockcheckResult:
-    """Запустить blockcheck2 и разобрать найденные стратегии (нужен root)."""
+    """Запустить blockcheck2 и разобрать найденные стратегии (нужен root).
+
+    ``fast`` отключает HTTP-ветки и семейства, неприменимые к CF-доменам
+    (см. ``FAST_SKIP``). Без этого прогон на одном домене упирается в
+    таймаут, не находя стратегий.
+    """
 
     if level not in SCAN_LEVELS:
         raise BlockcheckError(f"недопустимый уровень: {level}")
@@ -404,7 +445,7 @@ def run_blockcheck(
     if not path.is_file():
         raise BlockcheckError(f"blockcheck2.sh не найден: {path}")
 
-    env = build_env(install_dir, domains, level, repeats=repeats)
+    env = build_env(install_dir, domains, level, repeats=repeats, fast=fast)
     try:
         proc = subprocess.Popen(
             ["sh", str(path)],

@@ -1213,6 +1213,7 @@ def action_zapret_blockcheck(args: argparse.Namespace) -> tuple[int, dict[str, o
                 # убьют раньше, чем он успеет вернуть zapret обратно.
                 timeout=min(max(args.timeout, 120.0), 2100.0),
                 repeats=max(1, int(args.repeats or 2)),
+                fast=getattr(args, "fast", "on") != "off",
             )
         finally:
             if stopped:
@@ -1302,6 +1303,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--install-dir", default="", help="каталог zapret для blockcheck")
     parser.add_argument("--level", default="", help="уровень blockcheck: veryquick…force")
+    parser.add_argument(
+        "--fast",
+        choices=["on", "off"],
+        default="on",
+        help="отсев заведомо неприменимых семейств (по умолчанию on)",
+    )
     parser.add_argument(
         "--repeats",
         type=int,
