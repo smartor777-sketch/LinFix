@@ -32,7 +32,8 @@ class DomainsScreen:
         self.source_combo.set_active_id(SOURCE_GITHUB)
         self.source_combo.connect("changed", self._on_source_changed)
         source_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
-        common.pack(source_row, common.label(_("Показать:")))
+        self.source_label = common.label(_("Показать:"), css_class="section-title")
+        common.pack(source_row, self.source_label)
         common.pack(source_row, self.source_combo)
         self._source: str = SOURCE_GITHUB
 

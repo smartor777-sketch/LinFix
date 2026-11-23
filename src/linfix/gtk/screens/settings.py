@@ -140,7 +140,7 @@ class SettingsScreen:
             common.message(self.app, _("Конфиг TgWsProxy не найден"))
             return
         clipboard = Gtk.Clipboard.get_for_display(Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD)
-        clipboard.set_text(link, len(link))
+        clipboard.set_text(link, len(link.encode("utf-8")))
         common.toast(self.app, _("Ссылка скопирована"))
 
     def clear_logs(self) -> None:

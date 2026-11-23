@@ -12,6 +12,10 @@ from ..i18n import _
 from ..worker import run_in_thread
 from . import common
 
+#: Сколько строк показывать в таблице. Список бывает 30k+: отрисовка всех
+#: заметно тормозит, а найти нужное быстрее фильтром (он смотрит весь список).
+SHOW_LIMIT = 100
+
 #: CF-домены критичны для TgWsProxy — их удаление требует двойного подтверждения.
 SOURCE_LABELS = {
     "cf": _("CF (прокси) — нужен Telegram"),
@@ -67,6 +71,7 @@ class HostlistScreen:
         common.pack(self.box, self.sources_box)
 
         self._entries: list[hostlist.HostlistEntry] = []
+        self._base_info = ""
         self._load_sources_combo()
         self.refresh()
 
@@ -98,14 +103,14 @@ class HostlistScreen:
                 self.info.set_text(str(payload.get("error") or _("Не удалось прочитать hostlist")))
                 return
             counts = payload.get("counts", {})
-            self.info.set_text(
-                _("Hostlist: {path} — всего {total} (CF {cf}, свои {user}, из zapret {other})").format(
-                    path=payload.get("hostlist", "—"),
-                    total=payload.get("total", 0),
-                    cf=counts.get("cf", 0),
-                    user=counts.get("user", 0),
-                    other=counts.get("other", 0),
-                )
+            self._base_info = _(
+                "Hostlist: {path} — всего {total} (CF {cf}, свои {user}, из zapret {other})"
+            ).format(
+                path=payload.get("hostlist", "—"),
+                total=payload.get("total", 0),
+                cf=counts.get("cf", 0),
+                user=counts.get("user", 0),
+                other=counts.get("other", 0),
             )
             self._entries = [
                 hostlist.HostlistEntry(item["domain"], item["source"])
@@ -116,20 +121,36 @@ class HostlistScreen:
         run_in_thread(job, on_done=done)
 
     def _render(self) -> None:
+        """Показать домены; фильтр при этом ищет по всему списку.
+
+        Список бывает 30k+ строк, и отрисовка всех тормозит. Поэтому
+        показываем первые LIMIT совпадений, но поиск идёт по всем записям:
+        если домен есть в конце списка, фильтр его найдёт.
+        """
+
         needle = self.filter_entry.get_text().strip().lower()
         self.store.clear()
+        matched = 0
         shown = 0
         for entry in self._entries:
             if needle and needle not in entry.domain.lower():
                 continue
+            matched += 1
+            if shown >= SHOW_LIMIT:
+                continue
             self.store.append([entry.domain, SOURCE_LABELS.get(entry.source, entry.source)])
             shown += 1
-            if shown >= 5000:  # защита от тормозов на 30k+ строках
-                break
-        if shown >= 5000:
-            self.info.set_text(
-                self.info.get_text() + _(" (показаны первые 5000, уточните фильтр)")
+
+        base = getattr(self, "_base_info", "") or ""
+        if matched > shown:
+            note = _("Показаны первые {shown} из {matched}; поиск идёт по всему списку.").format(
+                shown=shown, matched=matched
             )
+        elif needle:
+            note = _("Найдено: {n}").format(n=matched)
+        else:
+            note = ""
+        self.info.set_text(f"{base}\n{note}".strip() if note else base)
 
     # ------------------------------------------------------------------
 

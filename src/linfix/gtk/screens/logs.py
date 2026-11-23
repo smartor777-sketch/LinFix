@@ -5,7 +5,7 @@ journalctl zapret2 + journalctl --user tgwsproxy + хвост proxy.log, пои�
 
 from __future__ import annotations
 
-from gi.repository import Gtk
+from gi.repository import Gdk, Gtk
 
 from ... import tgws, util
 from ..i18n import _
@@ -27,8 +27,10 @@ class LogsScreen:
         self.entry.set_placeholder_text(_("Поиск в логах"))
         self.entry.connect("activate", lambda *_: self.filter_text())
         self.b_refresh = common.button(_("Обновить"), lambda _: self.refresh())
+        self.b_copy = common.button(_("Копировать"), lambda _: self.copy_logs())
         common.pack_expand(self.search_box, self.entry)
         common.pack(self.search_box, self.b_refresh)
+        common.pack(self.search_box, self.b_copy)
 
         # Поиск и «Обновить» — над логом: так их видно без прокрутки.
         common.pack(self.box, self.search_box)
@@ -77,3 +79,24 @@ class LogsScreen:
             return
         lines = [line for line in self.full_text.splitlines() if query.lower() in line.lower()]
         self.buffer.set_text("\n".join(lines) or _("Нет совпадений"))
+
+    def copy_logs(self) -> None:
+        """Скопировать в буфер то, что сейчас показано в окне логов.
+
+        Копируется видимый текст, а не весь лог: если пользователь
+        отфильтровал строки, в буфере окажется именно выборка.
+        """
+
+        start, end = self.buffer.get_bounds()
+        text = self.buffer.get_text(start, end, include_hidden_chars=True)
+        if not text.strip():
+            common.toast(self.app, _("Логи пусты — нечего копировать"))
+            return
+        clipboard = Gtk.Clipboard.get_for_display(
+            Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+        )
+        # set_text ждёт длину в БАЙТАХ: при кириллице len() короче, и
+        # хвост строки молча терялся.
+        clipboard.set_text(text, len(text.encode("utf-8")))
+        lines = text.count("\n") + 1
+        common.toast(self.app, _("Логи скопированы ({n} строк)").format(n=lines))
