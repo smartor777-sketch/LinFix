@@ -521,7 +521,7 @@ merge → state → restart → verify. Если после рестарта с�
 - При аварийном выходе (закрытие терминала) клиент не снимает маршруты:
   весь IPv6 уходит в никуда, браузер ждёт таймаут на AAAA и только затем
   переходит на IPv4. Симптом «curl -4 работает, браузер нет».
-- Решение: `scripts/qeli-cleanup.sh` — снимает только эти маршруты и только
+- Решение: `scripts/blackhole-cleanup.sh` — снимает только эти маршруты и только
   при неработающем qeli; `linfix doctor` получил проверку `ipv6.blackhole`.
 - Отдельно: профиль в `/opt/zapret2/config` ссылался на
   `seqovl_pattern=t4pda`, но blob `t4pda` нигде не определён (файл
@@ -529,3 +529,23 @@ merge → state → restart → verify. Если после рестарта с�
   Без флага `optional` это давало 5116 ошибок `blob 't4pda' unavailable`,
   и каждый подходящий пакет проходил без обработки. Паттерн убран:
   осталось `multisplit:pos=1:seqovl=568` — профиль снова работает, ошибок нет.
+
+## D40. ECH ломает Gecko-браузеры (Firefox, Waterfox) — 0.5.33
+
+- Симптом был обманчив: `curl`, `openssl` и Python открывают сайт, а Firefox
+  и Waterfox виснут. Opera (Chromium) работала.
+- Причина — **Encrypted Client Hello (ECH)**. Cloudflare отдаёт ECH в
+  HTTPS-записи DNS (`ech=AEX+DQBBZw...`), и Gecko пытается им
+  воспользоваться. Провайдерский DPI не пропускает такое соединение:
+  TCP-сессия устанавливается, но `bytes_acked` остаётся 1, а ClientHello
+  висит в очереди отправки.
+- Доказано на чистом эксперименте: `crypto.cloudflare.com` (ECH есть,
+  в hostlist нет, zapret его не касается) — Firefox с ECH `0/3`,
+  с выключенным ECH `3/3`. Тот же домен через curl — `200` всегда.
+- Значит это не проблема zapret и не проблема блокировки rutracker:
+  Chromium-браузеры ECH не используют, поэтому работают.
+- Решение — выключить ECH в браузере:
+  `network.dns.echconfig.enabled = false`,
+  `network.dns.http3_echconfig.enabled = false`,
+  `network.dns.native_https_query = false`.
+  Для Firefox/Waterfox задаётся в `about:config` или через `user.js`.

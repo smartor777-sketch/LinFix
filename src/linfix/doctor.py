@@ -513,7 +513,7 @@ def _ipv6_blackhole_check() -> Check:
         for marker in ("::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7")
     )
     advice = (
-        "sudo /usr/share/linfix/scripts/qeli-cleanup.sh  (убирает маршруты qeli)"
+        "sudo /usr/share/linfix/scripts/blackhole-cleanup.sh  (убирает маршруты-заглушки VPN)"
         if looks_like_qeli
         else "проверьте, какой VPN-клиент оставил маршруты, и отключите его"
     )
