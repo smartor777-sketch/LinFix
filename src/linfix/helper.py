@@ -57,6 +57,7 @@ ALLOWED_ACTIONS = {
     "zapret.blockcheck",
     "zapret.blockcheck_stop",
     "zapret.restart",
+    "net.clear_ipv6_blackholes",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -581,6 +582,33 @@ def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, 
     return (0 if payload["ok"] else 5), payload
 
 
+def action_net_clear_ipv6_blackholes(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    """Убрать маршруты-заглушки IPv6, оставленные VPN-клиентом.
+
+    Отказываемся работать, если VPN ещё активен: маршруты — часть его
+    kill-switch, снимать их на ходу нельзя.
+    """
+
+    from . import doctor
+
+    tunnel = doctor.vpn_interfaces()
+    if tunnel:
+        return 3, {
+            "ok": False,
+            "error": f"VPN ещё работает ({', '.join(tunnel)}) — убирать заглушки нельзя",
+            "outstanding": doctor.ipv6_blackhole_routes(),
+        }
+
+    removed, left = doctor.clear_ipv6_blackholes()
+    return (0 if not left else 4), {
+        "ok": not left,
+        "removed": removed,
+        "outstanding": left,
+    }
+
+
 def action_zapret_restart(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     if not args.service:
         raise HelperError("zapret.restart: требуется --service")
@@ -1039,6 +1067,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_guard(args)
         elif args.action == "config.blockcheck":
             code, payload = action_config_blockcheck(args)
+        elif args.action == "net.clear_ipv6_blackholes":
+            code, payload = action_net_clear_ipv6_blackholes(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
         elif args.action == "zapret.install_easy":

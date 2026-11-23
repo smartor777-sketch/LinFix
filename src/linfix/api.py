@@ -100,6 +100,31 @@ def get_domains(
 # ---------------------------------------------------------------------------
 
 
+def clear_ipv6_blackholes() -> tuple[bool, str]:
+    """Убрать маршруты-заглушки IPv6 через helper (нужен root).
+
+    Возвращает (успех, сообщение для пользователя).
+    """
+
+    try:
+        code, payload = util.run_helper("net.clear_ipv6_blackholes", [])
+    except util.NetfixError as exc:
+        return False, str(exc)
+
+    outstanding = payload.get("outstanding") or []
+    if code == 0 and not outstanding:
+        removed = int(payload.get("removed") or 0)
+        if removed:
+            return True, f"Заглушки убраны: удалено маршрутов {removed}"
+        return True, "Заглушек не было — всё чисто"
+
+    if code == 3:
+        return False, str(payload.get("error") or "VPN ещё работает — убирать заглушки нельзя")
+    if outstanding:
+        return False, f"Остались маршруты ({len(outstanding)}) — нужен root"
+    return False, str(payload.get("error") or "не удалось убрать заглушки")
+
+
 def stop_zapret(cfg: Config, *, check: bool = True) -> tuple[int, str]:
     """Остановить zapret (root через helper; без root — честное сообщение)."""
 
