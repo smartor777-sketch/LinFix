@@ -109,7 +109,7 @@ class Ipv6BlackholeTests(unittest.TestCase):
             check = doctor._ipv6_blackhole_check()
         self.assertEqual(check.status, doctor.WARN)
         self.assertIn("3", check.details)
-        self.assertIn("blackhole-cleanup", check.hint)
+        self.assertIn("Убрать заглушки", check.hint)
 
     def test_blackholes_with_active_vpn(self) -> None:
         routes = "blackhole 2000::/4 dev lo metric 1024\n"
@@ -135,5 +135,68 @@ class Ipv6BlackholeTests(unittest.TestCase):
         with mock.patch.object(doctor.util, "run", side_effect=fake_run):
             check = doctor._ipv6_blackhole_check()
         self.assertEqual(check.status, doctor.WARN)
-        self.assertNotIn("blackhole-cleanup", check.hint)
+        self.assertNotIn("VPN", check.hint)
+
+
+
+class Ipv6HelpersTests(unittest.TestCase):
+    def test_routes_parsed(self) -> None:
+        out = (
+            "blackhole ::/1 dev lo metric 1024\n"
+            "fe80::/64 dev wlo1 proto kernel\n"
+            "blackhole 2000::/4 dev lo metric 1024\n"
+        )
+        with mock.patch.object(
+            doctor.util, "run", return_value=SimpleNamespace(stdout=out)
+        ):
+            routes = doctor.ipv6_blackhole_routes()
+        self.assertEqual(len(routes), 2)
+        self.assertTrue(routes[0].startswith("blackhole"))
+
+    def test_clear_removes_all(self) -> None:
+        calls: list[list[str]] = []
+        state = {"removed": 0}
+
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+            if argv[:3] == ["ip", "-6", "route"] and argv[3] == "del":
+                state["removed"] += 1
+                return SimpleNamespace(returncode=0, stdout="")
+            return SimpleNamespace(returncode=0, stdout="")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            removed, left = doctor.clear_ipv6_blackholes()
+        self.assertEqual(removed, len(doctor.IPV6_BLACKHOLE_ROUTES))
+        self.assertEqual(left, [])
+        self.assertEqual(state["removed"], len(doctor.IPV6_BLACKHOLE_ROUTES))
+
+    def test_vpn_process_detected(self) -> None:
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-brief", "link"]:
+                return SimpleNamespace(returncode=0, stdout="lo UNKNOWN\nwlo1 UP\n")
+            # pgrep: qeli найден
+            if argv[0] == "pgrep" and argv[-1] == "qeli":
+                return SimpleNamespace(returncode=0, stdout="1234\n")
+            return SimpleNamespace(returncode=1, stdout="")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            found = doctor.vpn_interfaces()
+        self.assertIn("qeli", found)
+
+    def test_vpn_active_blocks_removal_hint(self) -> None:
+        routes = "blackhole 2000::/4 dev lo metric 1024\n"
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(returncode=0, stdout=routes)
+            if argv[:3] == ["ip", "-brief", "link"]:
+                return SimpleNamespace(returncode=0, stdout="lo UNKNOWN\nvpn0 UP\n")
+            return SimpleNamespace(returncode=1, stdout="")
+
+        with mock.patch.object(doctor.util, "run", side_effect=fake_run):
+            check = doctor._ipv6_blackhole_check()
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertIn("VPN ещё работает", check.hint)
+        # Кнопку убирать нельзя: маршруты нужны активному VPN.
+        self.assertNotIn("Убрать заглушки", check.hint)
 

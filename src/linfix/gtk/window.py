@@ -60,6 +60,23 @@ _TAB_CSS = """
 .strategy-error {
     color: #e01b24;
 }
+
+/* Баннер проблемы вверху раздела «Диагностика». */
+.banner-error {
+    background-color: #fce8e6;
+    color: #a51d2d;
+    border: 1px solid #e01b24;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-weight: bold;
+}
+.banner-ok {
+    background-color: #e6f4ea;
+    color: #1e6b34;
+    border: 1px solid #26a269;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
 """
 
 

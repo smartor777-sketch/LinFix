@@ -20,6 +20,28 @@ class DoctorScreen:
         self.app = app
         self.box = common.screen_box(_("Диагностика"))
 
+        # --- Баннер проблемы: висячие IPv6-заглушки --------------------------
+        # Стоит выше таблиц: если весь IPv6 уходит в blackhole, остальные
+        # результаты проверок вводят в заблуждение, а причина — сверху.
+        self.banner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_bottom=6
+        )
+        # Скрыт до первого отчёта; флаг снимаем при показе, иначе
+        # show_all() не покажет виджет с no-show-all.
+        self.banner.set_no_show_all(True)
+        self.banner.set_visible(False)
+        self.banner_label = common.label("", wrap=True, css_class="banner-error")
+        self.banner_button = common.button(
+            _("Убрать заглушки"), lambda _: self.clear_ipv6_blackholes()
+        )
+        self.banner_buttons = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+        )
+        common.pack(self.banner_buttons, self.banner_button)
+        common.pack(self.banner, self.banner_label)
+        common.pack(self.banner, self.banner_buttons)
+        common.pack(self.box, self.banner)
+
         self.store = Gtk.ListStore(str, str, str, str)
         self.tree = common.table_from_store(
             self.store,
@@ -592,6 +614,7 @@ class DoctorScreen:
 
         def apply_report(report):
             self.last_report = report
+            self.refresh_banner(report)
             self.store.clear()
             for check in report.checks:
                 self.store.append(
@@ -604,6 +627,98 @@ class DoctorScreen:
                 )
 
         run_in_thread(job, on_done=apply_report)
+
+    # --- баннер висячих IPv6-заглушек ------------------------------------
+
+    def refresh_banner(self, report) -> None:
+        """Показать предупреждение, если весь IPv6 уходит в blackhole."""
+
+        check = next(
+            (c for c in report.checks if c.id == "ipv6.blackhole"), None
+        )
+        if check is None or check.status == "pass":
+            self._hide_banner()
+            return
+        if check.status != "warn":
+            self._hide_banner()
+            return
+
+        # VPN активен — убирать нельзя, баннер только поясняет.
+        if "VPN" in (check.hint or "") and "Убрать" not in (check.hint or ""):
+            self._show_banner(
+                _(
+                    "Обнаружены висячие IPv6-заглушки, но VPN ещё работает: "
+                    "маршруты нужны ему. Отключите VPN штатно — и раздел "
+                    "покажет, что делать дальше."
+                ),
+                button=False,
+            )
+            return
+
+        self._show_banner(
+            _(
+                "Обнаружены висячие IPv6-заглушки. Из-за них весь IPv6 "
+                "уходит в никуда: браузер пробует IPv6-адрес, ждёт таймаут "
+                "и только потом переходит на IPv4 — сайты кажутся "
+                "недоступными. Нажмите «Убрать заглушки»."
+            ),
+            button=True,
+        )
+
+    def _show_banner(self, text: str, *, button: bool) -> None:
+        self.banner_label.set_text(text)
+        self.banner_button.set_sensitive(button)
+        # Баннер создан с set_no_show_all(True): показываем явно.
+        self.banner.set_no_show_all(False)
+        self.banner.show_all()
+        self.banner_buttons.set_visible(button)
+
+    def _hide_banner(self) -> None:
+        self.banner.set_visible(False)
+
+    def clear_ipv6_blackholes(self) -> None:
+        """Убрать заглушки через helper; показать, что получилось."""
+
+        self.banner_button.set_sensitive(False)
+        self.banner_button.set_label(_("⏳ Убираю…"))
+
+        def job():
+            return api.clear_ipv6_blackholes()
+
+        def done(result) -> None:
+            ok, message = result
+            self.banner_button.set_sensitive(True)
+            self.banner_button.set_label(_("Убрать заглушки"))
+            if ok:
+                # Не красный баннер, а спокойное подтверждение.
+                self.banner_label.set_text(message)
+                self.banner_label.get_style_context().remove_class("banner-error")
+                self.banner_label.get_style_context().add_class("banner-ok")
+                self.banner.set_no_show_all(False)
+                self.banner.show_all()
+                self.banner_buttons.set_visible(False)
+                common.toast(self.app, message)
+                self.refresh()
+            else:
+                self.banner_label.set_text(message)
+                self.banner_label.get_style_context().remove_class("banner-ok")
+                self.banner_label.get_style_context().add_class("banner-error")
+                self.banner.set_no_show_all(False)
+                self.banner.show_all()
+                self.banner_buttons.set_visible(True)
+
+        run_in_thread(job, on_done=done, on_error=self._banner_failed)
+
+    def _banner_failed(self, exc: Exception) -> None:
+        self.banner_button.set_sensitive(True)
+        self.banner_button.set_label(_("Убрать заглушки"))
+        self.banner_label.set_text(
+            _("Не удалось убрать заглушки: {err}").format(err=exc)
+        )
+        self.banner_label.get_style_context().remove_class("banner-ok")
+        self.banner_label.get_style_context().add_class("banner-error")
+        self.banner.set_no_show_all(False)
+        self.banner.show_all()
 
     def copy_report(self) -> None:
         if self.last_report is None:
