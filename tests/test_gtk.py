@@ -612,3 +612,62 @@ class WindowTitleTests(unittest.TestCase):
         window.set_page("status")
         self.assertEqual(window.get_title(), f"LinFix v{version} — Статус")
         window.destroy()
+
+
+class StatusBlackholeTests(unittest.TestCase):
+    """Висячие IPv6-заглушки видны на «Статусе» с кнопкой сброса."""
+
+    def test_block_hidden_when_clean(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        screen._show_blackholes([], [])
+        self.assertFalse(screen.blackhole_box.get_visible())
+        app.window.destroy()
+
+    def test_block_shows_with_button(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        routes = ["blackhole ::/1", "blackhole 2000::/4"]
+        screen._show_blackholes(routes, [])
+        self.assertTrue(screen.blackhole_box.get_visible())
+        self.assertIn("2", screen.blackhole_label.get_text())
+        self.assertTrue(screen.blackhole_button.get_visible())
+        self.assertEqual(screen.blackhole_button.get_label(), "Убрать заглушки")
+        app.window.destroy()
+
+    def test_no_button_when_vpn_active(self) -> None:
+        """Пока VPN работает, маршруты нужны ему — кнопку не показываем."""
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        screen._show_blackholes(["blackhole 2000::/4"], ["qeli"])
+        self.assertTrue(screen.blackhole_box.get_visible())
+        self.assertIn("VPN", screen.blackhole_label.get_text())
+        self.assertFalse(screen.blackhole_button.get_visible())
+        app.window.destroy()
+
+    def test_block_sits_between_check_result_and_cards(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        children = screen.box.get_children()
+        self.assertLess(
+            children.index(screen.check_result_box),
+            children.index(screen.blackhole_box),
+        )
+        self.assertLess(
+            children.index(screen.blackhole_box),
+            children.index(screen.zapret_card),
+        )
+        app.window.destroy()
