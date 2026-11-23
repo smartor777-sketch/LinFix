@@ -140,47 +140,88 @@ class ProfileBackupTests(unittest.TestCase):
         self.assertNotIn("ipset/zapret-hosts-rut.txt", meta["files"])
 
 
-class InstalledMarkerTests(unittest.TestCase):
+class VersionParseTests(unittest.TestCase):
+    def test_tuple(self) -> None:
+        self.assertEqual(updates._version_tuple("v1.0.7"), (1, 0, 7))
+        self.assertEqual(updates._version_tuple("v1.0.5.2"), (1, 0, 5, 2))
+        self.assertEqual(updates._version_tuple("1.2"), (1, 2))
+
+    def test_newer(self) -> None:
+        self.assertTrue(updates._is_newer("v1.0.7", "v1.0.6"))
+        self.assertTrue(updates._is_newer("v1.0.10", "v1.0.9"))
+        self.assertFalse(updates._is_newer("v1.0.6", "v1.0.7"))
+        self.assertFalse(updates._is_newer("v1.0.6", "v1.0.6"))
+        self.assertFalse(updates._is_newer(None, "v1.0.6"))
+
+    def test_newer_when_nothing_installed(self) -> None:
+        self.assertTrue(updates._is_newer("v1.0.7", None))
+
+
+class InstalledVersionTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
 
-    def test_marker_from_binary(self) -> None:
-        (self.root / "nfq2").mkdir()
-        binary = self.root / "nfq2" / "nfqws2"
-        binary.write_text("x")
-        marker = updates.installed_zapret_marker(self.root)
-        self.assertIsNotNone(marker)
-        self.assertIn("-", marker or "")
+    def test_reads_version_file(self) -> None:
+        version_file = self.root / "zapret-version"
+        version_file.write_text("v1.0.7\n", encoding="utf-8")
+        with mock.patch.object(updates, "ZAPRET_VERSION_FILE", version_file):
+            self.assertEqual(updates.installed_zapret_version(), "v1.0.7")
 
-    def test_marker_missing(self) -> None:
-        self.assertIsNone(updates.installed_zapret_marker(self.root))
+    def test_falls_back_to_binary(self) -> None:
+        """Если файла версии нет — парсим вывод nfqws2 --version."""
 
+        version_file = self.root / "missing"
+        install = self.root / "zapret2"
+        (install / "nfq2").mkdir(parents=True)
+        binary = install / "nfq2" / "nfqws2"
+        binary.write_text("")
 
-class CompareZapretTests(unittest.TestCase):
-    def test_new_commit_after_install(self) -> None:
-        installed = (utc_now() - timedelta(days=10)).isoformat()
-        remote = updates.Remote(
-            zapret_commit="4362c83a",
-            zapret_date=utc_now().isoformat().replace("+00:00", "Z"),
-            tgws_tag="v1.12.0",
-        )
-        with mock.patch.object(updates, "installed_zapret_marker", return_value=installed):
+        from types import SimpleNamespace
+
+        def fake_run(argv, **kwargs):
+            if argv and str(argv[0]).endswith("nfqws2"):
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout="github version v1.0.6 (abc) lua_compat_ver 6\n",
+                    stderr="",
+                )
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        info = SimpleNamespace(found=True, install_dir=str(install))
+        with mock.patch.object(updates, "ZAPRET_VERSION_FILE", version_file):
+            with mock.patch.object(updates.zapret, "detect_zapret", return_value=info):
+                with mock.patch.object(updates.util, "run", side_effect=fake_run):
+                    self.assertEqual(updates.installed_zapret_version(), "v1.0.6")
+
+    def test_none_when_absent(self) -> None:
+        from types import SimpleNamespace
+
+        with mock.patch.object(updates, "ZAPRET_VERSION_FILE", self.root / "no"):
             with mock.patch.object(
-                updates.tgws, "is_installed", return_value=False
+                updates.zapret, "detect_zapret",
+                return_value=SimpleNamespace(found=False, install_dir=None),
             ):
+                self.assertIsNone(updates.installed_zapret_version())
+
+
+class CompareWithReleaseTests(unittest.TestCase):
+    def test_newer_release(self) -> None:
+        remote = updates.Remote(zapret_tag="v1.0.7", tgws_tag="v1.12.0")
+        with mock.patch.object(
+            updates, "installed_zapret_version", return_value="v1.0.6"
+        ):
+            with mock.patch.object(updates.tgws, "is_installed", return_value=False):
                 found = updates.compare(remote)
         self.assertTrue(found.has_zapret)
-        self.assertEqual(found.zapret_new, "4362c83a")
+        self.assertEqual(found.zapret_new, "v1.0.7")
 
-    def test_old_commit_is_not_update(self) -> None:
-        installed = utc_now().isoformat()
-        remote = updates.Remote(
-            zapret_commit="aaa",
-            zapret_date=(utc_now() - timedelta(days=5)).isoformat().replace("+00:00", "Z"),
-        )
-        with mock.patch.object(updates, "installed_zapret_marker", return_value=installed):
+    def test_same_release_is_not_update(self) -> None:
+        remote = updates.Remote(zapret_tag="v1.0.7", tgws_tag="v1.12.0")
+        with mock.patch.object(
+            updates, "installed_zapret_version", return_value="v1.0.7"
+        ):
             with mock.patch.object(updates.tgws, "is_installed", return_value=False):
                 found = updates.compare(remote)
         self.assertFalse(found.has_zapret)
@@ -188,3 +229,61 @@ class CompareZapretTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UpdateZapretUsesHelperTests(unittest.TestCase):
+    """Бэкап пишется в /var/lib — значит только через helper, не напрямую.
+
+    Прямой вызов падал с PermissionError, и пользователь видел в GUI
+    «Не удалось обновить zapret2 — отказано в доступе».
+    """
+
+    def test_backup_goes_through_helper(self) -> None:
+        from types import SimpleNamespace
+        from linfix import api
+
+        calls: list[tuple[str, list[str]]] = []
+
+        def fake_helper(action, args, **kwargs):
+            calls.append((action, list(args)))
+            if action == "zapret.save_profile":
+                return 0, {"ok": True, "files": ["config"], "install_dir": "/x"}
+            if action == "zapret.install_easy":
+                return 0, {"ok": True}
+            if action == "zapret.restore_profile":
+                return 0, {"ok": True, "restored": ["config"]}
+            return 0, {"ok": True}
+
+        with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
+            with mock.patch.object(api, "restart_zapret", return_value=0):
+                code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
+
+        actions = [action for action, _ in calls]
+        self.assertIn("zapret.save_profile", actions)
+        self.assertIn("zapret.restore_profile", actions)
+        # Бэкап обязан идти ДО установки, иначе сохранять будет нечего.
+        self.assertLess(
+            actions.index("zapret.save_profile"),
+            actions.index("zapret.install_easy"),
+        )
+        self.assertLess(
+            actions.index("zapret.install_easy"),
+            actions.index("zapret.restore_profile"),
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(payload.get("ok"))
+
+    def test_save_profile_failure_stops_update(self) -> None:
+        from linfix import api
+
+        def fake_helper(action, args, **kwargs):
+            if action == "zapret.save_profile":
+                return 5, {"ok": False, "error": "нет прав на /var/lib"}
+            raise AssertionError("после неудачного бэкапа установку начинать нельзя")
+
+        with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
+            code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
+
+        self.assertEqual(code, api.EXIT_NO_RIGHTS)
+        self.assertFalse(payload.get("ok"))
+        self.assertIn("нет прав", str(payload.get("error")))

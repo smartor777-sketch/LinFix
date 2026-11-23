@@ -19,7 +19,9 @@ from . import state, tgws, util, zapret
 
 #: Репозиторий zapret2 для проверки новых коммитов.
 ZAPRET_REPO = "bol-van/zapret2"
-ZAPRET_COMMITS_API = f"https://api.github.com/repos/{ZAPRET_REPO}/commits?per_page=1"
+#: У zapret2 бинарники есть ТОЛЬКО в релизах (в git-архиве лишь readme.txt),
+#: поэтому сравниваем теги релизов, а не коммиты master.
+ZAPRET_RELEASE_API = f"https://api.github.com/repos/{ZAPRET_REPO}/releases/latest"
 
 #: Каталог, где лежат копии нашего конфига и списков (нужен root).
 BACKUP_DIR = Path("/var/lib/linfix/zapret-profile")
@@ -47,8 +49,10 @@ class UpdateError(util.NetfixError):
 class Remote:
     """Что доступно в upstream."""
 
-    zapret_commit: str | None = None
-    zapret_date: str | None = None
+    zapret_tag: str | None = None
+    zapret_asset: str | None = None
+    zapret_asset_url: str | None = None
+    zapret_asset_sha256: str | None = None
     tgws_tag: str | None = None
 
 
@@ -99,23 +103,36 @@ def _github_json(url: str, *, timeout: float = 20.0) -> object:
 def fetch_remote(*, timeout: float = 20.0) -> Remote:
     """Узнать последний коммит zapret2 и последний релиз TgWsProxy."""
 
-    zapret_commit: str | None = None
-    zapret_date: str | None = None
+    zapret_tag: str | None = None
+    zapret_asset: str | None = None
+    zapret_url: str | None = None
+    zapret_sha: str | None = None
     try:
-        commits = _github_json(ZAPRET_COMMITS_API, timeout=timeout)
-        if isinstance(commits, list) and commits:
-            first = commits[0]
-            if isinstance(first, dict):
-                zapret_commit = str(first.get("sha") or "")[:8] or None
-                commit = first.get("commit")
-                if isinstance(commit, dict):
-                    committer = commit.get("committer")
-                    if isinstance(committer, dict):
-                        stamp = committer.get("date")
-                        if isinstance(stamp, str):
-                            zapret_date = stamp
+        release = _github_json(ZAPRET_RELEASE_API, timeout=timeout)
+        if isinstance(release, dict):
+            tag = release.get("tag_name")
+            if isinstance(tag, str):
+                zapret_tag = tag
+            assets = release.get("assets")
+            if isinstance(assets, list):
+                for asset in assets:
+                    if not isinstance(asset, dict):
+                        continue
+                    name = str(asset.get("name") or "")
+                    # Нужен обычный релизный архив: «zapret2-vX.Y.Z.tar.gz».
+                    # openwrt-embedded, .zip и sha256sum.txt не подходят.
+                    if not (name.startswith("zapret2-v") and name.endswith(".tar.gz")):
+                        continue
+                    if "openwrt" in name:
+                        continue
+                    dig = asset.get("digest")
+                    if isinstance(dig, str) and dig.startswith("sha256:"):
+                        zapret_sha = dig.split(":", 1)[1].lower()
+                    zapret_url = str(asset.get("browser_download_url") or "")
+                    zapret_asset = name
+                    break
     except UpdateError:
-        zapret_commit = None
+        zapret_tag = None
 
     tgws_tag: str | None = None
     try:
@@ -123,61 +140,77 @@ def fetch_remote(*, timeout: float = 20.0) -> Remote:
     except tgws.TgwsError:
         tgws_tag = None
 
-    if not zapret_commit and not tgws_tag:
+    if not zapret_tag and not tgws_tag:
         raise UpdateError("не удалось получить сведения об обновлениях")
     return Remote(
-        zapret_commit=zapret_commit,
-        zapret_date=zapret_date,
+        zapret_tag=zapret_tag,
+        zapret_asset=zapret_asset,
+        zapret_asset_url=zapret_url,
+        zapret_asset_sha256=zapret_sha,
         tgws_tag=tgws_tag,
     )
 
 
-def installed_zapret_marker(install_dir: str | Path | None = None) -> str | None:
-    """Отпечаток установленного zapret2.
+#: Файл, куда LinFix записывает установленную версию zapret2.
+ZAPRET_VERSION_FILE = Path("/var/lib/linfix/zapret-version")
 
-    Upstream не публикует релизы, поэтому сравниваем по времени установки
-    бинарника: если последний коммит новее — считаем, что вышло обновление.
-    Возвращаем ISO-дату установки бинарника.
+
+def installed_zapret_version() -> str | None:
+    """Версия установленного zapret2.
+
+    Берём из файла, который пишет установщик LinFix. Если файла нет
+    (zapret ставился вручную) — спрашиваем сам бинарник: он печатает
+    ``github version v1.0.6 (...)``.
     """
 
-    base = Path(install_dir) if install_dir else None
-    if base is None:
-        info = zapret.detect_zapret("zapret2")
-        if not info.found or not info.install_dir:
-            return None
-        base = Path(info.install_dir)
-    candidates = [base / "nfq2" / "nfqws2", base / "binaries"]
-    for path in candidates:
-        if path.exists():
-            return datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(
-                timespec="seconds"
-            )
+    try:
+        recorded = ZAPRET_VERSION_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        recorded = ""
+    if recorded:
+        return recorded
+
+    info = zapret.detect_zapret("zapret2")
+    if not info.found or not info.install_dir:
+        return None
+    binary = Path(info.install_dir) / "nfq2" / "nfqws2"
+    if not binary.exists():
+        return None
+    completed = util.run([str(binary), "--version"], check=False, timeout=10)
+    text = (completed.stdout or "").strip()
+    # «github version v1.0.6 (221d7dff...) lua_compat_ver 6»
+    for token in text.split():
+        if token.startswith("v") and token[1:2].isdigit():
+            return token
     return None
+
+
+def _version_tuple(tag: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for chunk in tag.lstrip("v").split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _is_newer(candidate: str | None, current: str | None) -> bool:
+    if not candidate:
+        return False
+    if not current:
+        return True
+    return _version_tuple(candidate) > _version_tuple(current)
 
 
 def compare(remote: Remote, *, cfg_state: state.State | None = None) -> Found:
     current_state = cfg_state or state.load_state()
-    zapret_installed = installed_zapret_marker()
+    zapret_current = installed_zapret_version()
     tgws_current = current_state.tgws_version
     if tgws_current is None and tgws.is_installed():
         tgws_current = "неизвестно"
 
-    zapret_new: str | None = None
-    if remote.zapret_commit and remote.zapret_date and zapret_installed:
-        try:
-            installed_at = datetime.fromisoformat(zapret_installed)
-            remote_at = datetime.fromisoformat(
-                remote.zapret_date.replace("Z", "+00:00")
-            )
-        except ValueError:
-            installed_at = remote_at = None  # type: ignore[assignment]
-        if installed_at is not None and remote_at is not None:
-            if remote_at > installed_at + timedelta(minutes=5):
-                zapret_new = remote.zapret_commit
-
     return Found(
-        zapret_current=(zapret_installed or "")[:10] or None,
-        zapret_new=zapret_new,
+        zapret_current=zapret_current,
+        zapret_new=remote.zapret_tag if _is_newer(remote.zapret_tag, zapret_current) else None,
         tgws_current=tgws_current,
         tgws_new=remote.tgws_tag,
         checked_at=datetime.now().astimezone().isoformat(timespec="seconds"),

@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import signal
 import sys
 import time
@@ -499,6 +500,245 @@ def action_zapret_stop(args: argparse.Namespace) -> tuple[int, dict[str, object]
     return (0 if payload["ok"] else 5), payload
 
 
+#: Что обновляем из архива. Конфиг и наши списки сюда НЕ входят:
+#: их нельзя затирать — там профили CF/rutracker и домены пользователя.
+ARCHIVE_COPY = (
+    "binaries",
+    "lua",
+    "blockcheck2.sh",
+    "blockcheck2.d",
+    "common",
+    "init.d",
+    "ip2net",
+    "mdig",
+    "nfq2",
+    "files",
+    "docs",
+    "Makefile",
+    "install_bin.sh",
+    "install_easy.sh",
+)
+
+ZAPRET_RELEASE_ASSET = (
+    "https://github.com/bol-van/zapret2/releases/latest/download/{asset}"
+)
+ZAPRET_VERSION_FILE = Path("/var/lib/linfix/zapret-version")
+
+
+def _update_zapret_from_release(
+    service: str, target: Path, args: argparse.Namespace
+) -> tuple[int, dict[str, object]]:
+    """Обновить zapret2 из релизного архива GitHub.
+
+    Почему релиз, а не git: в git-архиве zapret2 бинарников нет (только
+    ``binaries/readme.txt`` — «бинарники только в релизах»). Релизный
+    ``zapret2-vX.Y.Z.tar.gz`` содержит готовые `nfqws2`, `ip2net`, `mdig`.
+
+    Конфиг и наши списки не копируются: там профили CF/rutracker и домены
+    пользователя.
+    """
+
+    import tarfile
+    import tempfile
+    import urllib.request
+
+    asset = getattr(args, "asset", "") or ""
+    url = getattr(args, "asset_url", "") or (
+        ZAPRET_RELEASE_ASSET.format(asset=asset) if asset else ""
+    )
+    if not url:
+        return 5, {"ok": False, "error": "не указан релизный архив zapret2"}
+
+    tmp = Path(tempfile.mkdtemp(prefix="zapret-update-"))
+    try:
+        archive = tmp / "zapret.tar.gz"
+        request = urllib.request.Request(url, headers={"User-Agent": "linfix"})
+        try:
+            with urllib.request.urlopen(request, timeout=args.timeout) as response:
+                archive.write_bytes(response.read())
+        except Exception as exc:  # noqa: BLE001
+            return 5, {"ok": False, "error": f"не удалось скачать архив zapret2: {exc}"}
+
+        expected = getattr(args, "asset_sha256", "") or ""
+        if expected:
+            import hashlib
+
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if digest != expected.lower():
+                return 5, {
+                    "ok": False,
+                    "error": f"контрольная сумма не совпала: {digest[:16]}…",
+                }
+
+        try:
+            with tarfile.open(archive) as tar:
+                tar.extractall(tmp, filter="data")
+        except Exception as exc:  # noqa: BLE001
+            return 5, {"ok": False, "error": f"не удалось распаковать архив: {exc}"}
+
+        roots = [item for item in tmp.iterdir() if item.is_dir()]
+        if not roots:
+            return 5, {"ok": False, "error": "в архиве нет каталога с исходниками"}
+        source_root = roots[0]
+
+        # Бинарники работают, и ядро не даёт перезаписать занятый файл
+        # («Text file busy»). Останавливаем службу на время замены.
+        was_active = (
+            util.run(["systemctl", "is-active", service], check=False, timeout=10).stdout or ""
+        ).strip() == "active"
+        if was_active:
+            util.run(["systemctl", "stop", service], check=False, timeout=60)
+
+        copied: list[str] = []
+        try:
+            for name in ARCHIVE_COPY:
+                src = source_root / name
+                if not src.exists():
+                    continue
+                dst = target / name
+                if src.is_dir():
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                copied.append(name)
+        except OSError as exc:
+            # Не оставляем zapret выключенным, если копирование сорвалось.
+            if was_active:
+                util.run(["systemctl", "start", service], check=False, timeout=60)
+            return 5, {"ok": False, "error": f"не удалось заменить файлы: {exc}"}
+
+        installed = util.run(
+            ["sh", str(target / "install_bin.sh")],
+            check=False,
+            timeout=180,
+            env={
+                **os.environ,
+                "ZAPRET_BASE": str(target),
+                "ZAPRET_TARGET": str(target),
+                "ZAPRET_TARGET_RW": str(target),
+            },
+        )
+        output = ((installed.stdout or "") + (installed.stderr or "")).strip()
+
+        version = getattr(args, "zapret_version", "") or ""
+        if version:
+            try:
+                ZAPRET_VERSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+                ZAPRET_VERSION_FILE.write_text(version + "\n", encoding="utf-8")
+            except OSError as exc:
+                return 5, {"ok": False, "error": f"не удалось записать версию: {exc}"}
+
+        restarted = util.run(["systemctl", "restart", service], check=False, timeout=60)
+        state = util.run(["systemctl", "is-active", service], check=False, timeout=10)
+        active = (state.stdout or "").strip() == "active"
+
+        payload: dict[str, object] = {
+            "ok": restarted.returncode == 0 and active,
+            "service": service,
+            "target": str(target),
+            "method": "release",
+            "version": version,
+            "copied": copied,
+            "active": active,
+            "output": output[-2000:],
+        }
+        if not payload["ok"]:
+            payload["error"] = f"{service} не поднялся после обновления"
+        return (0 if payload["ok"] else 5), payload
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _update_zapret_sources(
+    service: str, target: Path, url: str, args: argparse.Namespace
+) -> tuple[int, dict[str, object]]:
+    """Обновить исходники и бинарники zapret, не трогая config.
+
+    ``install_easy.sh`` для уже установленного zapret запускать нельзя: он
+    интерактивен и перезапишет ``config``. Поэтому обновляем только то, что
+    относится к коду: подтягиваем git-репозиторий, копируем бинарники и
+    перезапускаем службу. Конфиг остаётся наш, а бэкап на всякий случай
+    делает вызывающая сторона.
+    """
+
+    if not (target / ".git").is_dir():
+        # Установка сделана копированием (без git) — берём релизный архив.
+        return _update_zapret_from_release(service, target, args)
+
+    # Обновляем исходники. --depth 1 не даёт сделать fetch полноценно,
+    # поэтому при неудаче пересоздаём мелкий клон.
+    before = util.run(
+        ["git", "-C", str(target), "rev-parse", "--short", "HEAD"],
+        check=False,
+        timeout=20,
+    )
+    before_sha = (before.stdout or "").strip()
+
+    fetched = util.run(
+        ["git", "-C", str(target), "fetch", "--depth", "1", "origin"],
+        check=False,
+        timeout=args.timeout,
+    )
+    if fetched.returncode != 0:
+        detail = ((fetched.stderr or "") + (fetched.stdout or "")).strip()[-800:]
+        return 5, {"ok": False, "error": f"git fetch не удался: {detail or 'ошибка'}"}
+
+    reset = util.run(
+        ["git", "-C", str(target), "reset", "--hard", "FETCH_HEAD"],
+        check=False,
+        timeout=120,
+    )
+    if reset.returncode != 0:
+        detail = ((reset.stderr or "") + (reset.stdout or "")).strip()[-800:]
+        return 5, {"ok": False, "error": f"git reset не удался: {detail or 'ошибка'}"}
+
+    after = util.run(
+        ["git", "-C", str(target), "rev-parse", "--short", "HEAD"],
+        check=False,
+        timeout=20,
+    )
+    after_sha = (after.stdout or "").strip()
+
+    # install_bin.sh кладёт свежие ip2net/mdig/nfqws2 из binaries/ в корень.
+    installed = util.run(
+        ["sh", str(target / "install_bin.sh")],
+        check=False,
+        timeout=180,
+        env={
+            **os.environ,
+            "ZAPRET_BASE": str(target),
+            "ZAPRET_TARGET": str(target),
+            "ZAPRET_TARGET_RW": str(target),
+        },
+    )
+    output = ((installed.stdout or "") + (installed.stderr or "")).strip()
+    if installed.returncode != 0:
+        return 5, {
+            "ok": False,
+            "error": f"install_bin.sh завершился с кодом {installed.returncode}",
+            "output": output[-2000:],
+        }
+
+    restarted = util.run(["systemctl", "restart", service], check=False, timeout=60)
+    state = util.run(["systemctl", "is-active", service], check=False, timeout=10)
+    active = (state.stdout or "").strip() == "active"
+
+    payload: dict[str, object] = {
+        "ok": restarted.returncode == 0 and active,
+        "service": service,
+        "target": str(target),
+        "before": before_sha,
+        "after": after_sha,
+        "updated": before_sha != after_sha,
+        "active": active,
+        "output": output[-2000:],
+    }
+    if not payload["ok"]:
+        payload["error"] = f"{service} не поднялся после обновления"
+    return (0 if payload["ok"] else 5), payload
+
+
 def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
     """Установить zapret из git-репозитория: clone + install_easy.sh.
 
@@ -510,6 +750,9 @@ def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str,
     url = validate_source_url(args.git_url or DEFAULT_ZAPRET2_GIT_URL)
     target = Path("/opt/zapret2" if service == "zapret2" else "/opt/zapret")
     installer = target / "install_easy.sh"
+
+    if getattr(args, "update", False):
+        return _update_zapret_sources(service, target, url, args)
 
     cloned = False
     if not installer.is_file():
@@ -1021,6 +1264,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--url", default="", help="URL бинарника для tgws.install")
     parser.add_argument("--git-url", default="", help="git-репозиторий zapret для zapret.install_easy")
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="обновить существующую установку zapret (исходники и бинарники)",
+    )
+    parser.add_argument("--asset", default="", help="имя релизного архива zapret2")
+    parser.add_argument("--asset-url", default="", help="прямая ссылка на архив")
+    parser.add_argument("--zapret-version", default="", help="версия zapret2 для записи")
+    parser.add_argument("--asset-sha256", default="", help="ожидаемая sha256 архива zapret2")
     parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
     parser.add_argument("--version", default="", help="версия TgWsProxy")
     parser.add_argument("--dest", default=str(tgws.BINARY), help="куда установить бинарник")
