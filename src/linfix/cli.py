@@ -889,6 +889,39 @@ def cmd_profile_clear(cfg: Config, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def cmd_net_show(cfg: Config, args: argparse.Namespace) -> int:
+    """Показать висячие IPv6-заглушки (маршруты blackhole)."""
+
+    from . import doctor
+
+    routes = doctor.ipv6_blackhole_routes()
+    tunnel = doctor.vpn_interfaces()
+    if not routes:
+        print("IPv6-заглушек нет — чисто")
+        return EXIT_OK
+    print(f"Висячих маршрутов-заглушек: {len(routes)}")
+    for line in routes:
+        print(f"  {line}")
+    if tunnel:
+        print(f"VPN активен ({', '.join(tunnel)}) — маршруты нужны ему")
+    else:
+        print("Убрать: linfix net cleanup")
+    return EXIT_OK
+
+
+def cmd_net_cleanup(cfg: Config, args: argparse.Namespace) -> int:
+    """Убрать висячие IPv6-заглушки через helper."""
+
+    from . import api
+
+    ok, message = api.clear_ipv6_blackholes()
+    if getattr(args, "json", False):
+        print(json.dumps({"ok": ok, "message": message}, ensure_ascii=False))
+    else:
+        print(message if ok else f"ОШИБКА: {message}")
+    return EXIT_OK if ok else EXIT_ERROR
+
+
 def cmd_guard(cfg: Config, args: argparse.Namespace) -> int:
     if args.state == "check":
         report = guard.check_guard(
@@ -1357,6 +1390,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--dry-run", action="store_true", help="показать план")
     p_setup.add_argument("--no-zapret-install", action="store_true")
 
+    p_net = sub.add_parser("net", help="сетевые заглушки VPN")
+    net_sub = p_net.add_subparsers(dest="net_command", required=True)
+    p_net_clean = net_sub.add_parser(
+        "cleanup", help="убрать висячие IPv6-заглушки (blackhole)"
+    )
+    p_net_clean.add_argument("--json", action="store_true", help="JSON для GUI")
+    net_sub.add_parser("show", help="показать висячие IPv6-заглушки")
+
     p_guard = sub.add_parser("guard", help="управление guard")
     p_guard.add_argument("state", choices=["check", "status", "on", "off"])
     p_guard.add_argument("--json", action="store_true", help="JSON для GUI")
@@ -1435,6 +1476,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_update(cfg, args)
         if args.command == "setup":
             return cmd_setup(cfg, args)
+        if args.command == "net":
+            if args.net_command == "cleanup":
+                return cmd_net_cleanup(cfg, args)
+            return cmd_net_show(cfg, args)
         if args.command == "guard":
             return cmd_guard(cfg, args)
         if args.command == "profile":
