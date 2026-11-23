@@ -626,7 +626,11 @@ def cmd_tgws_install(cfg: Config, args: argparse.Namespace) -> int:
         unit_path, unit_changed = tgws.install_user_unit(
             cfg.tgws.binary, mode=mode, data=mode_data
         )
-        unit_result = tgws.enable_user_unit(start=not args.no_start)
+        # Перезапуск, а не start: start не трогает уже работающий процесс,
+        # и после обновления в памяти остался бы старый бинарник.
+        unit_result = tgws.enable_user_unit(
+            start=not args.no_start, restart=True
+        )
 
     result = {
         **payload,
