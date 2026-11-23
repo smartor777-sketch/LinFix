@@ -5,7 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from linfix import netdiag
+from linfix import blockcheck, netdiag
+from pathlib import Path
 
 
 def _report(**kwargs) -> netdiag.NetReport:
@@ -315,3 +316,43 @@ class ParallelTests(unittest.TestCase):
 
         env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", repeats=0)
         self.assertEqual(env["REPEATS"], "1")
+
+
+class FastSkipTests(unittest.TestCase):
+    """Быстрый режим отключает заведомо неприменимые семейства."""
+
+    def test_fast_sets_notest_flags(self) -> None:
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", fast=True)
+        self.assertEqual(env["ENABLE_HTTP"], "0", "HTTP-ветки не нужны для CF")
+        for name in blockcheck.FAST_SKIP:
+            self.assertEqual(env.get(f"NOTEST_{name}"), "1", name)
+
+    def test_full_mode_has_no_notest(self) -> None:
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", fast=False)
+        self.assertEqual(env["ENABLE_HTTP"], "1")
+        self.assertEqual([k for k in env if k.startswith("NOTEST_")], [])
+
+    def test_keeps_tls_fake_family(self) -> None:
+        """fake, multisplit, seqovl и прочие рабочие семейства не отключены."""
+
+        env = blockcheck.build_env("/opt/zapret2", ["a.org"], "quick", fast=True)
+        for name in ("FAKE_HTTPS", "FAKE_MULTI_HTTPS", "FAKE_FAKED_HTTPS"):
+            self.assertNotIn(f"NOTEST_{name}", env)
+
+    def test_run_blockcheck_passes_fast(self) -> None:
+        calls: dict[str, object] = {}
+
+        def fake_build_env(install_dir, domains, level, **kwargs):
+            calls.update(kwargs)
+            return {}
+
+        with mock.patch.object(blockcheck, "build_env", side_effect=fake_build_env):
+            with mock.patch.object(blockcheck, "script_path") as sp:
+                sp.return_value = Path(__file__)
+                try:
+                    blockcheck.run_blockcheck(
+                        "/opt/zapret2", domains=["a.org"], timeout=1, fast=False
+                    )
+                except Exception:
+                    pass
+        self.assertEqual(calls.get("fast"), False)

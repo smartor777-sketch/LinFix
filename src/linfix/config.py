@@ -66,6 +66,10 @@ class BlockcheckConfig:
     """Домены для подбора стратегий через blockcheck2."""
 
     domains: tuple[str, ...] = ("rutracker.org", "telegram.org")
+    #: Быстрый отсев: только TLS и только применимые для CF семейства.
+    #: Без него прогон на одном домене упирается в таймаут (замерено 25 мин,
+    #: 0 найденных стратегий). ``False`` возвращает полный перебор.
+    fast: bool = True
 
     @property
     def effective_domains(self) -> tuple[str, ...]:
@@ -325,7 +329,10 @@ def load_config(path: str | Path | None = None) -> Config:
                 blockcheck_domains = cleaned
             else:
                 warnings.append("[blockcheck] domains: пустой список — берутся значения по умолчанию")
-    blockcheck = BlockcheckConfig(domains=blockcheck_domains)
+    blockcheck_fast = _get_typed(
+        blockcheck_raw, "blockcheck", "fast", blockcheck_defaults.fast, warnings
+    )
+    blockcheck = BlockcheckConfig(domains=blockcheck_domains, fast=bool(blockcheck_fast))
 
     profiles = ProfilesConfig(
         enabled=_get_typed(profiles_raw, "profiles", "enabled", profiles_defaults.enabled, warnings),

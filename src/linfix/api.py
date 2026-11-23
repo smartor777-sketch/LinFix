@@ -1340,6 +1340,7 @@ def pick_strategy(
         "--timeout",
         str(timeout),
     ]
+    args.extend(["--fast", "on" if cfg.blockcheck.fast else "off"])
     selected = list(domains) if domains else list(cfg.blockcheck.effective_domains)
     for domain in selected:
         args.extend(["--domain", domain])
