@@ -85,6 +85,11 @@ _TAB_CSS = """
     font-weight: bold;
 }
 /* Результат проверки обновлений под кнопкой. */
+/* Время последней проверки — приглушённо, это не результат. */
+.check-time {
+    color: #6c6c6c;
+    font-size: 90%;
+}
 .check-ok {
     color: #1e6b34;
     font-weight: bold;

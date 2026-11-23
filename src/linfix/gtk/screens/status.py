@@ -194,6 +194,9 @@ class StatusScreen:
         if not quiet:
             self.check_button.set_sensitive(False)
             self.check_button.set_label(_("⏳ Проверяю…"))
+        # Результат на этот момент неизвестен — не показываем старый кэш
+        # как свежий ответ.
+        self._show_checking()
 
         def job():
             return api.check_updates()
@@ -248,6 +251,17 @@ class StatusScreen:
         self.update_tgws_button.set_visible(found.has_tgws)
         self.update_buttons.set_visible(found.has_zapret or found.has_tgws)
 
+    def _show_checking(self) -> None:
+        """Пока идёт проверка — честно пишем, что результат ещё неизвестен."""
+
+        for child in self.check_result_box.get_children():
+            self.check_result_box.remove(child)
+            child.destroy()
+        line = common.label(_("⏳ Проверяю обновления…"), wrap=True)
+        self.check_result_box.pack_start(line, False, False, 0)
+        self.check_result_box.set_no_show_all(False)
+        self.check_result_box.show_all()
+
     def _show_check_result(self, found) -> None:
         """Отчёт под кнопкой: по каждому компоненту, есть ли обновление.
 
@@ -264,6 +278,16 @@ class StatusScreen:
         if not lines:
             self.check_result_box.set_visible(False)
             return
+
+        stamp = found.checked_display()
+        if stamp:
+            # Проверка была не сейчас: честно указываем время, иначе строки
+            # выглядят как только что полученный результат.
+            header = common.label(
+                _("Проверено {when}").format(when=stamp), wrap=True
+            )
+            header.get_style_context().add_class("check-time")
+            self.check_result_box.pack_start(header, False, False, 0)
 
         for text, has_update in lines:
             line = common.label(
@@ -351,12 +375,13 @@ class StatusScreen:
             )
 
     def maybe_check_updates(self) -> None:
-        """Фоновая проверка раз в сутки: тихо, только если есть новое."""
+        """Проверка обновлений при открытии экрана.
 
-        if not updates.is_due():
-            # Кэш свежий — показываем сохранённый результат без сети.
-            self.apply_updates(updates.load_found(), quiet=True)
-            return
+        Проверяем по-настоящему: на момент запуска версии ещё неизвестны, и
+        показывать «обновлений нет» из кэша было бы обманом. Один запрос к
+        GitHub на запуск — незначительная нагрузка, зато ответ честный.
+        """
+
         self.check_updates(quiet=True)
 
     def _telegram_settings(self) -> dict[str, str]:

@@ -338,3 +338,70 @@ class ReportLinesTests(unittest.TestCase):
         lines = found.report_lines()
         self.assertIn("не установлен", lines[0][0])
         self.assertIn("не установлен", lines[1][0])
+
+
+class CheckedDisplayTests(unittest.TestCase):
+    def test_format(self) -> None:
+        found = updates.Found(checked_at="2026-11-23T18:56:43+03:00")
+        self.assertEqual(found.checked_display(), "23.11 18:56")
+
+    def test_empty_when_never_checked(self) -> None:
+        self.assertEqual(updates.Found().checked_display(), "")
+
+    def test_bad_value(self) -> None:
+        self.assertEqual(updates.Found(checked_at="не дата").checked_display(), "")
+
+
+class StartCheckShowsPendingTests(unittest.TestCase):
+    """При открытии экрана нельзя сразу писать «обновлений нет».
+
+    На момент запуска версии ещё неизвестны: сначала «⏳ Проверяю…»,
+    и только потом результат с временем проверки.
+    """
+
+    def test_immediately_shows_checking(self) -> None:
+        import time
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+
+        if screen.check_result_box.get_children():
+            texts = [c.get_text() for c in screen.check_result_box.get_children()]
+            joined = " ".join(texts)
+            # Либо идёт проверка, либо уже есть результат со временем.
+            self.assertTrue(
+                "Проверяю" in joined or "Проверено" in joined,
+                f"неожиданный текст: {texts}",
+            )
+        app.window.destroy()
+
+    def test_show_checking_replaces_lines(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        screen._show_checking()
+        texts = [c.get_text() for c in screen.check_result_box.get_children()]
+        self.assertEqual(len(texts), 1)
+        self.assertIn("Проверяю", texts[0])
+        app.window.destroy()
+
+    def test_result_has_timestamp(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["status"]
+        found = updates.Found(
+            zapret_current="v1.0.7",
+            tgws_current="v1.12.0",
+            tgws_new="v1.12.0",
+            checked_at="2026-11-23T18:56:43+03:00",
+        )
+        screen.apply_updates(found, quiet=True)
+        texts = [c.get_text() for c in screen.check_result_box.get_children()]
+        self.assertIn("Проверено 23.11 18:56", texts[0])
+        app.window.destroy()

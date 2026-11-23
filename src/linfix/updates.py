@@ -127,6 +127,18 @@ class Found:
 
         return lines
 
+    def checked_display(self) -> str:
+        """Когда проверяли: «23.11 18:56». Пусто, если не проверяли."""
+
+        if not self.checked_at:
+            return ""
+        try:
+            moment = datetime.fromisoformat(self.checked_at)
+        except ValueError:
+            return ""
+        return moment.strftime("%d.%m %H:%M")
+
+
 
 def _github_json(url: str, *, timeout: float = 20.0) -> object:
     request = urllib.request.Request(
