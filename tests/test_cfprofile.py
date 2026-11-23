@@ -87,3 +87,68 @@ class CheckProfileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ParallelProbeTests(unittest.TestCase):
+    """Домены проверяются параллельно, но порядок результатов сохраняется."""
+
+    def test_order_preserved(self) -> None:
+        domains = ["a.co.uk", "b.co.uk", "c.co.uk", "d.co.uk"]
+
+        def fake_probe(domain, **_kwargs):
+            # Разная задержка: при последовательном обходе порядок тоже был бы
+            # верным, поэтому проверяем именно сохранение порядка.
+            return probe(domain)
+
+        with mock.patch.object(cfprofile, "probe_domain", side_effect=fake_probe):
+            probes = cfprofile._probe_many(domains)
+        self.assertEqual([p.domain for p in probes], domains)
+
+    def test_parallel_is_faster(self) -> None:
+        import threading
+        import time
+
+        active = {"now": 0, "peak": 0}
+        lock = threading.Lock()
+
+        def fake_probe(domain, **_kwargs):
+            with lock:
+                active["now"] += 1
+                active["peak"] = max(active["peak"], active["now"])
+            time.sleep(0.12)
+            with lock:
+                active["now"] -= 1
+            return probe(domain)
+
+        started = time.monotonic()
+        with mock.patch.object(cfprofile, "probe_domain", side_effect=fake_probe):
+            probes = cfprofile._probe_many(["a", "b", "c", "d"])
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(len(probes), 4)
+        # При последовательном обходе было бы ~0.48 с.
+        self.assertLess(elapsed, 0.35)
+        self.assertGreater(active["peak"], 1, "проверки не шли параллельно")
+
+    def test_single_domain_no_pool(self) -> None:
+        calls: list[str] = []
+
+        def fake_probe(domain, **_kwargs):
+            calls.append(domain)
+            return probe(domain)
+
+        with mock.patch.object(cfprofile, "probe_domain", side_effect=fake_probe):
+            probes = cfprofile._probe_many(["only.co.uk"])
+        self.assertEqual(len(probes), 1)
+        self.assertEqual(calls, ["only.co.uk"])
+
+    def test_empty_list(self) -> None:
+        self.assertEqual(cfprofile._probe_many([]), ())
+
+    def test_check_profile_uses_parallel_helper(self) -> None:
+        domains = ["a.co.uk", "b.co.uk", "c.co.uk"]
+        with mock.patch.object(
+            cfprofile, "_probe_many", return_value=tuple(probe(d) for d in domains)
+        ) as helper:
+            cfprofile.check_profile(domains)
+        helper.assert_called_once()

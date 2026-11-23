@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import http.client
 import re
 import socket
@@ -496,10 +497,19 @@ def test_domains(
     if limit is not None:
         selected = selected[:limit]
 
-    results: list[tuple[str, bool, str]] = []
-    for domain in selected:
-        for prefix in dc_prefixes:
-            host = f"{prefix}.{domain}"
-            ok, detail = sni_ok(host, timeout=timeout)
-            results.append((host, ok, detail))
-    return results
+    # Пары «домен × DC» проверяются параллельно: каждый вызов — свой
+    # сокет и свой TLS-хендшейк. Порядок сохраняем, он нужен в отчёте.
+    hosts = [f"{prefix}.{domain}" for domain in selected for prefix in dc_prefixes]
+    if not hosts:
+        return []
+
+    def probe(host: str) -> tuple[str, bool, str]:
+        ok, detail = sni_ok(host, timeout=timeout)
+        return (host, ok, detail)
+
+    if len(hosts) == 1:
+        return [probe(hosts[0])]
+
+    workers = min(len(hosts), 8)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(probe, hosts))

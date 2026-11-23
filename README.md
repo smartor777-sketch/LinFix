@@ -141,7 +141,7 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
-## Медиа Telegram: профиль zapret для CF (0.6.3)
+## Медиа Telegram: профиль zapret для CF (0.6.4)
 
 Если текст в Telegram работает, а медиа не грузится, причина обычно в
 профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
@@ -305,7 +305,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.6.3_all.deb
+sudo apt install ./linfix_0.6.4_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
