@@ -141,7 +141,7 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
-## Медиа Telegram: профиль zapret для CF (0.5.30)
+## Медиа Telegram: профиль zapret для CF (0.5.31)
 
 Если текст в Telegram работает, а медиа не грузится, причина обычно в
 профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
@@ -154,6 +154,22 @@ sudo scripts/apply-cf-profile.sh
 Скрипт делает бэкап конфига, создаёт hostlist CF-хостов, добавляет профиль
 и проверяет H2 запросом на 256 КБ. Подробности:
 [docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md](docs/SOLUTION-MEDIA-THROUGH-CF-2026-11-22.md).
+
+### Профиль для своего списка доменов
+
+Если путь к hostlist указан в конфиге zapret «голым» (без `--hostlist=`),
+правило применяется ко всему TLS, а не к своему списку. Плюс `tcpseg` не
+лечит SNI-блокировку: он режет поток, но не подменяет `ClientHello`.
+
+```bash
+sudo scripts/scope-tls-profile.sh            # по умолчанию zapret-hosts-rut.txt
+sudo scripts/scope-tls-profile.sh path/to/list.txt
+```
+
+Скрипт привязывает профиль к `--hostlist=`, ставит рабочую стратегию
+`fake + multidisorder`, перезапускает zapret, проверяет TLS по доменам
+списка и откатывается при ошибке. Список остаётся отдельным по назначению:
+чтобы «спрятать» новый сайт за CF, достаточно дописать домен в файл.
 
 ### Кодировка списка доменов
 
@@ -206,7 +222,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.5.30_all.deb
+sudo apt install ./linfix_0.5.31_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
