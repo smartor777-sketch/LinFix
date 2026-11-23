@@ -292,3 +292,49 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
         self.assertEqual(code, api.EXIT_NO_RIGHTS)
         self.assertFalse(payload.get("ok"))
         self.assertIn("нет прав", str(payload.get("error")))
+
+
+class ReportLinesTests(unittest.TestCase):
+    """Отчёт по компонентам: видно, для чего обновление есть, а для чего нет."""
+
+    def test_both_actual(self) -> None:
+        found = updates.Found(
+            zapret_current="v1.0.7", tgws_current="v1.12.0", tgws_new="v1.12.0"
+        )
+        lines = found.report_lines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("zapret2: обновлений нет", lines[0][0])
+        self.assertIn("v1.0.7", lines[0][0])
+        self.assertFalse(lines[0][1])
+        self.assertIn("TgWsProxy: обновлений нет", lines[1][0])
+        self.assertFalse(lines[1][1])
+
+    def test_zapret_has_update(self) -> None:
+        found = updates.Found(
+            zapret_current="v1.0.7",
+            zapret_new="v1.0.8",
+            tgws_current="v1.12.0",
+            tgws_new="v1.12.0",
+        )
+        lines = found.report_lines()
+        self.assertIn("zapret2: есть обновление v1.0.8", lines[0][0])
+        self.assertTrue(lines[0][1])
+        # Второй компонент остаётся зелёным.
+        self.assertFalse(lines[1][1])
+
+    def test_tgws_has_update(self) -> None:
+        found = updates.Found(
+            zapret_current="v1.0.7",
+            tgws_current="v1.12.0",
+            tgws_new="v1.13.0",
+        )
+        lines = found.report_lines()
+        self.assertFalse(lines[0][1])
+        self.assertIn("TgWsProxy: есть обновление v1.13.0", lines[1][0])
+        self.assertTrue(lines[1][1])
+
+    def test_not_installed(self) -> None:
+        found = updates.Found()
+        lines = found.report_lines()
+        self.assertIn("не установлен", lines[0][0])
+        self.assertIn("не установлен", lines[1][0])

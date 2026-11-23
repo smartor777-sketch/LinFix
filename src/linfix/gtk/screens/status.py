@@ -92,6 +92,17 @@ class StatusScreen:
         # Кнопка обновления — сверху, до карточек: так её видно без прокрутки.
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         common.pack(self.box, self.buttons)
+
+        # Результат проверки — прямо под кнопкой, чтобы ответ был там же,
+        # где нажали, а не только внизу экрана. Строка на каждый компонент:
+        # так цвет показывает состояние каждого отдельно.
+        self.check_result_box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_bottom=8
+        )
+        self.check_result_box.set_no_show_all(True)
+        self.check_result_box.set_visible(False)
+        common.pack(self.box, self.check_result_box)
+
         common.pack(self.box, self.zapret_card)
         common.pack(self.box, self.tgws_card)
         common.pack(self.box, self.domains_card)
@@ -204,6 +215,8 @@ class StatusScreen:
     def apply_updates(self, found, *, quiet: bool = False) -> None:
         """Показать найденные обновления или скрыть баннер."""
 
+        self._show_check_result(found)
+
         if not found.any:
             self.update_banner.set_visible(False)
             if not quiet:
@@ -234,6 +247,32 @@ class StatusScreen:
         self.update_zapret_button.set_visible(found.has_zapret)
         self.update_tgws_button.set_visible(found.has_tgws)
         self.update_buttons.set_visible(found.has_zapret or found.has_tgws)
+
+    def _show_check_result(self, found) -> None:
+        """Отчёт под кнопкой: по каждому компоненту, есть ли обновление.
+
+        Каждая строка красится отдельно: зелёная — обновлять нечего,
+        оранжевая — есть новое. Так видно состояние каждого компонента,
+        а не общий вывод «обновлений нет».
+        """
+
+        for child in self.check_result_box.get_children():
+            self.check_result_box.remove(child)
+            child.destroy()
+
+        lines = found.report_lines()
+        if not lines:
+            self.check_result_box.set_visible(False)
+            return
+
+        for text, has_update in lines:
+            line = common.label(
+                text, wrap=True, css_class="check-new" if has_update else "check-ok"
+            )
+            self.check_result_box.pack_start(line, False, False, 0)
+
+        self.check_result_box.set_no_show_all(False)
+        self.check_result_box.show_all()
 
     def _disable_update_buttons(self) -> None:
         self.update_zapret_button.set_sensitive(False)

@@ -87,6 +87,46 @@ class Found:
             parts.append(f"TgWsProxy {self.tgws_new}")
         return ", ".join(parts)
 
+    def has_update_for(self, component: str) -> bool:
+        return self.has_zapret if component == "zapret2" else self.has_tgws
+
+    def report_lines(self) -> list[tuple[str, bool]]:
+        """Построчный отчёт по компонентам: (текст, есть ли обновление).
+
+        Нужен, чтобы человек видел не только «обновлений нет», но и для
+        чего именно нет — по каждому компоненту отдельно.
+        """
+
+        lines: list[tuple[str, bool]] = []
+
+        if self.has_zapret:
+            lines.append(
+                (f"zapret2: есть обновление {self.zapret_new} "
+                 f"(установлено {self.zapret_current or 'неизвестно'})", True)
+            )
+        elif self.zapret_current or self.zapret_new:
+            lines.append(
+                (f"zapret2: обновлений нет "
+                 f"(установлено {self.zapret_current or 'неизвестно'})", False)
+            )
+        else:
+            lines.append(("zapret2: не установлен", False))
+
+        if self.has_tgws:
+            lines.append(
+                (f"TgWsProxy: есть обновление {self.tgws_new} "
+                 f"(установлено {self.tgws_current or 'неизвестно'})", True)
+            )
+        elif self.tgws_current or self.tgws_new:
+            lines.append(
+                (f"TgWsProxy: обновлений нет "
+                 f"(установлено {self.tgws_current or 'неизвестно'})", False)
+            )
+        else:
+            lines.append(("TgWsProxy: не установлен", False))
+
+        return lines
+
 
 def _github_json(url: str, *, timeout: float = 20.0) -> object:
     request = urllib.request.Request(
