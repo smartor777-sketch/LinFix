@@ -58,6 +58,8 @@ ALLOWED_ACTIONS = {
     "zapret.blockcheck_stop",
     "zapret.restart",
     "net.clear_ipv6_blackholes",
+    "zapret.save_profile",
+    "zapret.restore_profile",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -582,6 +584,34 @@ def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, 
     return (0 if payload["ok"] else 5), payload
 
 
+def action_zapret_save_profile(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    """Сохранить наш конфиг zapret2 и hostlists перед обновлением."""
+
+    from . import updates
+
+    try:
+        meta = updates.save_profile()
+    except updates.UpdateError as exc:
+        return 5, {"ok": False, "error": str(exc)}
+    return 0, {"ok": True, **meta}
+
+
+def action_zapret_restore_profile(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    """Вернуть наш конфиг zapret2 и hostlists после обновления."""
+
+    from . import updates
+
+    try:
+        result = updates.restore_profile()
+    except updates.UpdateError as exc:
+        return 5, {"ok": False, "error": str(exc)}
+    return 0, {"ok": True, **result}
+
+
 def action_net_clear_ipv6_blackholes(
     args: argparse.Namespace,
 ) -> tuple[int, dict[str, object]]:
@@ -1069,6 +1099,10 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_blockcheck(args)
         elif args.action == "net.clear_ipv6_blackholes":
             code, payload = action_net_clear_ipv6_blackholes(args)
+        elif args.action == "zapret.save_profile":
+            code, payload = action_zapret_save_profile(args)
+        elif args.action == "zapret.restore_profile":
+            code, payload = action_zapret_restore_profile(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
         elif args.action == "zapret.install_easy":

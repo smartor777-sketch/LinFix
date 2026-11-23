@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from gi.repository import Gtk
 
-from ... import api, blockcheck, tgws, util, zapret
+from ... import api, blockcheck, tgws, updates, util, zapret
 from ..i18n import _
 from ..worker import run_in_thread
 from . import common
@@ -62,6 +62,33 @@ class StatusScreen:
         ):
             self.telegram_card.add(key, text)
 
+        # --- Баннер доступных обновлений -------------------------------------
+        # Сверху, до карточек: обновление — действие, его надо видеть сразу.
+        self.update_banner = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_bottom=8
+        )
+        self.update_banner.set_no_show_all(True)
+        self.update_banner.set_visible(False)
+        self.update_label = common.label("", wrap=True, css_class="banner-info")
+        self.update_buttons = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=6
+        )
+        self.update_zapret_button = common.button(
+            _("Обновить zapret2"), lambda _: self.update_zapret()
+        )
+        self.update_tgws_button = common.button(
+            _("Обновить TgWsProxy"), lambda _: self.update_tgws()
+        )
+        # no_show_all: окно вызывает show_all() при показе и из трея —
+        # без этого флага он снова показал бы кнопку, которую мы скрыли.
+        self.update_zapret_button.set_no_show_all(True)
+        self.update_tgws_button.set_no_show_all(True)
+        common.pack(self.update_buttons, self.update_zapret_button)
+        common.pack(self.update_buttons, self.update_tgws_button)
+        common.pack(self.update_banner, self.update_label)
+        common.pack(self.update_banner, self.update_buttons)
+        common.pack(self.box, self.update_banner)
+
         # Кнопка обновления — сверху, до карточек: так её видно без прокрутки.
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         common.pack(self.box, self.buttons)
@@ -72,9 +99,15 @@ class StatusScreen:
 
         self._build_buttons()
         self.refresh()
+        # Фоновая проверка обновлений: раз в сутки, тихо.
+        self.maybe_check_updates()
 
     def _build_buttons(self) -> None:
         common.pack(self.buttons, common.button(_("Обновить"), lambda _: self.refresh()))
+        self.check_button = common.button(
+            _("Проверить обновления"), lambda _: self.check_updates()
+        )
+        common.pack(self.buttons, self.check_button)
 
     def refresh(self) -> None:
         def job():
@@ -138,6 +171,154 @@ class StatusScreen:
             self.telegram_card.set("secret", data["secret"])
 
         run_in_thread(job, on_done=apply_data)
+
+    # --- обновления -------------------------------------------------------
+
+    def check_updates(self, *, quiet: bool = False) -> None:
+        """Проверить новые версии и показать баннер, если что-то есть.
+
+        quiet=True — фоновая суточная проверка: молчим, если обновлений нет.
+        """
+
+        if not quiet:
+            self.check_button.set_sensitive(False)
+            self.check_button.set_label(_("⏳ Проверяю…"))
+
+        def job():
+            return api.check_updates()
+
+        def done(found) -> None:
+            if not quiet:
+                self.check_button.set_sensitive(True)
+                self.check_button.set_label(_("Проверить обновления"))
+            self.apply_updates(found, quiet=quiet)
+
+        def failed(exc: Exception) -> None:
+            if not quiet:
+                self.check_button.set_sensitive(True)
+                self.check_button.set_label(_("Проверить обновления"))
+                common.toast(self.app, _("Не удалось проверить обновления: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def apply_updates(self, found, *, quiet: bool = False) -> None:
+        """Показать найденные обновления или скрыть баннер."""
+
+        if not found.any:
+            self.update_banner.set_visible(False)
+            if not quiet:
+                common.toast(self.app, _("Обновлений нет"))
+            return
+
+        lines: list[str] = []
+        if found.has_zapret:
+            lines.append(
+                _("zapret2: установлена сборка от {cur}, доступна {new}").format(
+                    cur=found.zapret_current or "—", new=found.zapret_new
+                )
+            )
+        if found.has_tgws:
+            lines.append(
+                _("TgWsProxy: установлен {cur}, доступен {new}").format(
+                    cur=found.tgws_current or "—", new=found.tgws_new
+                )
+            )
+        lines.append(
+            _("Перед обновлением zapret2 сохраняются профили CF и ваши списки, "
+              "после установки они возвращаются на место.")
+        )
+        self.update_label.set_text("\n".join(lines))
+        # show_all() показывает всех детей, поэтому кнопки скрываем ПОСЛЕ него.
+        self.update_banner.set_no_show_all(False)
+        self.update_banner.show_all()
+        self.update_zapret_button.set_visible(found.has_zapret)
+        self.update_tgws_button.set_visible(found.has_tgws)
+        self.update_buttons.set_visible(found.has_zapret or found.has_tgws)
+
+    def _disable_update_buttons(self) -> None:
+        self.update_zapret_button.set_sensitive(False)
+        self.update_tgws_button.set_sensitive(False)
+
+    def _enable_update_buttons(self) -> None:
+        self.update_zapret_button.set_sensitive(True)
+        self.update_tgws_button.set_sensitive(True)
+
+    def update_zapret(self) -> None:
+        """Обновить zapret2 с сохранением и восстановлением профилей."""
+
+        self._disable_update_buttons()
+        self.update_label.set_text(
+            _("⏳ Обновляю zapret2: сохраняю профили, ставлю новую сборку, "
+              "возвращаю конфиг. Это может занять несколько минут.")
+        )
+
+        def job():
+            return api.update_zapret2(self.app.cfg)
+
+        def done(result) -> None:
+            code, payload = result
+            self._enable_update_buttons()
+            if code == api.EXIT_OK and payload.get("ok"):
+                common.toast(self.app, _("zapret2 обновлён, профили на месте"))
+                self.update_banner.set_visible(False)
+                self.check_updates(quiet=True)
+                self.refresh()
+            else:
+                self.update_label.set_text(
+                    _("Не удалось обновить zapret2: {err}").format(
+                        err=payload.get("error") or f"код {code}"
+                    )
+                )
+
+        def failed(exc: Exception) -> None:
+            self._enable_update_buttons()
+            self.update_label.set_text(
+                _("Не удалось обновить zapret2: {err}").format(err=exc)
+            )
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def update_tgws(self) -> None:
+        """Обновить TgWsProxy (служба перезапускается автоматически)."""
+
+        self._disable_update_buttons()
+        self.update_label.set_text(_("⏳ Обновляю TgWsProxy…"))
+
+        def job():
+            return api.install_tgws(self.app.cfg)
+
+        def done(result) -> None:
+            code, payload = result
+            self._enable_update_buttons()
+            if code == api.EXIT_OK and payload.get("ok", True):
+                common.toast(
+                    self.app,
+                    _("TgWsProxy {v}: установлен").format(v=payload.get("version") or ""),
+                )
+                self.update_banner.set_visible(False)
+                self.check_updates(quiet=True)
+                self.refresh()
+            else:
+                self.update_label.set_text(
+                    _("Не удалось обновить TgWsProxy: {err}").format(
+                        err=payload.get("error") or f"код {code}"
+                    )
+                )
+
+        def failed(exc: Exception) -> None:
+            self._enable_update_buttons()
+            self.update_label.set_text(
+                _("Не удалось обновить TgWsProxy: {err}").format(err=exc)
+            )
+
+    def maybe_check_updates(self) -> None:
+        """Фоновая проверка раз в сутки: тихо, только если есть новое."""
+
+        if not updates.is_due():
+            # Кэш свежий — показываем сохранённый результат без сети.
+            self.apply_updates(updates.load_found(), quiet=True)
+            return
+        self.check_updates(quiet=True)
 
     def _telegram_settings(self) -> dict[str, str]:
         path = tgws.find_config_path()
