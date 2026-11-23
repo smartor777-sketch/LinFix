@@ -84,6 +84,15 @@ _TAB_CSS = """
     padding: 8px 10px;
     font-weight: bold;
 }
+/* Результат проверки обновлений под кнопкой. */
+.check-ok {
+    color: #1e6b34;
+    font-weight: bold;
+}
+.check-new {
+    color: #b8600a;
+    font-weight: bold;
+}
 .banner-info {
     background-color: #e8f1fb;
     color: #1c4f82;

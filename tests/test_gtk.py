@@ -372,10 +372,11 @@ class LayoutTests(unittest.TestCase):
         app.do_activate()
         status = app.window.screens["status"]
         children = status.box.get_children()
-        # 0 — заголовок раздела, 1 — баннер обновлений (скрыт, пока их нет),
-        # 2 — панель с «Обновить», дальше карточки.
+        # 0 — заголовок, 1 — баннер обновлений, 2 — панель кнопок,
+        # 3 — строка результата проверки, дальше карточки.
         self.assertIs(children[1], status.update_banner)
         self.assertIs(children[2], status.buttons)
+        self.assertIs(children[3], status.check_result_box)
         self.assertEqual(
             [b.get_label() for b in status.buttons.get_children()],
             ["Обновить", "Проверить обновления"],
