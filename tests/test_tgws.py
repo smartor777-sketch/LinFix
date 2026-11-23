@@ -364,3 +364,58 @@ class RunningModeTests(unittest.TestCase):
     def test_no_process(self) -> None:
         with mock.patch.object(tgws.util, "run", return_value=self._cp("", 1)):
             self.assertIsNone(tgws.running_mode())
+
+
+class EnableUserUnitTests(unittest.TestCase):
+    """Установка не должна оставлять старый процесс: start не перезапускает."""
+
+    def _cp(self, stdout: str = "", returncode: int = 0):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(stdout=stdout, stderr="", returncode=returncode)
+
+    def test_restart_used_when_requested(self) -> None:
+        seen: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            seen.append(list(argv))
+            return self._cp()
+
+        with mock.patch.object(tgws.util, "run", side_effect=fake_run):
+            result = tgws.enable_user_unit(start=True, restart=True)
+
+        verbs = [argv[2] for argv in seen if len(argv) > 2 and argv[0] == "systemctl"]
+        self.assertIn("restart", verbs)
+        self.assertNotIn("start", verbs)
+        self.assertEqual(result["started_action"], "restart")
+        self.assertTrue(result["started_ok"])
+
+    def test_start_when_restart_not_requested(self) -> None:
+        seen: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            seen.append(list(argv))
+            return self._cp()
+
+        with mock.patch.object(tgws.util, "run", side_effect=fake_run):
+            result = tgws.enable_user_unit(start=True)
+
+        verbs = [argv[2] for argv in seen if len(argv) > 2 and argv[0] == "systemctl"]
+        self.assertIn("start", verbs)
+        self.assertNotIn("restart", verbs)
+        self.assertEqual(result["started_action"], "start")
+
+    def test_no_start_means_no_action(self) -> None:
+        seen: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            seen.append(list(argv))
+            return self._cp()
+
+        with mock.patch.object(tgws.util, "run", side_effect=fake_run):
+            result = tgws.enable_user_unit(start=False, restart=True)
+
+        verbs = [argv[2] for argv in seen if len(argv) > 2 and argv[0] == "systemctl"]
+        self.assertNotIn("start", verbs)
+        self.assertNotIn("restart", verbs)
+        self.assertFalse(result["started"])

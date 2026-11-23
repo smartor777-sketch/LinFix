@@ -708,18 +708,32 @@ def install_user_unit(
     return target, True
 
 
-def enable_user_unit(*, start: bool = True) -> dict[str, object]:
+def enable_user_unit(*, start: bool = True, restart: bool = False) -> dict[str, object]:
+    """Включить и запустить user-службу.
+
+    ``systemctl start`` на уже работающей службе ничего не делает: процесс
+    продолжает работать со старым бинарником. Поэтому при ``restart=True``
+    используем ``systemctl restart`` — иначе после обновления версия в
+    state.json новая, а в памяти старая.
+    """
+
     enabled = util.run(["systemctl", "--user", "enable", UNIT_NAME], check=False, timeout=20)
     started_code: int | None = None
     started_out = ""
+    action = "start"
     if start:
-        started = util.run(["systemctl", "--user", "start", UNIT_NAME], check=False, timeout=30)
+        if restart:
+            action = "restart"
+        started = util.run(
+            ["systemctl", "--user", action, UNIT_NAME], check=False, timeout=40
+        )
         started_code = started.returncode
         started_out = (started.stderr or started.stdout or "").strip()
     return {
         "enabled_ok": enabled.returncode == 0,
         "enabled_error": (enabled.stderr or "").strip(),
         "started": start,
+        "started_action": action,
         "started_ok": started_code == 0 if started_code is not None else None,
         "started_error": started_out,
     }

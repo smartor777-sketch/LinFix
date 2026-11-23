@@ -539,6 +539,9 @@ def _finalize_tgws_install(
     unit_path, unit_changed = tgws.install_user_unit(
         cfg.tgws.binary, mode=mode, data=data
     )
+    # Перезапускаем всегда: после обновления в памяти остался бы старый
+    # бинарник, и версия в state.json разошлась бы с работающей.
+    unit_result = tgws.enable_user_unit(start=True, restart=True)
     payload.update(
         {
             "mode": mode,
@@ -546,6 +549,7 @@ def _finalize_tgws_install(
             "config_created": config_created,
             "unit": str(unit_path) if unit_path else None,
             "unit_changed": unit_changed,
+            **unit_result,
         }
     )
     return EXIT_OK, payload
