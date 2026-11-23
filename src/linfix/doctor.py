@@ -568,6 +568,18 @@ def _guard_check(cfg: Config) -> Check:
         return Check("guard", "Guard", WARN, "выключен", "linfix guard on")
 
     event = guard.load_event()
+    # Заглушки IPv6 guard проверяет первым делом: пока они висят, любые
+    # сетевые замеры врут, поэтому это отдельная строка, а не «срабатывание».
+    blackholes = int(event.get("ipv6_blackholes") or 0)
+    if blackholes:
+        return Check(
+            "guard",
+            "Guard",
+            WARN,
+            f"{event.get('last_trip')}: висячих IPv6-заглушек {blackholes}",
+            "linfix net cleanup (или кнопка «Убрать заглушки» выше)",
+        )
+
     if event.get("h2_disabled"):
         detail = str(event.get("detail", ""))[:90]
         return Check(
