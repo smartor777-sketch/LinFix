@@ -141,7 +141,7 @@ TLS-тест провален** — одного всплеска ошибок �
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
 путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
 
-## Медиа Telegram: профиль zapret для CF (0.5.33)
+## Медиа Telegram: профиль zapret для CF (0.5.34)
 
 Если текст в Telegram работает, а медиа не грузится, причина обычно в
 профиле zapret: `tcpseg` режет TCP-сегменты и ломает передачу больших тел
@@ -193,13 +193,17 @@ network.dns.http3_echconfig.enabled = false
 network.dns.native_https_query = false
 ```
 
-Для Waterfox то же самое. Файл `user.js` в профиле тоже подходит:
+Для Waterfox то же самое — движок тот же. Файл `user.js` в профиле тоже
+подходит:
 
 ```javascript
 user_pref("network.dns.echconfig.enabled", false);
 user_pref("network.dns.http3_echconfig.enabled", false);
 user_pref("network.dns.native_https_query", false);
 ```
+
+Подробный разбор с экспериментами и проверкой через сокеты —
+в [docs/ECH-BROWSER-ISSUE.md](docs/ECH-BROWSER-ISSUE.md).
 
 ### После VPN-клиента с kill-switch (qeli)
 
@@ -269,7 +273,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.5.33_all.deb
+sudo apt install ./linfix_0.5.34_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
