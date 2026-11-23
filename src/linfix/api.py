@@ -1312,6 +1312,12 @@ def set_blockcheck_domains(domains: list[str]) -> tuple[int, dict[str, object]]:
         return EXIT_ERROR, {"ok": False, "error": f"config.blockcheck: {exc}"}
 
 
+#: Отбор кандидатов телом H2 требует применения стратегии к zapret:
+#: без этого все кандидаты проходят одинаково и проверка бессмысленна.
+#: Поэтому отбор делается отдельным шагом («Проверить профиль CF»), а
+#: подбор возвращает кандидатов как есть.
+
+
 def pick_strategy(
     cfg: Config,
     *,
