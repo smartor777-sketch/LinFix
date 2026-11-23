@@ -213,6 +213,19 @@ class StatusScreen:
                 self.check_button.set_label(_("Проверить обновления"))
                 common.toast(self.app, _("Не удалось проверить обновления: {err}").format(err=exc))
 
+            # Сеть или лимит GitHub — показываем последний известный
+            # результат, но явно помечаем, что проверить сейчас не вышло.
+            cached = updates.load_found()
+            if cached.report_lines():
+                self.apply_updates(cached, quiet=True)
+                line = common.label(
+                    _("Не удалось проверить сейчас: {err}").format(err=exc),
+                    wrap=True,
+                    css_class="check-new",
+                )
+                self.check_result_box.pack_start(line, False, False, 0)
+                self.check_result_box.show_all()
+
         run_in_thread(job, on_done=done, on_error=failed)
 
     def apply_updates(self, found, *, quiet: bool = False) -> None:

@@ -405,3 +405,36 @@ class StartCheckShowsPendingTests(unittest.TestCase):
         texts = [c.get_text() for c in screen.check_result_box.get_children()]
         self.assertIn("Проверено 23.11 18:56", texts[0])
         app.window.destroy()
+
+
+class RateLimitMessageTests(unittest.TestCase):
+    """При лимите GitHub сообщение должно объяснять причину, а не молчать."""
+
+    def test_rate_limit_message_mentions_limit(self) -> None:
+        from linfix import updates
+
+        original = updates.fetch_remote
+        # Проверяем формат ошибки напрямую через _github_json на 403.
+        import urllib.error
+
+        error = urllib.error.HTTPError(
+            "https://api.github.com/x", 403, "rate limit", {}, None
+        )
+        error.headers = {"X-RateLimit-Remaining": "0"}  # type: ignore[assignment]
+
+        with mock.patch.object(updates.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(updates.UpdateError) as ctx:
+                updates._github_json("https://api.github.com/x")
+        self.assertIn("ограничил число запросов", str(ctx.exception))
+
+    def test_other_http_error(self) -> None:
+        from linfix import updates
+        import urllib.error
+
+        error = urllib.error.HTTPError(
+            "https://api.github.com/x", 500, "server error", {}, None
+        )
+        with mock.patch.object(updates.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(updates.UpdateError) as ctx:
+                updates._github_json("https://api.github.com/x")
+        self.assertIn("500", str(ctx.exception))

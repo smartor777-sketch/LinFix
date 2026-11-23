@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -148,6 +149,19 @@ def _github_json(url: str, *, timeout: float = 20.0) -> object:
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            reset = exc.headers.get("X-RateLimit-Reset") if exc.headers else None
+            if exc.headers and exc.headers.get("X-RateLimit-Remaining") == "0":
+                hint = ""
+                if reset and reset.isdigit():
+                    moment = datetime.fromtimestamp(int(reset))
+                    hint = f" Ограничение снимется в {moment:%H:%M}."
+                raise UpdateError(
+                    "GitHub ограничил число запросов с вашего адреса (60 в час)."
+                    + hint
+                ) from exc
+        raise UpdateError(f"GitHub ответил ошибкой {exc.code}") from exc
     except Exception as exc:  # noqa: BLE001
         raise UpdateError(f"не удалось запросить GitHub: {exc}") from exc
 
@@ -159,6 +173,7 @@ def fetch_remote(*, timeout: float = 20.0) -> Remote:
     zapret_asset: str | None = None
     zapret_url: str | None = None
     zapret_sha: str | None = None
+    reasons: list[str] = []
     try:
         release = _github_json(ZAPRET_RELEASE_API, timeout=timeout)
         if isinstance(release, dict):
@@ -183,17 +198,20 @@ def fetch_remote(*, timeout: float = 20.0) -> Remote:
                     zapret_url = str(asset.get("browser_download_url") or "")
                     zapret_asset = name
                     break
-    except UpdateError:
+    except UpdateError as exc:
         zapret_tag = None
+        reasons.append(f"zapret2: {exc}")
 
     tgws_tag: str | None = None
     try:
         tgws_tag = tgws.fetch_release(timeout=timeout).tag
-    except tgws.TgwsError:
+    except tgws.TgwsError as exc:
         tgws_tag = None
+        reasons.append(f"TgWsProxy: {exc}")
 
     if not zapret_tag and not tgws_tag:
-        raise UpdateError("не удалось получить сведения об обновлениях")
+        detail = "; ".join(reasons) or "нет ответа"
+        raise UpdateError(f"не удалось получить сведения об обновлениях — {detail}")
     return Remote(
         zapret_tag=zapret_tag,
         zapret_asset=zapret_asset,
