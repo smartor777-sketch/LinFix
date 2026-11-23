@@ -200,3 +200,47 @@ class Ipv6HelpersTests(unittest.TestCase):
         # Кнопку убирать нельзя: маршруты нужны активному VPN.
         self.assertNotIn("Убрать заглушки", check.hint)
 
+
+
+class GuardStaleEventTests(unittest.TestCase):
+    """Событие guard — запись о прошлой находке, а не текущее состояние.
+
+    Баг: заглушки убрали, а «Диагностика» продолжала показывать WARN,
+    потому что читала только сохранённое событие.
+    """
+
+    def _run(self, event: dict, live_routes: list[str]):
+        from dataclasses import replace
+
+        cfg = replace(config.Config(), guard=replace(config.Config().guard, enabled=True))
+        with mock.patch.object(doctor.guard, "load_event", return_value=event):
+            with mock.patch.object(
+                doctor, "ipv6_blackhole_routes", return_value=live_routes
+            ):
+                return doctor._guard_check(cfg)
+
+    def test_stale_event_shows_pass(self) -> None:
+        event = {"ipv6_blackholes": 2, "last_trip": "2026-11-23T21:03:10+03:00"}
+        check = self._run(event, [])
+        self.assertEqual(check.status, doctor.PASS)
+        self.assertIn("убраны", check.details)
+        self.assertIn("2", check.details)
+        self.assertEqual(check.hint, "")
+
+    def test_live_routes_still_warn(self) -> None:
+        event = {"ipv6_blackholes": 2}
+        check = self._run(event, ["blackhole 2000::/4", "blackhole ::/1"])
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertIn("2", check.details)
+
+    def test_live_routes_without_event_warn(self) -> None:
+        """Заглушки есть, события нет — всё равно предупреждаем."""
+
+        check = self._run({}, ["blackhole 2000::/4"])
+        self.assertEqual(check.status, doctor.WARN)
+        self.assertIn("1", check.details)
+
+    def test_clean_state_and_no_event(self) -> None:
+        check = self._run({}, [])
+        # Дальше обычная логика guard; главное — не про заглушки.
+        self.assertNotIn("заглуш", check.details)
