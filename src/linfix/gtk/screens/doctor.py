@@ -120,6 +120,15 @@ class DoctorScreen:
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
         )
         common.pack(self.buttons, self.pick_button)
+        # Сколько секунд дать подбору. По умолчанию из конфига.
+        self.pick_seconds = common.entry(str(self.app.cfg.blockcheck.timeout))
+        self.pick_seconds.set_width_chars(5)
+        self.pick_seconds.set_max_length(5)
+        self.pick_seconds.set_tooltip_text(
+            _("Сколько секунд вести подбор (по умолчанию 180)")
+        )
+        common.pack(self.buttons, common.label(_("секунд:")))
+        common.pack(self.buttons, self.pick_seconds)
         # Кнопка «отменить и восстановить» — видна во время прогона подбора.
         self.cancel_button = common.button(
             _("Отмена подбора"), lambda _: self._cancel_strategy_selection()
@@ -204,6 +213,10 @@ class DoctorScreen:
         common.pack(self.box, self.buttons)
         common.pack(self.box, self.found_hint)
         common.pack(self.box, self.found_scrolled)
+        # Отдельный label для подбора: `verdict_label` принадлежит диагностике
+        # Telegram, и писать в него результаты подбора нельзя — они перемешивались.
+        self.pick_status = common.label("", wrap=True)
+        common.pack(self.box, self.pick_status)
         # Краткая информация по стратегиям — отдельной строкой под кнопками,
         # а не между «Подобрать стратегию» и «Отмена подбора».
         self.current_title = common.label(_("Текущая:"), css_class="section-title")
@@ -235,12 +248,19 @@ class DoctorScreen:
         base = self._pick_start or time.monotonic()
         elapsed = int(time.monotonic() - base)
         budget = getattr(self, "_pick_budget", 0) or 0
-        # Каждые 10 секунд обновляем счётчик: подбор идёт минутами, и без
+        # Каждые 5 секунд обновляем счётчик: подбор идёт минутами, и без
         # движения текста он неотличим от зависания.
         text = _("⏳ Идёт подбор стратегии… прошло {s} с").format(s=elapsed)
         if budget:
             text += _(" из {b} с").format(b=budget)
-        self.verdict_label.set_text(text)
+        # Число кандидатов во время прогона недоступно: helper отдаёт
+        # результат только по завершении. Поэтому показываем прогресс по
+        # времени и честную подсказку, а не выдуманный счётчик.
+        text += _(
+            "\nЭто нормально: blockcheck2 проверяет варианты по порядку, "
+            "а найденное соберётся к концу."
+        )
+        self.pick_status.set_text(text)
         return True
 
     def _services_state(self) -> tuple[str, str]:
@@ -434,15 +454,20 @@ class DoctorScreen:
         self.apply_button.set_visible(False)
         self._refresh_strategy_info()
         self.pick_button.set_label(_("⏳ Подбор идёт…"))
-        self.verdict_label.set_text(
-            _("⏳ Идёт подбор стратегии… ожидаем завершения прогона")
-        )
+        self.pick_status.set_text(_("⏳ Идёт подбор стратегии…"))
         self._pick_start = time.monotonic()
         self._pick_timer = GLib.timeout_add_seconds(5, self._tick_pick)
 
         cfg = self.app.cfg
         level = cfg.blockcheck.level
-        budget = max(60, cfg.blockcheck.timeout)
+        # Секунды берём из поля рядом с кнопкой: пользователь может дать
+        # больше времени на медленной сети.
+        raw = self.pick_seconds.get_text().strip()
+        try:
+            budget = int(raw) if raw else cfg.blockcheck.timeout
+        except ValueError:
+            budget = cfg.blockcheck.timeout
+        budget = max(60, min(budget, 2100))
         # Прогресс по времени: подбор идёт минутами, и без счётчика он
         # выглядит как зависание.
         self._pick_budget = budget
@@ -473,7 +498,7 @@ class DoctorScreen:
                 else:
                     header = _("Стратегии не найдены.")
                 common.message(self.app, f"{header}\n\n{message}")
-                self.verdict_label.set_text(
+                self.pick_status.set_text(
                     _("Прогон не завершён — проверены не все варианты")
                     if timed_out
                     else _("Стратегии не нужны: {note}").format(note=message)
@@ -501,7 +526,7 @@ class DoctorScreen:
                     "zapret. LinFix конфиг не меняет — правка остаётся за вами."
                 )
             )
-            self.verdict_label.set_text("\n".join(lines))
+            self.pick_status.set_text("\n".join(lines))
             # Появился кандидат — можно проверить его качество.
             self.verify_button.set_no_show_all(False)
             self.verify_button.set_visible(True)
@@ -609,7 +634,7 @@ class DoctorScreen:
 
         self.verify_button.set_sensitive(False)
         self.verify_button.set_label(_("⏳ Проверяю…"))
-        self.verdict_label.set_text(
+        self.pick_status.set_text(
             _(
                 "⏳ Проверяю кандидатов телом 256 КБ: каждый применяется к "
                 "zapret по очереди, затем профиль возвращается. Это занимает "
@@ -626,7 +651,7 @@ class DoctorScreen:
             code, payload = result
             checked = payload.get("checked") or []
             if code != api.EXIT_OK or not checked:
-                self.verdict_label.set_text(
+                self.pick_status.set_text(
                     _("Не удалось проверить: {err}").format(
                         err=payload.get("error") or "нет результата"
                     )
@@ -662,12 +687,12 @@ class DoctorScreen:
                     )
                 )
                 self.apply_button.set_visible(False)
-            self.verdict_label.set_text("\n".join(lines))
+            self.pick_status.set_text("\n".join(lines))
 
         def failed(exc: Exception) -> None:
             self.verify_button.set_sensitive(True)
             self.verify_button.set_label(_("Проверить найденное"))
-            self.verdict_label.set_text(
+            self.pick_status.set_text(
                 _("Ошибка проверки: {err}").format(err=exc)
             )
 
