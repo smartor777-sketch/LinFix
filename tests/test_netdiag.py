@@ -260,8 +260,10 @@ class BlockcheckTests(unittest.TestCase):
             blockcheck, "script_path", return_value=__import__("pathlib").Path("/tmp")
         ), mock.patch("pathlib.Path.is_file", return_value=True):
             ok, reason = blockcheck.check_readiness(cfg)
-        self.assertFalse(ok)
-        self.assertIn("остановить", reason)
+        # Работающий zapret не мешает: helper сам остановит его на время
+        # замеров и вернёт обратно. Раньше здесь было ложное «не готово».
+        self.assertTrue(ok)
+        self.assertIn("остановлен", reason)
 
     def test_readiness_reports_busy_scan(self) -> None:
         from types import SimpleNamespace
