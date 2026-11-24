@@ -47,6 +47,11 @@ class DomainsScreen:
         # label считает своей шириной натуральную длину текста.
         self.rotation_label.set_hexpand(True)
         self.rotation_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        # max_width_chars=60 от wrap=True задаёт «желаемую» ширину: с
+        # hexpand label всё равно требует места под длинную строку, и
+        # Notebook растягивался по самой широкой вкладке. Малое значение
+        # заставляет label ужиматься по доступной ширине и переносить текст.
+        self.rotation_label.set_max_width_chars(1)
         self.rotation_combo = Gtk.ComboBoxText()
         self.rotation_combo.append(api.ROTATION_USER, _("Пользовательские домены"))
         self.rotation_combo.append(api.ROTATION_GITHUB, _("Домены с GitHub (авто)"))
@@ -57,7 +62,17 @@ class DomainsScreen:
         self._rotation_mode: str | None = None
 
         # Кнопки — до списка, как привычнее: действие → результат.
-        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_top=4)
+        # Gtk.Box не переносит детей: шесть кнопок в ряд требуют ~985 px и
+        # при узком окне растягивают Notebook, из-за чего пропадает левый
+        # отступ. FlowBox переносит кнопки на новую строку по ширине.
+        self.buttons = Gtk.FlowBox()
+        self.buttons.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.buttons.set_max_children_per_line(8)
+        self.buttons.set_min_children_per_line(1)
+        self.buttons.set_row_spacing(6)
+        self.buttons.set_column_spacing(6)
+        self.buttons.set_margin_top(4)
+        self.buttons.set_valign(Gtk.Align.START)
         self.refresh_button = common.button(_("Обновить и проверить"), lambda _: self.run_update())
         self.test_button = common.button(_("Тест TLS выбранных"), lambda _: self.run_test())
         self.test_all_button = common.button(_("Тест всего списка"), lambda _: self.run_test(all_domains=True))
@@ -82,7 +97,7 @@ class DomainsScreen:
             self.add_rotation_button,
             self.remove_rotation_button,
         ):
-            common.pack(self.buttons, button)
+            self.buttons.add(button)
 
         # Галочки: простой и привычный выбор нескольких строк.
         self.store = Gtk.ListStore(bool, str, str, str)

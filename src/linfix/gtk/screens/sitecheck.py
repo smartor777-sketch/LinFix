@@ -29,6 +29,10 @@ class SiteCheckScreen:
         self.box = common.screen_box(_("Проверка сайта"))
 
         self.entry_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # Без hexpand строка ввода тянется по содержимому: длинный домен
+        # расширяет её шире окна, страница получает горизонтальную прокрутку,
+        # и левый отступ «уезжает» вместе с контентом.
+        self.entry_row.set_hexpand(True)
         self.entry = common.entry()
         self.entry.set_placeholder_text(_("например, rutracker.org"))
         self.entry.connect("activate", lambda *_: self.run_check())
