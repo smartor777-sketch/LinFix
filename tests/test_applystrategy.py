@@ -123,3 +123,57 @@ class AppliedContextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApplyStrategyApiTests(unittest.TestCase):
+    """api.apply_strategy: бэкап до правки, откат при неудаче."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = Path(self._tmp.name)
+        self.cfg_path = self.dir / "config"
+        self.cfg_path.write_text(CONFIG, encoding="utf-8")
+        self.before = applystrategy.read_profile_block(self.cfg_path)
+
+    def _cfg(self):
+        from types import SimpleNamespace
+
+        info = SimpleNamespace(
+            found=True, install_dir=str(self.dir), service="zapret2"
+        )
+        cfg = SimpleNamespace(zapret=SimpleNamespace(service="zapret2"))
+        return cfg, info
+
+    def test_applies_and_makes_backup(self) -> None:
+        from linfix import api, zapret
+
+        cfg, info = self._cfg()
+        with mock.patch.object(zapret, "detect_zapret", return_value=info):
+            with mock.patch.object(applystrategy, "restart", return_value=True):
+                code, payload = api.apply_strategy(cfg, ["--lua-desync=test"])
+        self.assertEqual(code, api.EXIT_OK)
+        self.assertTrue(payload.get("ok"))
+        backup = Path(str(payload["backup"]))
+        self.assertTrue(backup.exists(), "бэкап должен быть создан")
+        self.assertIn("test", applystrategy.read_profile_block(self.cfg_path))
+
+    def test_rollback_when_service_fails(self) -> None:
+        from linfix import api, zapret
+
+        cfg, info = self._cfg()
+        with mock.patch.object(zapret, "detect_zapret", return_value=info):
+            with mock.patch.object(applystrategy, "restart", return_value=False):
+                code, payload = api.apply_strategy(cfg, ["--lua-desync=test"])
+        self.assertNotEqual(code, api.EXIT_OK)
+        self.assertFalse(payload.get("ok"))
+        # Конфиг обязан вернуться в исходное состояние.
+        self.assertEqual(applystrategy.read_profile_block(self.cfg_path), self.before)
+
+    def test_empty_strategy_rejected(self) -> None:
+        from linfix import api
+
+        cfg, _info = self._cfg()
+        code, payload = api.apply_strategy(cfg, [])
+        self.assertEqual(code, api.EXIT_USAGE)
+        self.assertFalse(payload.get("ok"))
