@@ -107,6 +107,23 @@ class DoctorScreen:
         )
         self.cancel_button.set_visible(False)
         common.pack(self.buttons, self.cancel_button)
+        # Проверка качества найденного: одноразовый GET в blockcheck2
+        # пропускает стратегии, которые открывают заголовки, но ломают тело.
+        self.verify_button = common.button(
+            _("Проверить найденное"), lambda _: self.verify_candidates()
+        )
+        self.verify_button.set_sensitive(False)
+        self.verify_button.set_no_show_all(True)
+        self.verify_button.set_visible(False)
+        common.pack(self.buttons, self.verify_button)
+        # Применение выбранной стратегии — с бэкапом профилей.
+        self.apply_button = common.button(
+            _("Применить лучшую"), lambda _: self.apply_best()
+        )
+        self.apply_button.set_sensitive(False)
+        self.apply_button.set_no_show_all(True)
+        self.apply_button.set_visible(False)
+        common.pack(self.buttons, self.apply_button)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
 
         # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
@@ -178,6 +195,7 @@ class DoctorScreen:
         # Результат подбора живёт только в памяти этого запуска GUI:
         # старые ошибки blockcheck не должны видеть при следующем старте.
         self._pick_result: blockcheck.BlockcheckResult | None = None
+        self._verified: list[dict] = []
         self._history: list[netdiag_history.HistoryEntry] = []
         self.refresh()
         self.refresh_profiles()
@@ -380,6 +398,11 @@ class DoctorScreen:
         self.cancel_button.set_visible(True)
         # Новый прогон: результат прошлого в этом запуске больше не актуален.
         self._pick_result = None
+        self._verified = []
+        self.verify_button.set_no_show_all(True)
+        self.verify_button.set_visible(False)
+        self.apply_button.set_no_show_all(True)
+        self.apply_button.set_visible(False)
         self._refresh_strategy_info()
         self.pick_button.set_label(_("⏳ Подбор идёт…"))
         self.verdict_label.set_text(
@@ -447,6 +470,10 @@ class DoctorScreen:
                 )
             )
             self.verdict_label.set_text("\n".join(lines))
+            # Появился кандидат — можно проверить его качество.
+            self.verify_button.set_no_show_all(False)
+            self.verify_button.set_visible(True)
+            self.verify_button.set_sensitive(True)
             self._refresh_strategy_info()
             common.toast(
                 self.app,
@@ -459,6 +486,156 @@ class DoctorScreen:
             self.pick_button.set_label(_("Подобрать стратегию"))
             self.cancel_button.set_visible(False)
             common.message(self.app, _("Ошибка подбора: {err}").format(err=exc))
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    # --- проверка и применение найденной стратегии ------------------------
+
+    def verify_candidates(self) -> None:
+        """Проверить найденных кандидатов телом 256 КБ с реальным применением.
+
+        Одноразовый GET в blockcheck2 говорит лишь «соединение открылось».
+        Здесь каждый кандидат применяется к zapret, проверяется H2-телом и
+        откатывается — только так видно поломку медиа.
+        """
+
+        if not self._pick_result or not self._pick_result.strategies:
+            common.toast(self.app, _("Сначала подберите стратегии"))
+            return
+
+        strategies = [
+            {"args": item.args, "desync": item.desync}
+            for item in self._pick_result.strategies[:4]
+        ]
+
+        self.verify_button.set_sensitive(False)
+        self.verify_button.set_label(_("⏳ Проверяю…"))
+        self.verdict_label.set_text(
+            _(
+                "⏳ Проверяю кандидатов телом 256 КБ: каждый применяется к "
+                "zapret по очереди, затем профиль возвращается. Это занимает "
+                "около 10 секунд на кандидата."
+            )
+        )
+
+        def job():
+            return api.verify_candidates_via_helper(self.app.cfg, strategies, limit=4)
+
+        def done(result) -> None:
+            self.verify_button.set_sensitive(True)
+            self.verify_button.set_label(_("Проверить найденное"))
+            code, payload = result
+            checked = payload.get("checked") or []
+            if code != api.EXIT_OK or not checked:
+                self.verdict_label.set_text(
+                    _("Не удалось проверить: {err}").format(
+                        err=payload.get("error") or "нет результата"
+                    )
+                )
+                return
+
+            self._verified = checked
+            best = payload.get("best")
+            lines = [_("Проверка телом 256 КБ:"), ""]
+            for item in checked:
+                ok = item.get("body_ok")
+                count = item.get("body_ok_count")
+                total = item.get("body_total")
+                mark = "✅" if ok else "❌"
+                detail = (
+                    f"{count}/{total}" if count is not None else "не проверен"
+                )
+                lines.append(f"{mark} {detail}  {str(item.get('desync'))[:90]}")
+            lines.append("")
+            if best:
+                lines.append(
+                    _("Лучшая по медиа выбрана — можно применить её кнопкой ниже.")
+                )
+                self.apply_button.set_no_show_all(False)
+                self.apply_button.set_visible(True)
+                self.apply_button.set_sensitive(True)
+            else:
+                lines.append(
+                    _(
+                        "Ни одна не прошла тело целиком: у вашего провайдера они "
+                        "открывают заголовки, но ломают передачу. Это ровно тот "
+                        "случай, когда одноразовый GET обманывает."
+                    )
+                )
+                self.apply_button.set_visible(False)
+            self.verdict_label.set_text("\n".join(lines))
+
+        def failed(exc: Exception) -> None:
+            self.verify_button.set_sensitive(True)
+            self.verify_button.set_label(_("Проверить найденное"))
+            self.verdict_label.set_text(
+                _("Ошибка проверки: {err}").format(err=exc)
+            )
+
+        run_in_thread(job, on_done=done, on_error=failed)
+
+    def apply_best(self) -> None:
+        """Применить выбранную стратегию к zapret с бэкапом профилей."""
+
+        best = None
+        for item in getattr(self, "_verified", []) or []:
+            if item.get("body_ok"):
+                best = item
+                break
+        if not best:
+            common.toast(self.app, _("Нет проверенной стратегии для применения"))
+            return
+
+        confirm = Gtk.MessageDialog(
+            transient_for=self.app.window,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=_("Применить эту стратегию к zapret?"),
+        )
+        confirm.format_secondary_text(
+            _(
+                "Профиль добавится первым правилом для вашего hostlist, zapret "
+                "перезапустится. Текущий конфиг сохранится в резервную копию.\n\n"
+                "{desync}"
+            ).format(desync=" ".join(best.get("desync") or [])[:300])
+        )
+        response = confirm.run()
+        confirm.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+
+        self.apply_button.set_sensitive(False)
+        self.apply_button.set_label(_("⏳ Применяю…"))
+
+        def job():
+            return api.apply_strategy_via_helper(self.app.cfg, best.get("desync") or [])
+
+        def done(result) -> None:
+            self.apply_button.set_sensitive(True)
+            self.apply_button.set_label(_("Применить лучшую"))
+            code, payload = result
+            if code == api.EXIT_OK and payload.get("ok"):
+                common.message(
+                    self.app,
+                    _(
+                        "Стратегия применена.\n\nБэкап конфига: {backup}\n\n"
+                        "Откатить: верните файл из бэкапа и перезапустите zapret."
+                    ).format(backup=payload.get("backup") or "—"),
+                )
+                self.refresh_profiles()
+            else:
+                common.message(
+                    self.app,
+                    _("Не удалось применить: {err}").format(
+                        err=payload.get("error") or f"код {code}"
+                    ),
+                )
+
+        def failed(exc: Exception) -> None:
+            self.apply_button.set_sensitive(True)
+            self.apply_button.set_label(_("Применить лучшую"))
+            common.message(self.app, _("Ошибка применения: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)
 

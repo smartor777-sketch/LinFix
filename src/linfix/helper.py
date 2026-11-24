@@ -62,6 +62,7 @@ ALLOWED_ACTIONS = {
     "zapret.save_profile",
     "zapret.restore_profile",
     "zapret.verify_candidates",
+    "zapret.apply_strategy",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -828,6 +829,26 @@ def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, 
     return (0 if payload["ok"] else 5), payload
 
 
+def action_zapret_apply_strategy(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    """Применить стратегию к zapret с бэкапом (нужен root)."""
+
+    import json as _json
+
+    from . import api, config
+
+    try:
+        desync = _json.loads(args.desync or "[]")
+    except Exception as exc:  # noqa: BLE001
+        raise HelperError(f"zapret.apply_strategy: плохой JSON: {exc}") from exc
+    if not isinstance(desync, list) or not desync:
+        raise HelperError("zapret.apply_strategy: пустая стратегия")
+
+    cfg = config.load_config(config.DEFAULT_CONFIG_PATH)
+    return api.apply_strategy(cfg, [str(item) for item in desync])
+
+
 def action_zapret_verify_candidates(
     args: argparse.Namespace,
 ) -> tuple[int, dict[str, object]]:
@@ -1302,6 +1323,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--zapret-version", default="", help="версия zapret2 для записи")
     parser.add_argument("--asset-sha256", default="", help="ожидаемая sha256 архива zapret2")
     parser.add_argument("--candidates", default="", help="JSON со стратегиями для проверки")
+    parser.add_argument("--desync", default="", help="JSON со списком desync для применения")
     parser.add_argument("--limit", type=int, default=4, help="сколько кандидатов проверять")
     parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
     parser.add_argument("--version", default="", help="версия TgWsProxy")
@@ -1387,6 +1409,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_blockcheck(args)
         elif args.action == "net.clear_ipv6_blackholes":
             code, payload = action_net_clear_ipv6_blackholes(args)
+        elif args.action == "zapret.apply_strategy":
+            code, payload = action_zapret_apply_strategy(args)
         elif args.action == "zapret.verify_candidates":
             code, payload = action_zapret_verify_candidates(args)
         elif args.action == "zapret.save_profile":

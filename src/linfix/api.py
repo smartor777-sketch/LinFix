@@ -1312,6 +1312,92 @@ def set_blockcheck_domains(domains: list[str]) -> tuple[int, dict[str, object]]:
         return EXIT_ERROR, {"ok": False, "error": f"config.blockcheck: {exc}"}
 
 
+def apply_strategy_via_helper(
+    cfg: Config, desync: list[str]
+) -> tuple[int, dict[str, object]]:
+    """Применить стратегию через helper: правка конфига требует root."""
+
+    import json as _json
+
+    try:
+        code, payload = util.run_helper(
+            "zapret.apply_strategy",
+            ["--desync", _json.dumps(desync, ensure_ascii=False)],
+            timeout=300,
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"применение стратегии: {exc}"}
+    return code, payload
+
+
+def apply_strategy(
+    cfg: Config, desync: list[str], *, hostlist: str | None = None
+) -> tuple[int, dict[str, object]]:
+    """Применить стратегию к zapret с резервной копией конфига (root).
+
+    В отличие от проверки, здесь профиль **остаётся** применённым: это
+    осознанное действие пользователя. Бэкап делается до правки, чтобы откат
+    был возможен одной командой.
+    """
+
+    from . import applystrategy
+
+    if not desync:
+        return EXIT_USAGE, {"ok": False, "error": "пустая стратегия"}
+
+    info = zapret.detect_zapret(cfg.zapret.service)
+    if not info.install_dir:
+        return EXIT_NOT_INSTALLED, {"ok": False, "error": "zapret не установлен"}
+    service = info.service or cfg.zapret.service
+    config_path = Path(info.install_dir) / "config"
+
+    target = hostlist or applystrategy.hostlist_for_test(config_path)
+    if not target:
+        return EXIT_CHECK_FAILED, {
+            "ok": False,
+            "error": "не найден hostlist: некуда направить профиль",
+        }
+
+    try:
+        line = applystrategy.build_profile_line(desync, hostlist=target)
+    except applystrategy.ApplyError as exc:
+        return EXIT_USAGE, {"ok": False, "error": str(exc)}
+
+    backup = Path(str(config_path) + ".bak-linfix-apply")
+    try:
+        shutil.copy2(config_path, backup)
+    except OSError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": f"не удалось сделать бэкап: {exc}"}
+
+    try:
+        applystrategy.replace_profile_block(line, config_path)
+    except (applystrategy.ApplyError, OSError) as exc:
+        return EXIT_ERROR, {"ok": False, "error": str(exc)}
+
+    if not applystrategy.restart(service):
+        # Не оставляем систему с нерабочим профилем.
+        try:
+            shutil.copy2(backup, config_path)
+        except OSError:
+            pass
+        applystrategy.restart(service)
+        return EXIT_CHECK_FAILED, {
+            "ok": False,
+            "error": f"{service} не поднялся — конфиг возвращён из бэкапа",
+        }
+
+    return EXIT_OK, {
+        "ok": True,
+        "applied": True,
+        "service": service,
+        "hostlist": target,
+        "line": line,
+        "backup": str(backup),
+    }
+
+
 def verify_candidates_via_helper(
     cfg: Config, strategies: list[dict[str, object]], *, limit: int = 4
 ) -> tuple[int, dict[str, object]]:
