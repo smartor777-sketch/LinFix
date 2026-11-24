@@ -70,6 +70,12 @@ class BlockcheckConfig:
     #: Без него прогон на одном домене упирается в таймаут (замерено 25 мин,
     #: 0 найденных стратегий). ``False`` возвращает полный перебор.
     fast: bool = True
+    #: Уровень скана. ``veryquick`` останавливается на первом успехе внутри
+    #: семейства и укладывается в минуты; ``quick``/``standard`` — дольше.
+    level: str = "veryquick"
+    #: Сколько ждать. Замерено: прогрев blockcheck2 ~13 с, при 120 с
+    #: находятся кандидаты, при 60 — не всегда.
+    timeout: int = 180
 
     @property
     def effective_domains(self) -> tuple[str, ...]:
@@ -332,7 +338,23 @@ def load_config(path: str | Path | None = None) -> Config:
     blockcheck_fast = _get_typed(
         blockcheck_raw, "blockcheck", "fast", blockcheck_defaults.fast, warnings
     )
-    blockcheck = BlockcheckConfig(domains=blockcheck_domains, fast=bool(blockcheck_fast))
+    blockcheck_level = str(
+        _get_typed(blockcheck_raw, "blockcheck", "level", blockcheck_defaults.level, warnings)
+    )
+    blockcheck_timeout = _get_typed(
+        blockcheck_raw, "blockcheck", "timeout", blockcheck_defaults.timeout, warnings
+    )
+    if blockcheck_level not in {"veryquick", "quick", "standard", "force"}:
+        warnings.append(
+            f"[blockcheck] level: неизвестный уровень {blockcheck_level!r} — берётся veryquick"
+        )
+        blockcheck_level = blockcheck_defaults.level
+    blockcheck = BlockcheckConfig(
+        domains=blockcheck_domains,
+        fast=bool(blockcheck_fast),
+        level=blockcheck_level,
+        timeout=int(blockcheck_timeout) if str(blockcheck_timeout).isdigit() else blockcheck_defaults.timeout,
+    )
 
     profiles = ProfilesConfig(
         enabled=_get_typed(profiles_raw, "profiles", "enabled", profiles_defaults.enabled, warnings),

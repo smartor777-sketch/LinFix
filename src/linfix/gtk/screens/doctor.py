@@ -96,6 +96,25 @@ class DoctorScreen:
             ),
             wrap=True,
         )
+        # Таблица найденных стратегий: выбор строки и применение — кнопкой.
+        # Текстовый список не давал ни выделить, ни скопировать строку.
+        self.found_store = Gtk.ListStore(str, str, str, str)
+        self.found_tree = common.table_from_store(
+            self.found_store,
+            [_("Оценка"), _("Тело 256 КБ"), _("Стратегия"), _("Статус")],
+            tooltip_column=2,
+        )
+        # Без ScrolledWindow: TreeView сам запрашивает высоту по числу строк,
+        # внешняя прокрутка страницы уже есть. В обёртке таблица схлопывалась
+        # до 33 px и выглядела пустой.
+        self.found_scrolled = self.found_tree
+        self.found_tree.set_size_request(-1, 120)
+        self.found_scrolled.set_no_show_all(True)
+        self.found_scrolled.set_visible(False)
+        self.found_hint = common.label(
+            _("Нажмите «Подобрать стратегию», чтобы увидеть варианты"), wrap=True
+        )
+
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, margin_bottom=8)
         self.pick_button = common.button(
             _("Подобрать стратегию"), lambda _: self.pick_strategy()
@@ -118,12 +137,16 @@ class DoctorScreen:
         common.pack(self.buttons, self.verify_button)
         # Применение выбранной стратегии — с бэкапом профилей.
         self.apply_button = common.button(
-            _("Применить лучшую"), lambda _: self.apply_best()
+            _("Применить выбранную"), lambda _: self.apply_best()
         )
         self.apply_button.set_sensitive(False)
         self.apply_button.set_no_show_all(True)
         self.apply_button.set_visible(False)
         common.pack(self.buttons, self.apply_button)
+        self.copy_strategy_button = common.button(
+            _("Копировать стратегию"), lambda _: self.copy_selected_strategy()
+        )
+        common.pack(self.buttons, self.copy_strategy_button)
         common.pack(self.buttons, common.button(_("Копировать отчёт"), lambda _: self.copy_report()))
 
         # Вердикт + рекомендации + сетевые проверки (по мотивам NetFix).
@@ -179,6 +202,8 @@ class DoctorScreen:
         common.pack(self.box, self.strategy_title)
         common.pack(self.box, self.strategy_caption)
         common.pack(self.box, self.buttons)
+        common.pack(self.box, self.found_hint)
+        common.pack(self.box, self.found_scrolled)
         # Краткая информация по стратегиям — отдельной строкой под кнопками,
         # а не между «Подобрать стратегию» и «Отмена подбора».
         self.current_title = common.label(_("Текущая:"), css_class="section-title")
@@ -208,10 +233,14 @@ class DoctorScreen:
 
     def _tick_pick(self) -> bool:
         base = self._pick_start or time.monotonic()
-        elapsed = int((time.monotonic() - base) // 60)
-        self.verdict_label.set_text(
-            _("⏳ Идёт подбор стратегии… прошло ~{n} мин").format(n=elapsed)
-        )
+        elapsed = int(time.monotonic() - base)
+        budget = getattr(self, "_pick_budget", 0) or 0
+        # Каждые 10 секунд обновляем счётчик: подбор идёт минутами, и без
+        # движения текста он неотличим от зависания.
+        text = _("⏳ Идёт подбор стратегии… прошло {s} с").format(s=elapsed)
+        if budget:
+            text += _(" из {b} с").format(b=budget)
+        self.verdict_label.set_text(text)
         return True
 
     def _services_state(self) -> tuple[str, str]:
@@ -409,10 +438,17 @@ class DoctorScreen:
             _("⏳ Идёт подбор стратегии… ожидаем завершения прогона")
         )
         self._pick_start = time.monotonic()
-        self._pick_timer = GLib.timeout_add_seconds(10, self._tick_pick)
+        self._pick_timer = GLib.timeout_add_seconds(5, self._tick_pick)
+
+        cfg = self.app.cfg
+        level = cfg.blockcheck.level
+        budget = max(60, cfg.blockcheck.timeout)
+        # Прогресс по времени: подбор идёт минутами, и без счётчика он
+        # выглядит как зависание.
+        self._pick_budget = budget
 
         def job():
-            return api.pick_strategy(self.app.cfg, level="quick", timeout=2100)
+            return api.pick_strategy(cfg, level=level, timeout=budget)
 
         def done(result) -> None:
             self._stop_pick_timer()
@@ -444,16 +480,12 @@ class DoctorScreen:
                 )
                 self._refresh_strategy_info()
                 return
+            self._fill_found_table(strategies, best)
             lines = [
                 _("Найдено стратегий: {n}").format(n=len(strategies)),
+                _("Выберите строку в таблице и нажмите «Применить выбранную»."),
                 "",
             ]
-            for item in strategies[:5]:
-                mark = "★" if best and item["args"] == best["args"] else " "
-                lines.append(
-                    f"{mark} {item['success']}/{item['total']}: {item['args'][:110]}"
-                )
-            lines.append("")
             if timed_out:
                 # Даже если стратегии есть, они могли провериться
                 # не все варианты: добавляем честную оговорку.
@@ -490,6 +522,73 @@ class DoctorScreen:
         run_in_thread(job, on_done=done, on_error=failed)
 
     # --- проверка и применение найденной стратегии ------------------------
+
+    def _fill_found_table(self, strategies: list, best) -> None:
+        """Показать всех найденных в таблице: выбор, копирование, применение.
+
+        Принимает и `Strategy` (из подбора), и словари (после проверки):
+        внутри всё приводится к словарю с `args`.
+        """
+
+        def as_dict(item) -> dict:
+            if isinstance(item, dict):
+                return item
+            return {
+                "args": getattr(item, "args", ""),
+                "success": getattr(item, "success", 0),
+                "total": getattr(item, "total", 0),
+                "desync": list(getattr(item, "desync", []) or []),
+            }
+
+        self._found = [as_dict(item) for item in strategies]
+        best_args = ""
+        if best is not None:
+            best_args = str(best.get("args") if isinstance(best, dict) else getattr(best, "args", ""))
+        self.found_store.clear()
+        for item in self._found:
+            mark = "★" if best_args and item["args"] == best_args else ""
+            self.found_store.append(
+                [
+                    f"{mark}{item.get('success', 0)}/{item.get('total', 0)}",
+                    "—",
+                    item["args"],
+                    _("лучшая") if mark else "",
+                ]
+            )
+        self.found_scrolled.set_no_show_all(False)
+        self.found_scrolled.set_visible(True)
+        self.found_hint.set_visible(False)
+        # Первая строка выбрана: сразу видно, что можно применять.
+        if len(self.found_store):
+            self.found_tree.get_selection().select_path(Gtk.TreePath.new_first())
+
+    def _selected_strategy(self) -> dict | None:
+        model, tree_iter = self.found_tree.get_selection().get_selected()
+        if tree_iter is None:
+            return None
+        path = model.get_path(tree_iter)
+        index = path.get_indices()[0]
+        if 0 <= index < len(getattr(self, "_found", [])):
+            return self._found[index]
+        return None
+
+    def copy_selected_strategy(self) -> None:
+        """Скопировать строку стратегии целиком — она длинная и в окне обрезана."""
+
+        item = self._selected_strategy()
+        if item is None:
+            common.toast(self.app, _("Выберите строку в таблице"))
+            return
+        text = str(item.get("args") or "")
+        if not text:
+            common.toast(self.app, _("Пустая строка"))
+            return
+        clipboard = Gtk.Clipboard.get_for_display(
+            Gdk.Display.get_default(), Gdk.SELECTION_CLIPBOARD
+        )
+        # Длина для clipboard — в байтах, иначе кириллица обрезается.
+        clipboard.set_text(text, len(text.encode("utf-8")))
+        common.toast(self.app, _("Стратегия скопирована"))
 
     def verify_candidates(self) -> None:
         """Проверить найденных кандидатов телом 256 КБ с реальным применением.
@@ -575,15 +674,35 @@ class DoctorScreen:
         run_in_thread(job, on_done=done, on_error=failed)
 
     def apply_best(self) -> None:
-        """Применить выбранную стратегию к zapret с бэкапом профилей."""
+        """Применить выбранную стратегию к zapret с бэкапом профилей.
+
+        Выбор берётся из таблицы. Если в таблице отмечена проверенная
+        строка — берём её desync. Иначе разбираем строку стратегии как есть
+        (пользователь мог выбрать непроверенный вариант осознанно).
+        """
+
+        chosen = self._selected_strategy()
+        candidates = getattr(self, "_verified", []) or []
 
         best = None
-        for item in getattr(self, "_verified", []) or []:
-            if item.get("body_ok"):
-                best = item
-                break
+        if chosen is not None:
+            args = str(chosen.get("args") or "")
+            # Ищем совпадение среди проверенных: там есть готовый desync.
+            for item in candidates:
+                if str(item.get("args") or "") == args:
+                    best = item
+                    break
+            if best is None:
+                desync = blockcheck.normalize_args(args)
+                if desync:
+                    best = {"args": args, "desync": desync.split(), "body_ok": None}
+        if best is None:
+            for item in candidates:
+                if item.get("body_ok"):
+                    best = item
+                    break
         if not best:
-            common.toast(self.app, _("Нет проверенной стратегии для применения"))
+            common.toast(self.app, _("Выберите стратегию в таблице"))
             return
 
         confirm = Gtk.MessageDialog(
@@ -597,8 +716,15 @@ class DoctorScreen:
             _(
                 "Профиль добавится первым правилом для вашего hostlist, zapret "
                 "перезапустится. Текущий конфиг сохранится в резервную копию.\n\n"
-                "{desync}"
-            ).format(desync=" ".join(best.get("desync") or [])[:300])
+                "{desync}{warn}"
+            ).format(
+                desync=" ".join(best.get("desync") or [])[:300],
+                warn=(
+                    ""
+                    if best.get("body_ok")
+                    else "\n\nВНИМАНИЕ: эта стратегия не проверена телом 256 КБ."
+                ),
+            )
         )
         response = confirm.run()
         confirm.destroy()
@@ -613,7 +739,7 @@ class DoctorScreen:
 
         def done(result) -> None:
             self.apply_button.set_sensitive(True)
-            self.apply_button.set_label(_("Применить лучшую"))
+            self.apply_button.set_label(_("Применить выбранную"))
             code, payload = result
             if code == api.EXIT_OK and payload.get("ok"):
                 common.message(
@@ -634,7 +760,7 @@ class DoctorScreen:
 
         def failed(exc: Exception) -> None:
             self.apply_button.set_sensitive(True)
-            self.apply_button.set_label(_("Применить лучшую"))
+            self.apply_button.set_label(_("Применить выбранную"))
             common.message(self.app, _("Ошибка применения: {err}").format(err=exc))
 
         run_in_thread(job, on_done=done, on_error=failed)

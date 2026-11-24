@@ -671,3 +671,71 @@ class StatusBlackholeTests(unittest.TestCase):
             children.index(screen.zapret_card),
         )
         app.window.destroy()
+
+
+class FoundTableTests(unittest.TestCase):
+    """Найденные стратегии — таблица с выбором, а не текст в лейбле.
+
+    Раньше показывались только первые 5 из N, и строку нельзя было ни
+    выбрать, ни скопировать.
+    """
+
+    def _screen(self):
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["doctor"]
+        self.addCleanup(app.window.destroy)
+        return screen
+
+    def test_shows_all_not_just_five(self) -> None:
+        from linfix import blockcheck
+
+        screen = self._screen()
+        strategies = [
+            blockcheck.Strategy(2, 2, f"--lua-desync=variant{n}") for n in range(10)
+        ]
+        screen._fill_found_table(strategies, strategies[0])
+        self.assertEqual(len(screen.found_store), 10)
+        self.assertTrue(screen.found_scrolled.get_visible())
+        self.assertFalse(screen.found_hint.get_visible())
+
+    def test_first_row_selected(self) -> None:
+        from linfix import blockcheck
+
+        screen = self._screen()
+        strategies = [
+            blockcheck.Strategy(2, 2, "--lua-desync=first"),
+            blockcheck.Strategy(1, 2, "--lua-desync=second"),
+        ]
+        screen._fill_found_table(strategies, strategies[0])
+        selected = screen._selected_strategy()
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["args"], "--lua-desync=first")
+
+    def test_accepts_dicts_too(self) -> None:
+        """После проверки приходят словари, а не Strategy."""
+
+        screen = self._screen()
+        items = [{"args": "--lua-desync=x", "success": 1, "total": 1, "body_ok": True}]
+        screen._fill_found_table(items, items[0])
+        self.assertEqual(len(screen.found_store), 1)
+
+    def test_mark_best(self) -> None:
+        from linfix import blockcheck
+
+        screen = self._screen()
+        strategies = [
+            blockcheck.Strategy(2, 2, "--lua-desync=best"),
+            blockcheck.Strategy(1, 2, "--lua-desync=other"),
+        ]
+        screen._fill_found_table(strategies, strategies[0])
+        self.assertEqual(screen.found_store[0][3], "лучшая")
+        self.assertEqual(screen.found_store[1][3], "")
+
+    def test_table_is_not_collapsed(self) -> None:
+        """Таблица в обёртке схлопывалась до одной строки."""
+
+        screen = self._screen()
+        self.assertNotIsInstance(screen.found_scrolled, Gtk.ScrolledWindow)
