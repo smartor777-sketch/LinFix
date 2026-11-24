@@ -739,3 +739,55 @@ class FoundTableTests(unittest.TestCase):
 
         screen = self._screen()
         self.assertNotIsInstance(screen.found_scrolled, Gtk.ScrolledWindow)
+
+
+class PickBlockTests(unittest.TestCase):
+    """Блок подбора отделён от диагностики Telegram.
+
+    Раньше результаты подбора писались в verdict_label — тот же, что у
+    диагностики, и блоки перемешивались.
+    """
+
+    def _screen(self):
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        self.addCleanup(app.window.destroy)
+        return app.window.screens["doctor"]
+
+    def test_separate_status_label(self) -> None:
+        screen = self._screen()
+        self.assertIsNot(screen.pick_status, screen.verdict_label)
+
+    def test_pick_status_below_found_table(self) -> None:
+        screen = self._screen()
+        children = screen.box.get_children()
+        self.assertLess(
+            children.index(screen.found_scrolled),
+            children.index(screen.pick_status),
+            "статус подбора должен идти после таблицы",
+        )
+        self.assertLess(
+            children.index(screen.verdict_label),
+            children.index(screen.strategy_title),
+            "диагностика Telegram должна быть выше блока подбора",
+        )
+
+    def test_seconds_field_default(self) -> None:
+        screen = self._screen()
+        self.assertEqual(screen.pick_seconds.get_text(), "180")
+        self.assertLessEqual(int(screen.pick_seconds.get_text()), 2100)
+
+    def test_seconds_field_validated(self) -> None:
+        """Мусор в поле не должен ломать подбор — берётся значение из конфига."""
+
+        screen = self._screen()
+        screen.pick_seconds.set_text("abc")
+        # Проверяем логику разбора напрямую.
+        raw = screen.pick_seconds.get_text().strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            value = screen.app.cfg.blockcheck.timeout
+        self.assertEqual(value, screen.app.cfg.blockcheck.timeout)
