@@ -596,10 +596,9 @@ def check_readiness(cfg) -> tuple[bool, str]:
         return False, "zapret не установлен"
     if not script_path(info.install_dir).is_file():
         return False, f"blockcheck2.sh не найден в {info.install_dir}"
+    # Работающий zapret — не препятствие: helper сам останавливает службу
+    # на время замеров и поднимает обратно (в том числе при отмене).
+    # Раньше здесь возвращалось «не готово», и диалог зря пугал.
     if info.active:
-        return (
-            False,
-            "для точных замеров zapret нужно остановить: он сам вмешивается "
-            "в трафик, и результаты будут неверными",
-        )
+        return True, "готово: zapret будет остановлен на время замеров и возвращён"
     return True, "готово"
