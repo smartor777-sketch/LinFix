@@ -79,8 +79,11 @@ class AppTests(unittest.TestCase):
         domains = app.window.screens["domains"]
         # колонки: галочка + домен + статус + детали
         self.assertEqual(domains.store.get_n_columns(), 4)
+        # Кнопки лежат в FlowBox: get_children() отдаёт обёртки FlowBoxChild,
+        # поэтому забираем виджет через get_child().
+        buttons = [child.get_child() for child in domains.buttons.get_children()]
         self.assertEqual(
-            [b.get_label() for b in domains.buttons.get_children()],
+            [b.get_label() for b in buttons],
             [
                 "Обновить и проверить",
                 "Тест TLS выбранных",
@@ -791,3 +794,67 @@ class PickBlockTests(unittest.TestCase):
         except ValueError:
             value = screen.app.cfg.blockcheck.timeout
         self.assertEqual(value, screen.app.cfg.blockcheck.timeout)
+
+
+class LayoutOverflowTests(unittest.TestCase):
+    """Ни одна вкладка не должна требовать больше ширины окна.
+
+    Баг: шесть кнопок «Доменов» в Gtk.Box требовали 985 px. Notebook брал
+    ширину по самой широкой вкладке, страница получала горизонтальную
+    прокрутку, и левый отступ уезжал вместе с контентом.
+    """
+
+    def test_no_screen_wider_than_window(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.set_default_size(900, 700)
+        window.resize(900, 700)
+        import time
+
+        for _ in range(80):
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+            time.sleep(0.01)
+
+        for key, screen in window.screens.items():
+            native = screen.box.get_preferred_width()[0]
+            self.assertLessEqual(
+                native, 900, f"вкладка «{key}» требует {native} px — шире окна"
+            )
+        window.destroy()
+
+    def test_no_horizontal_scroll(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        window = app.window
+        window.set_default_size(900, 700)
+        window.resize(900, 700)
+        import time
+
+        for _ in range(80):
+            while Gtk.events_pending():
+                Gtk.main_iteration_do(False)
+            time.sleep(0.01)
+        adj = window.scrolled.get_hadjustment()
+        self.assertLessEqual(
+            adj.get_upper(),
+            adj.get_page_size() + 1,
+            "появилась горизонтальная прокрутка — контент шире окна",
+        )
+        window.destroy()
+
+    def test_domains_buttons_wrap(self) -> None:
+        """Кнопки «Доменов» в FlowBox, а не в Box: иначе не переносятся."""
+
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+        app.do_activate()
+        screen = app.window.screens["domains"]
+        self.assertIsInstance(screen.buttons, Gtk.FlowBox)
+        app.window.destroy()
