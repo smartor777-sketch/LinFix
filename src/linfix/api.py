@@ -1312,6 +1312,100 @@ def set_blockcheck_domains(domains: list[str]) -> tuple[int, dict[str, object]]:
         return EXIT_ERROR, {"ok": False, "error": f"config.blockcheck: {exc}"}
 
 
+def verify_candidates_via_helper(
+    cfg: Config, strategies: list[dict[str, object]], *, limit: int = 4
+) -> tuple[int, dict[str, object]]:
+    """То же, но через helper: изменение конфига требует root."""
+
+    import json as _json
+
+    try:
+        code, payload = util.run_helper(
+            "zapret.verify_candidates",
+            [
+                "--candidates",
+                _json.dumps(strategies, ensure_ascii=False),
+                "--limit",
+                str(limit),
+            ],
+            timeout=600,
+        )
+    except util.NetfixError as exc:
+        return EXIT_NO_RIGHTS, {"ok": False, "error": str(exc)}
+    except util.CommandError as exc:
+        return EXIT_ERROR, {"ok": False, "error": f"проверка кандидатов: {exc}"}
+    return code, payload
+
+
+def verify_candidates(
+    cfg: Config,
+    strategies: list[dict[str, object]],
+    *,
+    limit: int = 4,
+) -> tuple[int, dict[str, object]]:
+    """Проверить кандидатов телом 256 КБ, применяя каждого к zapret.
+
+    `blockcheck2` проверяет одноразовым GET: он пропускает стратегии,
+    которые открывают заголовки, но ломают тело (классика — `tcpseg`).
+    Здесь каждый кандидат реально применяется к zapret, проверяется H2-телом
+    и откатывается. Откат гарантирован даже при ошибке.
+
+    Нужен root: изменение конфига и перезапуск службы.
+    """
+
+    from . import applystrategy, cfdomains, cfprofile
+
+    if not strategies:
+        return EXIT_USAGE, {"ok": False, "error": "нет кандидатов для проверки"}
+
+    domains = list(state.load_state().domains or cfdomains.FALLBACK_DOMAINS)[:2]
+    if not domains:
+        return EXIT_USAGE, {"ok": False, "error": "нет CF-доменов для проверки"}
+    hosts = [f"kws2.{domain}" for domain in domains]
+
+    results: list[dict[str, object]] = []
+    for item in strategies[:limit]:
+        desync = list(item.get("desync") or [])  # type: ignore[arg-type]
+        if not desync:
+            args = str(item.get("args") or "")
+            desync = [token for token in args.split() if "--lua-desync=" in token]
+        if not desync:
+            continue
+
+        checked: dict[str, object] = {**item, "desync": desync}
+        # cfg.zapret.service по умолчанию «zapret», а установлена может быть
+        # «zapret2»: реальное имя определяет detect_zapret.
+        info = zapret.detect_zapret(cfg.zapret.service)
+        service = info.service or cfg.zapret.service
+        try:
+            with applystrategy.applied(desync, service=service):
+                probed = cfprofile.probe_hosts_parallel(hosts, timeout=8.0)
+            ok_count = sum(1 for ok, _ms in probed.values() if ok)
+            checked.update(
+                {
+                    "body_ok": ok_count == len(hosts),
+                    "body_ok_count": ok_count,
+                    "body_total": len(hosts),
+                    "applied": True,
+                }
+            )
+        except (applystrategy.ApplyError, util.NetfixError) as exc:
+            checked.update({"body_ok": False, "applied": False, "error": str(exc)})
+        results.append(checked)
+
+    results.sort(
+        key=lambda x: (bool(x.get("body_ok")), int(x.get("body_ok_count") or 0)),
+        reverse=True,
+    )
+    best = next((item for item in results if item.get("body_ok")), None)
+    return EXIT_OK, {
+        "ok": True,
+        "checked": results,
+        "best": best,
+        "count": len(results),
+    }
+
+
 def pick_strategy(
     cfg: Config,
     *,

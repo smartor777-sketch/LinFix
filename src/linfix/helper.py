@@ -61,6 +61,7 @@ ALLOWED_ACTIONS = {
     "net.clear_ipv6_blackholes",
     "zapret.save_profile",
     "zapret.restore_profile",
+    "zapret.verify_candidates",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -827,6 +828,30 @@ def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, 
     return (0 if payload["ok"] else 5), payload
 
 
+def action_zapret_verify_candidates(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    """Проверить кандидатов, применяя каждого к zapret (нужен root)."""
+
+    import json as _json
+
+    from . import api, config
+
+    raw = args.candidates or ""
+    try:
+        strategies = _json.loads(raw)
+    except Exception as exc:  # noqa: BLE001
+        raise HelperError(f"zapret.verify_candidates: плохой JSON: {exc}") from exc
+    if not isinstance(strategies, list):
+        raise HelperError("zapret.verify_candidates: ожидается список")
+
+    # --config-path здесь — конфиг zapret, а не LinFix. Настройки LinFix
+    # читаем из штатного места, иначе tomllib разбирает чужой файл.
+    cfg = config.load_config(config.DEFAULT_CONFIG_PATH)
+    code, payload = api.verify_candidates(cfg, strategies, limit=int(args.limit or 4))
+    return code, payload
+
+
 def action_zapret_save_profile(
     args: argparse.Namespace,
 ) -> tuple[int, dict[str, object]]:
@@ -1276,6 +1301,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--asset-url", default="", help="прямая ссылка на архив")
     parser.add_argument("--zapret-version", default="", help="версия zapret2 для записи")
     parser.add_argument("--asset-sha256", default="", help="ожидаемая sha256 архива zapret2")
+    parser.add_argument("--candidates", default="", help="JSON со стратегиями для проверки")
+    parser.add_argument("--limit", type=int, default=4, help="сколько кандидатов проверять")
     parser.add_argument("--sha256", default="", help="ожидаемый SHA256")
     parser.add_argument("--version", default="", help="версия TgWsProxy")
     parser.add_argument("--dest", default=str(tgws.BINARY), help="куда установить бинарник")
@@ -1360,6 +1387,8 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_config_blockcheck(args)
         elif args.action == "net.clear_ipv6_blackholes":
             code, payload = action_net_clear_ipv6_blackholes(args)
+        elif args.action == "zapret.verify_candidates":
+            code, payload = action_zapret_verify_candidates(args)
         elif args.action == "zapret.save_profile":
             code, payload = action_zapret_save_profile(args)
         elif args.action == "zapret.restore_profile":
