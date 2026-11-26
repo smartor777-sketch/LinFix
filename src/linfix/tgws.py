@@ -1,7 +1,7 @@
 """TgWsProxy: установка, конфиг, user-служба, ссылка.
 
 Установка бинарника выполняется helper'ом (root). Скачивание идёт только по
-HTTPS, SHA256 сверяется с ``asset.digest`` из GitHub API. Конфиг и user-unit
+HTTPS, SHA256 сверяется с digest со страницы релиза GitHub. Конфиг и user-unit
 пишутся от имени пользователя.
 """
 
@@ -21,15 +21,13 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import util
+from . import github_web, util
 from .cfdomains import is_valid_domain
 
 UNIT_NAME = "tgwsproxy"
 INSTALL_DIR = Path("/opt/tgwsproxy")
 BINARY = INSTALL_DIR / "TgWsProxy"
 REPO = "Flowseal/tg-ws-proxy"
-API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
-API_TAG = f"https://api.github.com/repos/{REPO}/releases/tags/{{tag}}"
 MAX_BINARY_BYTES = 200 * 1024 * 1024
 VERSION_RE = re.compile(r"^v[0-9A-Za-z._-]+$")
 
@@ -170,31 +168,40 @@ def normalize_version(version: str | None) -> str | None:
     return value
 
 
-def fetch_https_text(url: str, *, timeout: float = 20.0) -> str:
-    if not url.lower().startswith("https://"):
-        raise TgwsError("разрешён только HTTPS")
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "linfix/0.1",
-            "Accept": "application/vnd.github+json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-            payload = response.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise TgwsError(f"не удалось получить {url}: {exc}") from exc
-    return payload.decode("utf-8", "replace")
-
-
 def fetch_release(version: str | None = None, *, timeout: float = 20.0) -> Release:
+    """Описание релиза: тег и файлы со страницы GitHub (без REST API).
+
+    ``version=None`` — последний релиз. Для конкретной версии страница
+    ``expanded_assets`` отдаёт тот же список файлов и их sha256.
+    """
+
     tag = normalize_version(version)
-    url = API_TAG.format(tag=tag) if tag else API_LATEST
-    raw = json.loads(fetch_https_text(url, timeout=timeout))
-    if not isinstance(raw, dict):
-        raise TgwsError("некорректный ответ GitHub API")
-    return parse_release(raw)
+    try:
+        if tag is None:
+            tag = github_web.latest_tag(REPO, timeout=timeout)
+        web_assets = github_web.release_assets(REPO, tag, timeout=timeout)
+    except github_web.GitHubWebError as exc:
+        raise TgwsError(str(exc)) from exc
+
+    assets = tuple(
+        Asset(
+            name=item.name,
+            url=item.url,
+            digest=f"sha256:{item.sha256}" if item.sha256 else "",
+            size=item.size,
+        )
+        for item in web_assets
+    )
+    return Release(tag=tag, assets=assets)
+
+
+def latest_version(*, timeout: float = 20.0) -> str | None:
+    """Только тег последнего релиза — для проверки обновлений."""
+
+    try:
+        return github_web.latest_tag(REPO, timeout=timeout)
+    except github_web.GitHubWebError as exc:
+        raise TgwsError(str(exc)) from exc
 
 
 def select_linux_asset(release: Release, arch: str = "amd64") -> Asset:

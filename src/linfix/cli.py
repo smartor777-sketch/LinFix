@@ -1123,7 +1123,7 @@ def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
     fetch_error: str | None = None
     if not args.domains_only:
         try:
-            latest = tgws.fetch_release(timeout=args.timeout).tag
+            latest = tgws.latest_version(timeout=args.timeout)
         except tgws.TgwsError as exc:
             fetch_error = str(exc)
 
