@@ -255,7 +255,7 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
             zapret_asset="zapret2-v1.0.7.tar.gz",
         )
         with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
-            with mock.patch.object(api, "restart_zapret", return_value=0):
+            with mock.patch.object(api, "restart_zapret", return_value=(0, "ok")):
                 with mock.patch.object(api.updates, "fetch_remote", return_value=remote):
                     code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
 
@@ -273,6 +273,35 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertTrue(payload.get("ok"))
+        self.assertNotIn("error", payload)
+
+    def test_restart_failure_is_reported(self) -> None:
+        from linfix import api
+
+        def fake_helper(action, args, **kwargs):
+            if action in {
+                "zapret.save_profile",
+                "zapret.install_easy",
+                "zapret.restore_profile",
+            }:
+                return 0, {"ok": True}
+            return 0, {}
+
+        remote = updates.Remote(
+            zapret_tag="v1.0.8",
+            zapret_asset="zapret2-v1.0.8.tar.gz",
+        )
+        with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
+            with mock.patch.object(
+                api, "restart_zapret", return_value=(5, "служба zapret2 не active")
+            ):
+                with mock.patch.object(api.updates, "fetch_remote", return_value=remote):
+                    code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
+
+        self.assertEqual(code, 5)
+        self.assertFalse(payload.get("ok"))
+        self.assertTrue(payload.get("installed"))
+        self.assertIn("служба zapret2 не active", str(payload.get("error")))
 
     def test_save_profile_failure_stops_update(self) -> None:
         from linfix import api

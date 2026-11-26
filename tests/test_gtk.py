@@ -367,6 +367,29 @@ class SettingsActionTests(unittest.TestCase):
         app.window.destroy()
 
 
+class TrayRestartTests(unittest.TestCase):
+    """Пункты трея «Перезапустить …» должны передавать cfg в API."""
+
+    def test_tray_restart_passes_config(self) -> None:
+        from linfix.gtk.app import NetFixApp
+
+        app = NetFixApp()
+
+        def fake_run_op(fn, **_kwargs):
+            fn()  # worker вызывает функцию без аргументов
+
+        with patch.object(app, "run_op", side_effect=fake_run_op), patch(
+            "linfix.api.restart_tgws", return_value=(0, "ok")
+        ) as restart_tgws, patch(
+            "linfix.api.restart_zapret", return_value=(0, "ok")
+        ) as restart_zapret:
+            app.restart_tgws_tray()
+            app.restart_zapret_tray()
+
+        restart_tgws.assert_called_once_with(app.cfg)
+        restart_zapret.assert_called_once_with(app.cfg)
+
+
 class LayoutTests(unittest.TestCase):
     def test_status_refresh_button_above_cards(self) -> None:
         from linfix.gtk.app import NetFixApp

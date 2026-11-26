@@ -345,7 +345,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.6.19_all.deb
+sudo apt install ./linfix_0.6.20_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
