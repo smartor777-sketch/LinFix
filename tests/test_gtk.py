@@ -644,8 +644,8 @@ class StatusBlackholeTests(unittest.TestCase):
         self.assertEqual(screen.blackhole_button.get_label(), "Убрать заглушки")
         app.window.destroy()
 
-    def test_no_button_when_vpn_active(self) -> None:
-        """Пока VPN работает, маршруты нужны ему — кнопку не показываем."""
+    def test_no_banner_when_vpn_active(self) -> None:
+        """Пока VPN работает, маршруты нужны ему — это не висячие заглушки."""
 
         from linfix.gtk.app import NetFixApp
 
@@ -653,9 +653,7 @@ class StatusBlackholeTests(unittest.TestCase):
         app.do_activate()
         screen = app.window.screens["status"]
         screen._show_blackholes(["blackhole 2000::/4"], ["qeli"])
-        self.assertTrue(screen.blackhole_box.get_visible())
-        self.assertIn("VPN", screen.blackhole_label.get_text())
-        self.assertFalse(screen.blackhole_button.get_visible())
+        self.assertFalse(screen.blackhole_box.get_visible())
         app.window.destroy()
 
     def test_block_sits_between_check_result_and_cards(self) -> None:

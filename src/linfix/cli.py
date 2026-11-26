@@ -899,11 +899,12 @@ def cmd_net_show(cfg: Config, args: argparse.Namespace) -> int:
     if not routes:
         print("IPv6-заглушек нет — чисто")
         return EXIT_OK
-    print(f"Висячих маршрутов-заглушек: {len(routes)}")
+    label = "Маршрутов-заглушек" if tunnel else "Висячих маршрутов-заглушек"
+    print(f"{label}: {len(routes)}")
     for line in routes:
         print(f"  {line}")
     if tunnel:
-        print(f"VPN активен ({', '.join(tunnel)}) — маршруты нужны ему")
+        print(f"VPN активен ({', '.join(tunnel)}) — маршруты нужны ему, это не висячие заглушки")
     else:
         print("Убрать: linfix net cleanup")
     return EXIT_OK

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import cfdomains, cfprofile, state, tgws, util
+from . import cfdomains, cfprofile, netstate, state, tgws, util
 from .config import Config
 
 CF_FAILURE_RE = re.compile(r"CF proxy failed", re.IGNORECASE)
@@ -332,16 +332,7 @@ def _ipv6_blackhole_count() -> int:
     Читается без root: `ip -6 route show` доступен обычному пользователю.
     """
 
-    completed = util.run(["ip", "-6", "route", "show"], check=False, timeout=10)
-    stdout = getattr(completed, "stdout", "") or ""
-    if not isinstance(stdout, str):
-        # В тестах util.run может быть заглушён произвольным объектом.
-        return 0
-    return sum(
-        1
-        for line in stdout.splitlines()
-        if line.strip().startswith("blackhole")
-    )
+    return len(netstate.ipv6_blackhole_routes())
 
 
 def check_guard(
@@ -358,9 +349,10 @@ def check_guard(
 
     # Висячие IPv6-заглушки проверяются первыми: пока весь IPv6 уходит в
     # blackhole, любые сетевые замеры врут, а пользователь видит «сайты не
-    # открываются» без внятной причины.
+    # открываются» без внятной причины. Но если VPN ещё работает, маршруты
+    # принадлежат ему (kill-switch) — это не находка, а нормальное состояние.
     blackholes = _ipv6_blackhole_count()
-    if blackholes:
+    if blackholes and not netstate.vpn_interfaces():
         report = GuardReport(
             "warn",
             f"висячих IPv6-заглушек: {blackholes} — IPv6 уходит в никуда. "

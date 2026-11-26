@@ -426,34 +426,26 @@ class StatusScreen:
     def _show_blackholes(self, routes: list[str], vpn: list[str]) -> None:
         """Показать предупреждение о висячих IPv6-заглушках."""
 
-        if not routes:
+        # Если VPN работает, маршруты-заглушки — часть его kill-switch.
+        # Это не «висячие заглушки»: тревожить пользователя и предлагать
+        # удаление нельзя.
+        if not routes or vpn:
             self.blackhole_box.set_visible(False)
             return
 
-        if vpn:
-            self.blackhole_label.set_text(
-                _(
-                    "Обнаружены висячие IPv6-заглушки, но VPN ещё работает "
-                    "({vpn}): маршруты нужны ему. Отключите VPN штатно."
-                ).format(vpn=", ".join(vpn))
-            )
-            self.blackhole_button.set_visible(False)
-        else:
-            self.blackhole_label.set_text(
-                _(
-                    "Обнаружены висячие IPv6-заглушки ({n}). Из-за них весь "
-                    "IPv6 уходит в никуда: браузер ждёт таймаут и сайты "
-                    "кажутся недоступными."
-                ).format(n=len(routes))
-            )
-            self.blackhole_button.set_visible(True)
-            self.blackhole_button.set_sensitive(True)
-            self.blackhole_button.set_label(_("Убрать заглушки"))
+        self.blackhole_label.set_text(
+            _(
+                "Обнаружены висячие IPv6-заглушки ({n}). Из-за них весь "
+                "IPv6 уходит в никуда: браузер ждёт таймаут и сайты "
+                "кажутся недоступными."
+            ).format(n=len(routes))
+        )
+        self.blackhole_button.set_visible(True)
+        self.blackhole_button.set_sensitive(True)
+        self.blackhole_button.set_label(_("Убрать заглушки"))
 
         self.blackhole_box.set_no_show_all(False)
         self.blackhole_box.show_all()
-        if vpn:
-            self.blackhole_button.set_visible(False)
 
     def clear_blackholes(self) -> None:
         """Убрать заглушки через helper и обновить экран."""

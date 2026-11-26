@@ -11,6 +11,15 @@ from pathlib import Path
 from . import cfdomains, guard, state, util, zapret
 from .cfdomains import FALLBACK_DOMAINS
 from .config import Config
+# Живое состояние сети живёт в netstate: guard и doctor должны видеть
+# одни и те же маршруты и один и тот же активный VPN.
+# Имена импортируются сюда же как публичные имена doctor для API/CLI/тестов.
+from .netstate import (  # noqa: F401
+    IPV6_BLACKHOLE_ROUTES,
+    clear_ipv6_blackholes,
+    ipv6_blackhole_routes,
+    vpn_interfaces,
+)
 
 PASS = "pass"
 WARN = "warn"
@@ -471,64 +480,13 @@ def _route_check() -> Check:
     return Check("route.vpn", "Маршрут по умолчанию", PASS, "без VPN/TUN")
 
 
-#: Маршруты-заглушки IPv6, которые ставят VPN-клиенты с kill-switch.
-IPV6_BLACKHOLE_ROUTES = ("::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7")
-
-#: Имена процессов VPN-клиентов: если такой жив, маршруты ему нужны.
-_VPN_PROCESSES = ("qeli", "amnezia-linux", "wg-quick", "openvpn")
-
-
-def ipv6_blackhole_routes() -> list[str]:
-    """Вернуть список висящих маршрутов-заглушек IPv6 (пусто — чисто)."""
-
-    completed = util.run(["ip", "-6", "route", "show"], check=False, timeout=10)
-    return [
-        line.strip()
-        for line in (completed.stdout or "").splitlines()
-        if line.strip().startswith("blackhole")
-    ]
-
-
-def vpn_interfaces() -> list[str]:
-    """Туннельные интерфейсы и процессы VPN — признак активного соединения."""
-
-    names: list[str] = []
-    link = util.run(["ip", "-brief", "link"], check=False, timeout=10)
-    for line in (link.stdout or "").splitlines():
-        parts = line.split()
-        if parts and parts[0].startswith(("tun", "vpn", "wg", "qeli")):
-            names.append(parts[0])
-    for client in _VPN_PROCESSES:
-        completed = util.run(["pgrep", "-x", client], check=False, timeout=5)
-        if getattr(completed, "returncode", 1) == 0:
-            names.append(client)
-    return names
-
-
-def clear_ipv6_blackholes() -> tuple[int, list[str]]:
-    """Удалить маршруты-заглушки. Вернуть (сколько удалено, что осталось).
-
-    Вызывать только при неактивном VPN: иначе маршруты нужны клиенту.
-    Требует root (через helper или pkexec).
-    """
-
-    removed = 0
-    for route in IPV6_BLACKHOLE_ROUTES:
-        completed = util.run(
-            ["ip", "-6", "route", "del", "blackhole", route], check=False, timeout=10
-        )
-        if getattr(completed, "returncode", 1) == 0:
-            removed += 1
-    return removed, ipv6_blackhole_routes()
-
-
 def _ipv6_blackhole_check() -> Check:
     """Маршруты-заглушки IPv6: их ставит VPN-клиент (qeli и подобные).
 
     Такие маршруты молча уводят весь IPv6 в никуда. Браузер пробует AAAA,
     ждёт таймаут и только потом переходит на IPv4 — сайты «не открываются»,
-    хотя curl -4 работает. Если маршруты остались, значит VPN-клиент вышел
-    аварийно и не прибрал за собой.
+    хотя curl -4 работает. Если маршруты остались, а VPN уже не активен,
+    значит клиент вышел аварийно и не прибрал за собой.
     """
 
     blackholes = ipv6_blackhole_routes()
@@ -536,22 +494,27 @@ def _ipv6_blackhole_check() -> Check:
 
     if not blackholes:
         if tunnel:
+            # Заглушек нет, VPN работает — тут нечего показывать в блоке
+            # IPv6. Активный VPN отдельно виден в проверке маршрута.
             return Check(
                 "ipv6.blackhole",
                 "IPv6-заглушки",
-                WARN,
-                f"VPN активен: {', '.join(tunnel)}",
+                PASS,
+                f"VPN активен: {', '.join(tunnel)} — заглушек нет",
                 "при аварийном выходе клиент оставит blackhole-маршруты",
             )
         return Check("ipv6.blackhole", "IPv6-заглушки", PASS, "не обнаружены")
 
     if tunnel:
+        # Маршруты установлены активным VPN и нужны ему: это не «висячие
+        # заглушки» и не проблема. Предупреждать и предлагать удаление нельзя.
         return Check(
             "ipv6.blackhole",
             "IPv6-заглушки",
-            WARN,
-            f"blackhole-маршрутов: {len(blackholes)} — IPv6 уходит в никуда",
-            "VPN ещё работает — маршруты нужны ему; отключите VPN штатно",
+            PASS,
+            f"VPN активен ({', '.join(tunnel)}): "
+            f"blackhole-маршрутов {len(blackholes)} — его kill-switch",
+            "отключите VPN штатно — маршруты уйдут вместе с ним",
         )
 
     return Check(
@@ -577,6 +540,16 @@ def _guard_check(cfg: Config) -> Check:
     recorded_blackholes = int(event.get("ipv6_blackholes") or 0)
     live_blackholes = len(ipv6_blackhole_routes())
     if live_blackholes:
+        tunnel = vpn_interfaces()
+        if tunnel:
+            # Заглушки принадлежат работающему VPN — это норма, а не находка.
+            return Check(
+                "guard",
+                "Guard",
+                PASS,
+                f"VPN активен ({', '.join(tunnel)}): заглушки — его kill-switch",
+                "",
+            )
         return Check(
             "guard",
             "Guard",
