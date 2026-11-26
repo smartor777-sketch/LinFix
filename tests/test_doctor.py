@@ -61,14 +61,16 @@ class TelegramCheckTests(unittest.TestCase):
 
 class GuardDoctorTests(unittest.TestCase):
     def test_no_trip(self) -> None:
-        with mock.patch.object(doctor.guard, "load_event", return_value={}):
-            check = doctor._guard_check(config.Config())
+        with mock.patch.object(doctor, "ipv6_blackhole_routes", return_value=[]):
+            with mock.patch.object(doctor.guard, "load_event", return_value={}):
+                check = doctor._guard_check(config.Config())
         self.assertEqual(check.status, doctor.PASS)
 
     def test_last_trip(self) -> None:
         event = {"last_trip": "2026-11-20T10:00:00+03:00", "detail": "CF-путь недоступен"}
-        with mock.patch.object(doctor.guard, "load_event", return_value=event):
-            check = doctor._guard_check(config.Config())
+        with mock.patch.object(doctor, "ipv6_blackhole_routes", return_value=[]):
+            with mock.patch.object(doctor.guard, "load_event", return_value=event):
+                check = doctor._guard_check(config.Config())
         self.assertEqual(check.status, doctor.WARN)
         self.assertIn("CF-путь", check.details)
 
@@ -121,8 +123,10 @@ class Ipv6BlackholeTests(unittest.TestCase):
 
         with mock.patch.object(doctor.util, "run", side_effect=fake_run):
             check = doctor._ipv6_blackhole_check()
-        self.assertEqual(check.status, doctor.WARN)
-        self.assertIn("VPN ещё работает", check.hint)
+        # Маршруты принадлежат активному VPN: это не висячие заглушки.
+        self.assertEqual(check.status, doctor.PASS)
+        self.assertIn("VPN активен", check.details)
+        self.assertNotIn("Убрать", check.hint)
 
     def test_foreign_blackhole_hint(self) -> None:
         routes = "blackhole 2606:4700::/32 dev lo metric 1024\n"
@@ -195,9 +199,9 @@ class Ipv6HelpersTests(unittest.TestCase):
 
         with mock.patch.object(doctor.util, "run", side_effect=fake_run):
             check = doctor._ipv6_blackhole_check()
-        self.assertEqual(check.status, doctor.WARN)
-        self.assertIn("VPN ещё работает", check.hint)
-        # Кнопку убирать нельзя: маршруты нужны активному VPN.
+        # Маршруты нужны активному VPN — удалять их нельзя.
+        self.assertEqual(check.status, doctor.PASS)
+        self.assertIn("VPN активен", check.details)
         self.assertNotIn("Убрать заглушки", check.hint)
 
 
@@ -209,7 +213,7 @@ class GuardStaleEventTests(unittest.TestCase):
     потому что читала только сохранённое событие.
     """
 
-    def _run(self, event: dict, live_routes: list[str]):
+    def _run(self, event: dict, live_routes: list[str], vpn: list[str] | None = None):
         from dataclasses import replace
 
         cfg = replace(config.Config(), guard=replace(config.Config().guard, enabled=True))
@@ -217,7 +221,10 @@ class GuardStaleEventTests(unittest.TestCase):
             with mock.patch.object(
                 doctor, "ipv6_blackhole_routes", return_value=live_routes
             ):
-                return doctor._guard_check(cfg)
+                with mock.patch.object(
+                    doctor, "vpn_interfaces", return_value=vpn or []
+                ):
+                    return doctor._guard_check(cfg)
 
     def test_stale_event_shows_pass(self) -> None:
         event = {"ipv6_blackholes": 2, "last_trip": "2026-11-23T21:03:10+03:00"}
@@ -239,6 +246,18 @@ class GuardStaleEventTests(unittest.TestCase):
         check = self._run({}, ["blackhole 2000::/4"])
         self.assertEqual(check.status, doctor.WARN)
         self.assertIn("1", check.details)
+
+    def test_live_routes_with_active_vpn_pass(self) -> None:
+        """Маршруты активного VPN — не висячие заглушки, не пугаем."""
+
+        check = self._run(
+            {"ipv6_blackholes": 5},
+            ["blackhole 2000::/4", "blackhole ::/1"],
+            vpn=["qeli"],
+        )
+        self.assertEqual(check.status, doctor.PASS)
+        self.assertIn("VPN активен", check.details)
+        self.assertNotIn("висячих", check.details)
 
     def test_clean_state_and_no_event(self) -> None:
         check = self._run({}, [])

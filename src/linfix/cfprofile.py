@@ -219,3 +219,24 @@ def check_profile(
         ),
         hint="Примените профиль CF: sudo scripts/apply-cf-profile.sh",
     )
+
+
+# --- Отбор кандидатов после подбора стратегий -------------------------------
+
+
+def probe_hosts_parallel(
+    hosts: list[str], *, timeout: float = 8.0
+) -> dict[str, tuple[bool, int]]:
+    """Проверить набор хостов параллельно. Возвращает {host: (ok, мс)}."""
+
+    if not hosts:
+        return {}
+
+    def one(host: str) -> tuple[str, bool, int]:
+        ok, ms, _err = _h2_probe(host, timeout)
+        return host, ok, ms
+
+    workers = min(len(hosts), 8)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        results = pool.map(one, hosts)
+    return {host: (ok, ms) for host, ok, ms in results}

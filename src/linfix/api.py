@@ -504,10 +504,16 @@ def update_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:
         )
         return EXIT_CHECK_FAILED, payload
 
-    restart_code = restart_zapret(cfg)
+    restart_code, restart_message = restart_zapret(cfg)
     payload["ok"] = restart_code == EXIT_OK
     payload["installed"] = True
-    return EXIT_OK if payload["ok"] else EXIT_CHECK_FAILED, payload
+    if not payload["ok"]:
+        payload["error"] = (
+            "zapret2 обновлён, но служба не перезапустилась: "
+            + restart_message
+        )
+        return EXIT_CHECK_FAILED, payload
+    return EXIT_OK, payload
 
 
 def install_zapret2(cfg: Config) -> tuple[int, dict[str, object]]:

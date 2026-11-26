@@ -109,12 +109,12 @@ class JsonParsingTests(unittest.TestCase):
 class CyrillicPathTests(unittest.TestCase):
     def test_ascii_safe(self) -> None:
         self.assertTrue(util._ascii_safe("/opt/linfix"))
-        self.assertFalse(util._ascii_safe("/home/user/Документы/LinFix"))
+        self.assertFalse(util._ascii_safe("/home/alex/Документы/LinFix"))
 
     def test_non_ascii_path_uses_ascii_wrapper(self) -> None:
         """pkexec падает на не-ASCII argv — путь должен уйти в файл-обёртку."""
 
-        cyrillic = "/home/user/Документы/LinFix/src"
+        cyrillic = "/home/alex/Документы/LinFix/src"
         with patch.object(util.Path, "resolve") as resolve_mock:
             resolve_mock.return_value.parent.parent = cyrillic  # type: ignore[attr-defined]
             with patch.object(util.Path, "resolve", return_value=util.Path(cyrillic + "/linfix/util.py")):

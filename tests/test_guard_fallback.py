@@ -177,7 +177,8 @@ class IPv6BlackholeGuardTests(unittest.TestCase):
         def fake_run(argv, **kwargs):
             if argv[:3] == ["ip", "-6", "route"]:
                 return SimpleNamespace(returncode=0, stdout=routes)
-            return SimpleNamespace(returncode=0, stdout="")
+            # pgrep ничего не нашёл: VPN не запущен.
+            return SimpleNamespace(returncode=1, stdout="")
 
         with mock.patch.object(guard.util, "run", side_effect=fake_run):
             report = guard.check_guard(self._cfg(), home=self.home)
@@ -187,13 +188,42 @@ class IPv6BlackholeGuardTests(unittest.TestCase):
         self.assertIn("IPv6", report.detail)
         self.assertIn("linfix net cleanup", report.detail)
 
+    def test_active_vpn_is_not_dangling(self) -> None:
+        """Маршруты активного VPN — не «висячие заглушки».
+
+        qeli (и другие клиенты с kill-switch) держат blackhole-маршруты,
+        пока туннель работает. Guard не должен пугать и советовать чистку.
+        """
+        from types import SimpleNamespace
+
+        routes = (
+            "blackhole ::/1 dev vpn0 metric 1024\n"
+            "blackhole 8000::/1 dev vpn0 metric 1024\n"
+        )
+
+        def fake_run(argv, **kwargs):
+            if argv[:3] == ["ip", "-6", "route"]:
+                return SimpleNamespace(returncode=0, stdout=routes)
+            if argv[:3] == ["ip", "-brief", "link"]:
+                return SimpleNamespace(returncode=0, stdout="lo UNKNOWN\nvpn0 UP\n")
+            return SimpleNamespace(returncode=1, stdout="")
+
+        with mock.patch.object(guard.util, "run", side_effect=fake_run):
+            report = guard.check_guard(self._cfg(), home=self.home)
+
+        self.assertNotIn("висячих", report.detail)
+        self.assertNotIn("net cleanup", report.detail)
+        self.assertEqual(report.ipv6_blackholes, 0)
+        # Дальше обычная проверка лога: лога нет — warn про лог.
+        self.assertIn("лог", report.detail)
+
     def test_clean_passes_through(self) -> None:
         from types import SimpleNamespace
 
         def fake_run(argv, **kwargs):
             if argv[:3] == ["ip", "-6", "route"]:
                 return SimpleNamespace(returncode=0, stdout="fe80::/64 dev wlo1\n")
-            return SimpleNamespace(returncode=0, stdout="")
+            return SimpleNamespace(returncode=1, stdout="")
 
         with mock.patch.object(guard.util, "run", side_effect=fake_run):
             report = guard.check_guard(self._cfg(), home=self.home)

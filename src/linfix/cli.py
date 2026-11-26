@@ -899,11 +899,12 @@ def cmd_net_show(cfg: Config, args: argparse.Namespace) -> int:
     if not routes:
         print("IPv6-заглушек нет — чисто")
         return EXIT_OK
-    print(f"Висячих маршрутов-заглушек: {len(routes)}")
+    label = "Маршрутов-заглушек" if tunnel else "Висячих маршрутов-заглушек"
+    print(f"{label}: {len(routes)}")
     for line in routes:
         print(f"  {line}")
     if tunnel:
-        print(f"VPN активен ({', '.join(tunnel)}) — маршруты нужны ему")
+        print(f"VPN активен ({', '.join(tunnel)}) — маршруты нужны ему, это не висячие заглушки")
     else:
         print("Убрать: linfix net cleanup")
     return EXIT_OK
@@ -1122,7 +1123,7 @@ def cmd_update(cfg: Config, args: argparse.Namespace) -> int:
     fetch_error: str | None = None
     if not args.domains_only:
         try:
-            latest = tgws.fetch_release(timeout=args.timeout).tag
+            latest = tgws.latest_version(timeout=args.timeout)
         except tgws.TgwsError as exc:
             fetch_error = str(exc)
 

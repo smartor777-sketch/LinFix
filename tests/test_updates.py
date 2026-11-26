@@ -227,10 +227,6 @@ class CompareWithReleaseTests(unittest.TestCase):
         self.assertFalse(found.has_zapret)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class UpdateZapretUsesHelperTests(unittest.TestCase):
     """Бэкап пишется в /var/lib — значит только через helper, не напрямую.
 
@@ -259,7 +255,7 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
             zapret_asset="zapret2-v1.0.7.tar.gz",
         )
         with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
-            with mock.patch.object(api, "restart_zapret", return_value=0):
+            with mock.patch.object(api, "restart_zapret", return_value=(0, "ok")):
                 with mock.patch.object(api.updates, "fetch_remote", return_value=remote):
                     code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
 
@@ -277,6 +273,35 @@ class UpdateZapretUsesHelperTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertTrue(payload.get("ok"))
+        self.assertNotIn("error", payload)
+
+    def test_restart_failure_is_reported(self) -> None:
+        from linfix import api
+
+        def fake_helper(action, args, **kwargs):
+            if action in {
+                "zapret.save_profile",
+                "zapret.install_easy",
+                "zapret.restore_profile",
+            }:
+                return 0, {"ok": True}
+            return 0, {}
+
+        remote = updates.Remote(
+            zapret_tag="v1.0.8",
+            zapret_asset="zapret2-v1.0.8.tar.gz",
+        )
+        with mock.patch.object(api.util, "run_helper", side_effect=fake_helper):
+            with mock.patch.object(
+                api, "restart_zapret", return_value=(5, "служба zapret2 не active")
+            ):
+                with mock.patch.object(api.updates, "fetch_remote", return_value=remote):
+                    code, payload = api.update_zapret2(cfg=None)  # type: ignore[arg-type]
+
+        self.assertEqual(code, 5)
+        self.assertFalse(payload.get("ok"))
+        self.assertTrue(payload.get("installed"))
+        self.assertIn("служба zapret2 не active", str(payload.get("error")))
 
     def test_save_profile_failure_stops_update(self) -> None:
         from linfix import api
@@ -407,34 +432,5 @@ class StartCheckShowsPendingTests(unittest.TestCase):
         app.window.destroy()
 
 
-class RateLimitMessageTests(unittest.TestCase):
-    """При лимите GitHub сообщение должно объяснять причину, а не молчать."""
-
-    def test_rate_limit_message_mentions_limit(self) -> None:
-        from linfix import updates
-
-        original = updates.fetch_remote
-        # Проверяем формат ошибки напрямую через _github_json на 403.
-        import urllib.error
-
-        error = urllib.error.HTTPError(
-            "https://api.github.com/x", 403, "rate limit", {}, None
-        )
-        error.headers = {"X-RateLimit-Remaining": "0"}  # type: ignore[assignment]
-
-        with mock.patch.object(updates.urllib.request, "urlopen", side_effect=error):
-            with self.assertRaises(updates.UpdateError) as ctx:
-                updates._github_json("https://api.github.com/x")
-        self.assertIn("ограничил число запросов", str(ctx.exception))
-
-    def test_other_http_error(self) -> None:
-        from linfix import updates
-        import urllib.error
-
-        error = urllib.error.HTTPError(
-            "https://api.github.com/x", 500, "server error", {}, None
-        )
-        with mock.patch.object(updates.urllib.request, "urlopen", side_effect=error):
-            with self.assertRaises(updates.UpdateError) as ctx:
-                updates._github_json("https://api.github.com/x")
-        self.assertIn("500", str(ctx.exception))
+if __name__ == "__main__":
+    unittest.main()

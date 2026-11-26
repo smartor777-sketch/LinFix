@@ -10,19 +10,14 @@ from __future__ import annotations
 
 import json
 import shutil
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import state, tgws, util, zapret
+from . import github_web, state, tgws, util, zapret
 
-#: Репозиторий zapret2 для проверки новых коммитов.
+#: Репозиторий zapret2 для проверки новых релизов.
 ZAPRET_REPO = "bol-van/zapret2"
-#: У zapret2 бинарники есть ТОЛЬКО в релизах (в git-архиве лишь readme.txt),
-#: поэтому сравниваем теги релизов, а не коммиты master.
-ZAPRET_RELEASE_API = f"https://api.github.com/repos/{ZAPRET_REPO}/releases/latest"
 
 #: Каталог, где лежат копии нашего конфига и списков (нужен root).
 BACKUP_DIR = Path("/var/lib/linfix/zapret-profile")
@@ -141,33 +136,14 @@ class Found:
 
 
 
-def _github_json(url: str, *, timeout: float = 20.0) -> object:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "linfix", "Accept": "application/vnd.github+json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 403:
-            reset = exc.headers.get("X-RateLimit-Reset") if exc.headers else None
-            if exc.headers and exc.headers.get("X-RateLimit-Remaining") == "0":
-                hint = ""
-                if reset and reset.isdigit():
-                    moment = datetime.fromtimestamp(int(reset))
-                    hint = f" Ограничение снимется в {moment:%H:%M}."
-                raise UpdateError(
-                    "GitHub ограничил число запросов с вашего адреса (60 в час)."
-                    + hint
-                ) from exc
-        raise UpdateError(f"GitHub ответил ошибкой {exc.code}") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise UpdateError(f"не удалось запросить GitHub: {exc}") from exc
-
-
 def fetch_remote(*, timeout: float = 20.0) -> Remote:
-    """Узнать последний коммит zapret2 и последний релиз TgWsProxy."""
+    """Узнать последний релиз zapret2 и последний релиз TgWsProxy.
+
+    Используются обычные страницы GitHub, а не REST API: у анонимного
+    ``api.github.com`` лимит 60 запросов в час на IP, и проверка обновлений
+    упиралась в него. Страницы релизов и Atom-лента в этот лимит не входят,
+    поэтому проверять можно хоть при каждом открытии окна.
+    """
 
     zapret_tag: str | None = None
     zapret_asset: str | None = None
@@ -175,36 +151,31 @@ def fetch_remote(*, timeout: float = 20.0) -> Remote:
     zapret_sha: str | None = None
     reasons: list[str] = []
     try:
-        release = _github_json(ZAPRET_RELEASE_API, timeout=timeout)
-        if isinstance(release, dict):
-            tag = release.get("tag_name")
-            if isinstance(tag, str):
-                zapret_tag = tag
-            assets = release.get("assets")
-            if isinstance(assets, list):
-                for asset in assets:
-                    if not isinstance(asset, dict):
-                        continue
-                    name = str(asset.get("name") or "")
-                    # Нужен обычный релизный архив: «zapret2-vX.Y.Z.tar.gz».
-                    # openwrt-embedded, .zip и sha256sum.txt не подходят.
-                    if not (name.startswith("zapret2-v") and name.endswith(".tar.gz")):
-                        continue
-                    if "openwrt" in name:
-                        continue
-                    dig = asset.get("digest")
-                    if isinstance(dig, str) and dig.startswith("sha256:"):
-                        zapret_sha = dig.split(":", 1)[1].lower()
-                    zapret_url = str(asset.get("browser_download_url") or "")
-                    zapret_asset = name
-                    break
-    except UpdateError as exc:
+        zapret_tag = github_web.latest_tag(ZAPRET_REPO, timeout=timeout)
+        for asset in github_web.release_assets(
+            ZAPRET_REPO, zapret_tag, timeout=timeout
+        ):
+            # Нужен обычный релизный архив: «zapret2-vX.Y.Z.tar.gz».
+            # openwrt-embedded, .zip и sha256sum.txt не подходят.
+            name = asset.name
+            if not (name.startswith("zapret2-v") and name.endswith(".tar.gz")):
+                continue
+            if "openwrt" in name:
+                continue
+            zapret_asset = name
+            zapret_url = asset.url
+            zapret_sha = asset.sha256 or None
+            break
+        if not zapret_asset:
+            zapret_tag = None
+            reasons.append("zapret2: в последнем релизе нет архива zapret2-v*.tar.gz")
+    except github_web.GitHubWebError as exc:
         zapret_tag = None
         reasons.append(f"zapret2: {exc}")
 
     tgws_tag: str | None = None
     try:
-        tgws_tag = tgws.fetch_release(timeout=timeout).tag
+        tgws_tag = tgws.latest_version(timeout=timeout)
     except tgws.TgwsError as exc:
         tgws_tag = None
         reasons.append(f"TgWsProxy: {exc}")

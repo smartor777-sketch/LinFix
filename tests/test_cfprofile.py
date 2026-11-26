@@ -152,3 +152,54 @@ class ParallelProbeTests(unittest.TestCase):
         ) as helper:
             cfprofile.check_profile(domains)
         helper.assert_called_once()
+
+
+class ProbeHostsParallelTests(unittest.TestCase):
+    """Отбор кандидатов: проверка набора хостов параллельно."""
+
+    def test_returns_map(self) -> None:
+        def fake_probe(host, timeout):
+            return (404, 100, "")
+
+        with mock.patch.object(cfprofile, "_h2_probe", side_effect=fake_probe):
+            result = cfprofile.probe_hosts_parallel(
+                ["kws2.a.co.uk", "kws2.b.co.uk"], timeout=5
+            )
+        self.assertEqual(set(result), {"kws2.a.co.uk", "kws2.b.co.uk"})
+        self.assertTrue(all(ok for ok, _ms in result.values()))
+
+    def test_failure_recorded(self) -> None:
+        def fake_probe(host, timeout):
+            if "bad" in host:
+                return (None, 8000, "ReadTimeout")
+            return (404, 100, "")
+
+        with mock.patch.object(cfprofile, "_h2_probe", side_effect=fake_probe):
+            result = cfprofile.probe_hosts_parallel(["kws2.good.co.uk", "kws2.bad.co.uk"])
+        self.assertTrue(result["kws2.good.co.uk"][0])
+        self.assertFalse(result["kws2.bad.co.uk"][0])
+
+    def test_empty(self) -> None:
+        self.assertEqual(cfprofile.probe_hosts_parallel([]), {})
+
+    def test_parallel(self) -> None:
+        import threading
+        import time
+
+        active = {"now": 0, "peak": 0}
+        lock = threading.Lock()
+
+        def fake_probe(host, timeout):
+            with lock:
+                active["now"] += 1
+                active["peak"] = max(active["peak"], active["now"])
+            time.sleep(0.1)
+            with lock:
+                active["now"] -= 1
+            return (404, 100, "")
+
+        started = time.monotonic()
+        with mock.patch.object(cfprofile, "_h2_probe", side_effect=fake_probe):
+            cfprofile.probe_hosts_parallel([f"kws2.h{i}.co.uk" for i in range(4)])
+        self.assertLess(time.monotonic() - started, 0.3)
+        self.assertGreater(active["peak"], 1)

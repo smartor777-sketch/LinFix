@@ -994,23 +994,10 @@ class DoctorScreen:
         check = next(
             (c for c in report.checks if c.id == "ipv6.blackhole"), None
         )
-        if check is None or check.status == "pass":
+        # WARN теперь означает именно висячие заглушки без активного VPN.
+        # Если VPN работает, проверка возвращает PASS: маршруты нужны ему.
+        if check is None or check.status != "warn":
             self._hide_banner()
-            return
-        if check.status != "warn":
-            self._hide_banner()
-            return
-
-        # VPN активен — убирать нельзя, баннер только поясняет.
-        if "VPN" in (check.hint or "") and "Убрать" not in (check.hint or ""):
-            self._show_banner(
-                _(
-                    "Обнаружены висячие IPv6-заглушки, но VPN ещё работает: "
-                    "маршруты нужны ему. Отключите VPN штатно — и раздел "
-                    "покажет, что делать дальше."
-                ),
-                button=False,
-            )
             return
 
         self._show_banner(

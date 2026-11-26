@@ -67,10 +67,10 @@ class NetFixApp(Gtk.Application):
         self.run_op(fn, on_done=done)
 
     def restart_tgws_tray(self) -> None:
-        self._tray_restart(api.restart_tgws, status_key="status")
+        self._tray_restart(lambda: api.restart_tgws(self.cfg), status_key="status")
 
     def restart_zapret_tray(self) -> None:
-        self._tray_restart(api.restart_zapret, status_key="status")
+        self._tray_restart(lambda: api.restart_zapret(self.cfg), status_key="status")
 
     def run_op(self, fn, on_done=None, **kwargs):
         """Запустить функцию в потоке, UI обновится через GLib.idle_add."""
