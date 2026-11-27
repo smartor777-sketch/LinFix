@@ -12,4 +12,10 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
 
+# Если пользователь включал YouTube-профиль, вернуть его в конфиг zapret2
+# после переустановки пакета (helper работает от root, pkexec не нужен).
+if [ -f /var/lib/linfix/youtube-profile ] && [ -x /usr/libexec/linfix-helper ]; then
+    /usr/libexec/linfix-helper youtube.ensure --json >/dev/null 2>&1 || true
+fi
+
 exit 0

@@ -23,6 +23,7 @@ from . import (
     tgws,
     updates,
     util,
+    youtube,
     zapret,
 )
 from .config import DEFAULT_CONFIG_PATH, Config, ConfigError, load_config
@@ -854,6 +855,18 @@ def set_zapret2_autostart(enabled: bool) -> tuple[int, dict[str, object]]:
         ["--service", "zapret2", "--enabled", "on" if enabled else "off"],
     )
     return code, payload
+
+
+def youtube_profile_status() -> dict[str, object]:
+    """Профиль YouTube: читается без root — безопасно вызывать из GUI."""
+
+    return youtube.status()
+
+
+def set_youtube_profile(profile: str) -> tuple[int, dict[str, object]]:
+    """Включить ``alt9`` / ``alt11`` или выключить профиль YouTube."""
+
+    return util.run_helper("youtube.set_profile", ["--profile", profile], timeout=120)
 
 
 def update_domains(

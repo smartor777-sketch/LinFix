@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import __version__, api, cfdomains, cfprofile, doctor, guard, profiles, state, tgws, util, zapret
+from . import __version__, api, cfdomains, cfprofile, doctor, guard, profiles, state, tgws, util, youtube, zapret
 from .config import Config, ConfigError, load_config
 
 EXIT_OK = 0
@@ -1267,6 +1267,48 @@ def cmd_setup(cfg: Config, args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# youtube
+# ---------------------------------------------------------------------------
+
+
+def cmd_youtube(args: argparse.Namespace) -> int:
+    """Управление YouTube-профилем zapret2 (ALT9 / ALT11)."""
+
+    if args.youtube_command == "status":
+        try:
+            payload = youtube.status()
+        except util.NetfixError as exc:
+            print(f"ошибка: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        if getattr(args, "json", False):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"YouTube-профиль: {payload['profile']}; "
+                f"в конфиге: {payload['config_profile']}; "
+                f"zapret2: {'active' if payload['active'] else 'не active'}"
+            )
+            if payload.get("needs_restore"):
+                print("ВНИМАНИЕ: конфиг zapret2 перезаписан — запустите linfix update")
+        return EXIT_OK
+
+    profile = "on" if args.youtube_command == "on" else args.youtube_command
+    try:
+        code, payload = util.run_helper("youtube.set_profile", ["--profile", profile], timeout=120)
+    except util.NetfixError as exc:
+        print(f"ошибка: {exc}", file=sys.stderr)
+        return EXIT_NO_RIGHTS
+    if not payload.get("ok"):
+        print("ОШИБКА: " + str(payload.get("error") or f"код {code}"), file=sys.stderr)
+        return code or EXIT_ERROR
+    print(f"YouTube-профиль {payload['profile']}")
+    if payload.get("restarted"):
+        print("zapret2 перезапущен")
+    elif not payload.get("changed"):
+        print("без изменений")
+    return EXIT_OK
+
+
 # parser
 # ---------------------------------------------------------------------------
 
@@ -1399,6 +1441,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_net_clean.add_argument("--json", action="store_true", help="JSON для GUI")
     net_sub.add_parser("show", help="показать висячие IPv6-заглушки")
 
+    p_youtube = sub.add_parser("youtube", help="профиль YouTube для zapret2")
+    youtube_sub = p_youtube.add_subparsers(dest="youtube_command", required=True)
+    p_yt_status = youtube_sub.add_parser("status", help="состояние профиля")
+    p_yt_status.add_argument("--json", action="store_true", help="JSON для GUI")
+    youtube_sub.add_parser("alt9", help="hostfakesplit + ts (рекомендуемый)")
+    youtube_sub.add_parser("alt11", help="fake ClientHello + multisplit (резерв)")
+    youtube_sub.add_parser("on", help="синоним alt9")
+    youtube_sub.add_parser("off", help="убрать профиль из конфига")
+
     p_guard = sub.add_parser("guard", help="управление guard")
     p_guard.add_argument("state", choices=["check", "status", "on", "off"])
     p_guard.add_argument("--json", action="store_true", help="JSON для GUI")
@@ -1483,6 +1534,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_net_show(cfg, args)
         if args.command == "guard":
             return cmd_guard(cfg, args)
+        if args.command == "youtube":
+            return cmd_youtube(args)
         if args.command == "profile":
             if args.profile_command == "list":
                 return cmd_profile_list(args)

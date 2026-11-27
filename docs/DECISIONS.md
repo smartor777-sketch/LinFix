@@ -1067,3 +1067,47 @@ H2 256 КБ через CF — OK, rutracker и Instagram открываются,
   передавали функцию без `cfg`, и ошибка молча проглатывалась worker'ом.
 - Тесты: успешный путь с кортежем `(0, "ok")`, путь с `(5, ...)` и проверка
   текста ошибки, вызов перезапуска из трея с конфигом.
+
+## D68. YouTube-профиль zapret2 и его восстановление (0.6.21)
+
+- Симптом: на этом компьютере `www.youtube.com`, `youtubei.googleapis.com`
+  и `redirector.googlevideo.com` отдавали `000` по таймауту, хотя
+  `www.google.com` и `i.ytimg.com` работали. На соседнем Windows-компе с
+  пресетом ALT9 YouTube работал.
+- Причина: в конфиге zapret2 для YouTube-доменов действовал общий профиль
+  `multisplit`, а рабочий Windows-пресет использует отдельное правило
+  `hostfakesplit` + `fooling=ts` + `host=www.google.com`.
+- Решение: новый модуль `youtube.py` ставит первым правилом
+  `hostfakesplit:host=www.google.com:tcp_ts=-1000:repeats=4:ip_id=zero`
+  с доменами прямо через `--hostlist-domains` (список из `list-google.txt`,
+  без отдельного файла). `tcp_ts=-1000` — аналог Windows `fooling=ts`,
+  `ip_id=zero` — аналог `--ip-id=zero`.
+- Профиль включается явно: `linfix youtube alt9|alt11|off|status` или
+  «Настройки → Профиль YouTube» в GUI. Второй профиль — ALT11, дословный
+  аналог YouTube-правила из `general (ALT11).bat` Flowseal:
+  `--blob=yt_fake_tls:@.../tls_clienthello_www_google_com.bin`,
+  `fake:blob=yt_fake_tls:tcp_ts=-600000:ip_id=zero:repeats=8` и
+  `multisplit:pos=1:seqovl=681:seqovl_pattern=yt_fake_tls:ip_id=zero`.
+  Недостаточно заменить `tcp_ts` на `-1000` и убрать `seqovl_pattern` —
+  тогда YouTube не открывается.
+- Чистый ALT11 на этом провайдере ломает локальный GGC (`000`, таймаут),
+  хотя остальные хосты работают. Поэтому в ALT11 добавлен компаньон:
+  `googlevideo.com` идёт через проверенный ALT9. Проверено, что гибрид даёт
+  `204` на всех шести целях, включая GGC `188.128.79.16` за ~0.03 с.
+- В конфиге правило помечается самими аргументами
+  (`hostfakesplit:host=www.google.com` или `yt_fake_tls`), без комментариев —
+  комментарий внутри `NFQWS2_OPT` стал бы аргументом `nfqws2`. ALT11
+  определяется раньше ALT9, потому что содержит ALT9-компаньона.
+- Выбранный профиль пишется в `/var/lib/linfix/youtube-profile`. Файл не
+  трогают ни переустановка `.deb`, ни обновление zapret, поэтому `postinst`,
+  helper-действия `restore_profile`/`install_easy` и `youtube.ensure`
+  возвращают именно выбранный профиль. Явный `off` тоже сохраняется:
+  `ensure()` не вернёт правило, которое пользователь убрал. При отсутствии
+  маркера профиль определяется по конфигу — так подхватывается правило,
+  добавленное вручную до появления этой функции.
+- Проверка: `generate_204` на YouTube/API/video — `204` за ~0.15–0.25 с;
+  локальный GGC `188.128.79.16` — `204` за ~0.03 с; страница YouTube —
+  `200`, сертификат настоящий (`CN=*.google.com`), MITM нет.
+- ALT11 оставлен как запасной вариант: это другой механизм
+  (`fake,multisplit` с фиксированным ClientHello), но в замерах он не дал
+  выигрыша — разница 0.189 с против 0.192 с у ALT9 лежит в пределах шума.

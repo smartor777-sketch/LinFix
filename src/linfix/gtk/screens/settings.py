@@ -48,8 +48,25 @@ class SettingsScreen:
         attach(6, self.autostart_switch, _("Автозапуск TgWsProxy"))
         attach(7, self.zapret2_switch, _("Автозапуск Zapret2"))
 
+        # Профиль YouTube — отдельный переключатель ALT9/ALT11. Меняем только
+        # по кнопке: переключение перезапускает zapret2.
+        self.youtube_combo = Gtk.ComboBoxText()
+        for profile_id, text in (
+            ("off", _("Выключен")),
+            ("alt9", _("ALT9 — hostfakesplit (рекомендуется)")),
+            ("alt11", _("ALT11 — fake + multisplit (резерв)")),
+        ):
+            self.youtube_combo.append(profile_id, text)
+        self.youtube_status = common.label("")
+        self.youtube_button = common.button(
+            _("Применить YouTube"), lambda _: self.apply_youtube()
+        )
+        attach(8, self.youtube_combo, _("Профиль YouTube:"))
+        self.grid.attach(self.youtube_button, 2, 8, 1, 1)
+        self.grid.attach(self.youtube_status, 1, 9, 2, 1)
+
         self.mode_status = common.label("", css_class="card-title")
-        self.grid.attach(self.mode_status, 1, 8, 1, 1)
+        self.grid.attach(self.mode_status, 1, 10, 1, 1)
 
         self.box.pack_start(self.grid, False, False, 0)
 
@@ -125,6 +142,48 @@ class SettingsScreen:
         common.message(self.app, _("Ошибка: {detail}").format(detail=exc))
         self.load()
         self._refresh_link()
+
+    def _load_youtube(self) -> None:
+        """Прочитать профиль без root — файлы состояния доступны для чтения."""
+
+        try:
+            report = api.youtube_profile_status()
+        except Exception as exc:  # noqa: BLE001 — GUI не должен падать из-за статуса
+            self.youtube_status.set_text(_("Не удалось прочитать: {err}").format(err=exc))
+            return
+        profile = str(report.get("profile") or "off")
+        if profile in {"alt9", "alt11", "off"}:
+            self.youtube_combo.set_active_id(profile)
+        self._saved_youtube = profile
+        found = str(report.get("config_profile") or "off")
+        if report.get("needs_restore"):
+            text = _("Требуется восстановление: в конфиге {profile}").format(profile=found)
+        elif found == "off":
+            text = _("Правило не задано")
+        elif report.get("active"):
+            text = _("Активен: {profile}").format(profile=found)
+        else:
+            text = _("Задан: {profile}, zapret2 не active").format(profile=found)
+        self.youtube_status.set_text(text)
+
+    def apply_youtube(self) -> None:
+        profile = self.youtube_combo.get_active_id() or "off"
+
+        def done(result) -> None:
+            code, payload = result if isinstance(result, tuple) else (0, {})
+            if code != 0 or (isinstance(payload, dict) and payload.get("ok") is False):
+                detail = payload.get("error") if isinstance(payload, dict) else str(payload)
+                common.message(self.app, detail or _("Не удалось применить профиль YouTube"))
+            else:
+                label = {"alt9": "ALT9", "alt11": "ALT11", "off": _("выключен")}.get(profile, profile)
+                common.toast(self.app, _("Профиль YouTube: {profile}").format(profile=label))
+            self._load_youtube()
+
+        self.app.run_op(
+            lambda: api.set_youtube_profile(profile),
+            on_done=done,
+            on_error=self._op_error,
+        )
 
     def on_shown(self) -> None:
         """При входе на вкладку подтянуть актуальный конфиг (мог измениться из CLI)."""
@@ -216,6 +275,7 @@ class SettingsScreen:
         self.autostart_switch.set_active((completed.stdout or "").strip() == "enabled")
         completed_zapret2 = util.run(["systemctl", "is-enabled", "zapret2"], check=False, timeout=10)
         self.zapret2_switch.set_active((completed_zapret2.stdout or "").strip() == "enabled")
+        self._load_youtube()
 
     def save(self) -> None:
         changes: dict[str, object] = {}

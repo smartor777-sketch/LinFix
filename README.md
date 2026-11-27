@@ -345,7 +345,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.6.20_all.deb
+sudo apt install ./linfix_0.6.21_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте
@@ -425,6 +425,37 @@ sudo linfix net cleanup        # убрать их
 Конкретика и обоснования — в [docs/SPEEDUP-SCAN.md](docs/SPEEDUP-SCAN.md).
 Отсевом управляет `[blockcheck] fast`, уровнем и временем —
 `[blockcheck] level` и `[blockcheck] timeout`.
+
+## YouTube через zapret
+
+На части провайдеров общий профиль `multisplit` открывает `google.com`, но не
+`youtube.com` и `youtubei.googleapis.com`. Для таких случаев есть два
+отдельных профиля (Linux-аналог пресетов из Flowseal zapret-discord-youtube):
+
+- **ALT9** (рекомендуемый) — `hostfakesplit` + `tcp_ts`, фейковый хост
+  `www.google.com`. ТСПУ видит фейк, настоящий SNI доходит до Google.
+- **ALT11** (резерв) — `fake` с готовым ClientHello `www.google.com` плюс
+  `multisplit:seqovl=681` (дословно из `general (ALT11).bat` Flowseal).
+  Другой механизм, если ТСПУ научится ломать `hostfakesplit`. Для
+  `googlevideo.com` добавляется компаньон ALT9: на этом провайдере чистый
+  ALT11 ломает локальный GGC, а с компаньоном видео работает. По замерам
+  оба профиля работают одинаково быстро.
+
+Переключатель находится в «Настройки → Профиль YouTube»: выберите ALT9,
+ALT11 или «Выключен» и нажмите «Применить YouTube». То же самое из CLI:
+
+```bash
+linfix youtube alt9    # hostfakesplit + ts (рекомендуется)
+linfix youtube alt11   # fake + multisplit (резерв)
+linfix youtube status  # выбранный профиль, конфиг, состояние zapret2
+linfix youtube off     # убрать правило из конфига
+```
+
+Список YouTube-доменов вшит в правило через `--hostlist-domains`, отдельный
+файл в `ipset` не нужен. Выбранный профиль пишется в
+`/var/lib/linfix/youtube-profile` и переживает переустановку LinFix:
+`postinst`.deb и helper возвращают правило после обновления или
+переустановки zapret2. По умолчанию конфиг zapret не меняется.
 
 ## Логи и их размер
 

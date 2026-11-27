@@ -63,6 +63,11 @@ ALLOWED_ACTIONS = {
     "zapret.restore_profile",
     "zapret.verify_candidates",
     "zapret.apply_strategy",
+    "youtube.status",
+    "youtube.set_profile",
+    "youtube.enable",
+    "youtube.disable",
+    "youtube.ensure",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -753,8 +758,19 @@ def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str,
     target = Path("/opt/zapret2" if service == "zapret2" else "/opt/zapret")
     installer = target / "install_easy.sh"
 
+    def with_youtube(code: int, payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+        # install_easy.sh может перезаписать config — вернуть профиль,
+        # если пользователь его включал.
+        from . import youtube
+
+        try:
+            payload["youtube"] = youtube.ensure()
+        except youtube.YouTubeError as exc:
+            payload["youtube"] = {"ok": False, "error": str(exc)}
+        return code, payload
+
     if getattr(args, "update", False):
-        return _update_zapret_sources(service, target, url, args)
+        return with_youtube(*_update_zapret_sources(service, target, url, args))
 
     cloned = False
     if not installer.is_file():
@@ -773,13 +789,16 @@ def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str,
     # есть в systemd — считаем zapret установленным.
     unit = util.run(["systemctl", "cat", service], check=False, timeout=10)
     if unit.returncode == 0:
-        return 0, {
-            "ok": True,
-            "service": service,
-            "target": str(target),
-            "cloned": cloned,
-            "already_installed": True,
-        }
+        return with_youtube(
+            0,
+            {
+                "ok": True,
+                "service": service,
+                "target": str(target),
+                "cloned": cloned,
+                "already_installed": True,
+            },
+        )
 
     env = dict(os.environ)
     env["ZAPRET_TARGET"] = str(target)
@@ -799,13 +818,16 @@ def action_zapret_install_easy(args: argparse.Namespace) -> tuple[int, dict[str,
             "error": f"install_easy.sh завершился с кодом {installed.returncode}",
             "output": output[-4000:],
         }
-    return 0, {
-        "ok": True,
-        "service": service,
-        "target": str(target),
-        "cloned": cloned,
-        "output": output[-4000:],
-    }
+    return with_youtube(
+        0,
+        {
+            "ok": True,
+            "service": service,
+            "target": str(target),
+            "cloned": cloned,
+            "output": output[-4000:],
+        },
+    )
 
 
 def action_zapret_set_enabled(args: argparse.Namespace) -> tuple[int, dict[str, object]]:
@@ -892,13 +914,64 @@ def action_zapret_restore_profile(
 ) -> tuple[int, dict[str, object]]:
     """Вернуть наш конфиг zapret2 и hostlists после обновления."""
 
-    from . import updates
+    from . import updates, youtube
 
     try:
         result = updates.restore_profile()
     except updates.UpdateError as exc:
         return 5, {"ok": False, "error": str(exc)}
+    # Конфиг restored, но YouTube-правило могло быть выброшено новой
+    # версией zapret. Возвращаем его, если пользователь его включал.
+    try:
+        result["youtube"] = youtube.ensure()
+    except youtube.YouTubeError as exc:
+        result["youtube"] = {"ok": False, "error": str(exc)}
     return 0, {"ok": True, **result}
+
+
+def action_youtube_status(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    from . import youtube
+
+    return 0, youtube.status()
+
+
+def action_youtube_profile(
+    args: argparse.Namespace, *, profile: str | None = None
+) -> tuple[int, dict[str, object]]:
+    from . import youtube
+
+    value = profile if profile is not None else str(getattr(args, "profile", "") or "")
+    try:
+        result = youtube.set_profile(value)
+    except youtube.YouTubeError as exc:
+        return 5, {"ok": False, "error": str(exc)}
+    return (0 if result.get("ok") else 5), result
+
+
+def action_youtube_set(
+    args: argparse.Namespace, *, enabled: bool
+) -> tuple[int, dict[str, object]]:
+    from . import youtube
+
+    try:
+        result = youtube.set_enabled(enabled)
+    except youtube.YouTubeError as exc:
+        return 5, {"ok": False, "error": str(exc)}
+    return (0 if result.get("ok") else 5), result
+
+
+def action_youtube_ensure(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, object]]:
+    from . import youtube
+
+    try:
+        result = youtube.ensure(restart=True)
+    except youtube.YouTubeError as exc:
+        return 5, {"ok": False, "error": str(exc)}
+    return (0 if result.get("ok") else 5), result
 
 
 def action_net_clear_ipv6_blackholes(
@@ -1318,6 +1391,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="обновить существующую установку zapret (исходники и бинарники)",
     )
+    parser.add_argument("--profile", default="", help="профиль YouTube: alt9 | alt11 | off")
     parser.add_argument("--asset", default="", help="имя релизного архива zapret2")
     parser.add_argument("--asset-url", default="", help="прямая ссылка на архив")
     parser.add_argument("--zapret-version", default="", help="версия zapret2 для записи")
@@ -1417,6 +1491,16 @@ def main(argv: list[str] | None = None) -> int:
             code, payload = action_zapret_save_profile(args)
         elif args.action == "zapret.restore_profile":
             code, payload = action_zapret_restore_profile(args)
+        elif args.action == "youtube.status":
+            code, payload = action_youtube_status(args)
+        elif args.action == "youtube.set_profile":
+            code, payload = action_youtube_profile(args)
+        elif args.action == "youtube.enable":
+            code, payload = action_youtube_set(args, enabled=True)
+        elif args.action == "youtube.disable":
+            code, payload = action_youtube_set(args, enabled=False)
+        elif args.action == "youtube.ensure":
+            code, payload = action_youtube_ensure(args)
         elif args.action == "zapret.set_enabled":
             code, payload = action_zapret_set_enabled(args)
         elif args.action == "zapret.install_easy":
@@ -1466,6 +1550,20 @@ def main(argv: list[str] | None = None) -> int:
             f"guard {state_label}: {payload['path']}"
             + (f" (бэкап: {payload['backup']})" if payload.get("backup") else "")
         )
+    elif args.action.startswith("youtube."):
+        name = str(payload.get("profile") or ("off" if not payload.get("enabled") else "—"))
+        detail = ""
+        if payload.get("config_profile") and payload.get("config_profile") != name:
+            detail += f", в конфиге: {payload['config_profile']}"
+        if payload.get("changed"):
+            detail += ", конфиг изменён"
+        if payload.get("restarted"):
+            detail += ", zapret перезапущен"
+        if payload.get("skipped"):
+            detail += ", профиль не включался"
+        print(f"YouTube-профиль: {name}{detail}")
+        if payload.get("error"):
+            print(payload["error"], file=sys.stderr)
     elif args.action in {"profile.set", "profile.clear", "profile.apply"}:
         if args.action == "profile.apply":
             print(f"profile {payload['uuid']}: {payload['name']} ({payload['strategy']})")
