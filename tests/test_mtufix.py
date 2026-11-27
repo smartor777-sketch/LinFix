@@ -19,7 +19,7 @@ class StateTests(unittest.TestCase):
     def test_reads_interface_and_mtu(self) -> None:
         def fake_run(cmd, **_kwargs):
             if "route" in cmd:
-                return _cp("104.21.32.39 via 192.168.3.1 dev wlo1 src 192.168.3.11\n")
+                return _cp("104.21.32.39 via 192.0.2.1 dev wlo1 src 192.0.2.11\n")
             if "link" in cmd:
                 return _cp("2: wlo1: <BROADCAST> mtu 1500 qdisc noqueue state UP\n")
             return _cp()

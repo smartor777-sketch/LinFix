@@ -250,11 +250,11 @@ zapret2. Поэтому в M1 нужен `state.json` с нашим источн
 ## 8. Сеть и VPN
 
 ```
-wlo1   192.168.1.100/24
+wlo1   <локальный-IP>/24
 vpn0   10.8.0.2/32  (tun, mtu 1400)
 
 0.0.0.0/1     dev vpn0  metric 1
-default       via 192.168.1.1 dev wlo1 metric 600
+default       via <шлюз> dev wlo1 metric 600
 10.8.0.0/24   dev vpn0
 128.0.0.0/1   dev vpn0  metric 1
 ```
@@ -281,7 +281,7 @@ kws4.pclead.co.uk  OK TLSv1.3 0.50 с
 ```
 $ ip -brief addr
 lo    127.0.0.1/8
-wlo1  192.168.1.100/24
+wlo1  <локальный-IP>/24
 # vpn0 исчез, маршрутов 0.0.0.0/1 и 128.0.0.0/1 больше нет
 ```
 

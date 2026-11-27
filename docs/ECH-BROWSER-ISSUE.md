@@ -51,11 +51,11 @@ $ ss -tni | grep -A1 ':443'
 
 ```
 # Firefox — ClientHello висит, сервер молчит
-ESTAB 0 1832 192.168.3.11:55110 172.67.182.196:443
+ESTAB 0 1832 <локальный-IP>:55110 172.67.182.196:443
    mss:512 cwnd:1 bytes_sent:7976 bytes_retrans:6144 bytes_acked:1
 
 # curl — нормальное соединение
-ESTAB 0 0 192.168.3.11:49886 172.67.182.196:443
+ESTAB 0 0 <локальный-IP>:49886 172.67.182.196:443
    mss:1388 cwnd:10 bytes_sent:799 bytes_acked:776
 ```
 

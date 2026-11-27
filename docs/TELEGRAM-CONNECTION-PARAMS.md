@@ -18,10 +18,10 @@ Telegram-клиент (MTProto)
 | Источник | Что дал |
 |---|---|
 | `C:\Program Files\NetFix\settings.json` | пути к zapret и TgWsProxy, общие флаги |
-| `C:\Users\Alex\AppData\Roaming\NetFix\settings.json` | актуальные флаги включения, активные моды |
-| `C:\Users\Alex\AppData\Roaming\TgWsProxy\config.json` | активная конфигурация прокси |
-| `C:\Users\Alex\AppData\Roaming\TgWsProxy\proxy.log` | запуск 21.11.2026 16:40:44, строка `Connect:`, факты роутинга |
-| `C:\Users\Alex\AppData\Roaming\NetFix\zapret_configs.json` | сохранённые конфигурации zapret |
+| `%APPDATA%\NetFix\settings.json` | актуальные флаги включения, активные моды |
+| `%APPDATA%\TgWsProxy\config.json` | активная конфигурация прокси |
+| `%APPDATA%\TgWsProxy\proxy.log` | запуск 21.11.2026 16:40:44, строка `Connect:`, факты роутинга |
+| `%APPDATA%\NetFix\zapret_configs.json` | сохранённые конфигурации zapret |
 
 Процессы на момент снимка: `NetFix.exe`, `winws.exe`, 2 × `TgWsProxy.exe` (запущены 21.11.2026 16:40–16:41).
 
@@ -33,7 +33,7 @@ Telegram-клиент (MTProto)
 |---|---|
 | `host` | `127.0.0.1` |
 | `port` | `1080` |
-| `secret` | `019b15e32644ccd7be33170d9eef1f4b` |
+| `secret` | `<REDACTED — сгенерировать заново>` |
 | `dc_ip` | `2:149.154.167.220`, `4:149.154.167.220` |
 | `cfproxy` | `true` (авто) |
 | `cfproxy_user_domain` | `[]` |
@@ -56,7 +56,7 @@ Telegram-клиент (MTProto)
 ### Готовая ссылка для Telegram-клиента
 
 ```
-tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
+tg://proxy?server=127.0.0.1&port=1080&secret=dd<REDACTED>
 ```
 
 Ссылка локальная: работает только пока на этом ПК запущен TgWsProxy и слушает `127.0.0.1:1080`.
@@ -111,7 +111,7 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
 
 ## Интеграция с NetFix
 
-Из `C:\Users\Alex\AppData\Roaming\NetFix\settings.json`:
+Из `%APPDATA%\NetFix\settings.json`:
 
 | Параметр | Значение |
 |---|---|
@@ -135,5 +135,5 @@ tg://proxy?server=127.0.0.1&port=1080&secret=dd019b15e32644ccd7be33170d9eef1f4b
 
 ## Важно
 
-- `secret` в `tg://`-ссылке — это credential. Файл лежит в приватном репозитории, но при публикации/шаринге его нужно отозвать и сгенерировать новый (`openssl rand -hex 16` -> префикс `dd`).
+- `secret` в `tg://`-ссылке — это credential. В публичной версии он заменён на `<REDACTED>`; если он уже использовался, отзовите его и сгенерируйте новый (`openssl rand -hex 16` -> префикс `dd`).
 - Значения `dc_ip`, `secret` и пул доменов могут меняться через UI TgWsProxy/NetFix — при изменении обновить этот снимок.
