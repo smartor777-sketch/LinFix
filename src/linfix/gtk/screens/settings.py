@@ -44,9 +44,12 @@ class SettingsScreen:
         attach(2, self.verbose_switch, _("Логирование verbose"))
         attach(3, self.log_max_entry, _("Размер лога, МБ:"))
         attach(4, self.mode_combo, _("Режим TgWsProxy:"))
-        attach(5, self.guard_switch, _("Guard"))
-        attach(6, self.autostart_switch, _("Автозапуск TgWsProxy"))
-        attach(7, self.zapret2_switch, _("Автозапуск Zapret2"))
+        # Статус работающего режима — сразу под выбором режима.
+        self.mode_status = common.label("", css_class="card-title")
+        self.grid.attach(self.mode_status, 1, 5, 2, 1)
+        attach(6, self.guard_switch, _("Guard"))
+        attach(7, self.autostart_switch, _("Автозапуск TgWsProxy"))
+        attach(8, self.zapret2_switch, _("Автозапуск Zapret2"))
 
         # Профиль YouTube — отдельный переключатель ALT9/ALT11. Меняем только
         # по кнопке: переключение перезапускает zapret2.
@@ -61,12 +64,9 @@ class SettingsScreen:
         self.youtube_button = common.button(
             _("Применить YouTube"), lambda _: self.apply_youtube()
         )
-        attach(8, self.youtube_combo, _("Профиль YouTube:"))
-        self.grid.attach(self.youtube_button, 2, 8, 1, 1)
-        self.grid.attach(self.youtube_status, 1, 9, 2, 1)
-
-        self.mode_status = common.label("", css_class="card-title")
-        self.grid.attach(self.mode_status, 1, 10, 1, 1)
+        attach(9, self.youtube_combo, _("Профиль YouTube:"))
+        self.grid.attach(self.youtube_button, 2, 9, 1, 1)
+        self.grid.attach(self.youtube_status, 1, 10, 2, 1)
 
         self.box.pack_start(self.grid, False, False, 0)
 

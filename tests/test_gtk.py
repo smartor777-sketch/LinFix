@@ -409,6 +409,19 @@ class LayoutTests(unittest.TestCase):
         )
         app.window.destroy()
 
+    def test_mode_status_is_directly_below_mode_combo(self) -> None:
+        from linfix.gtk.app import NetFixApp
+        from linfix.gtk.screens.settings import SettingsScreen
+
+        app = NetFixApp()
+        screen = SettingsScreen(app)
+        combo_top = screen.grid.child_get(screen.mode_combo, "top-attach")
+        status_top = screen.grid.child_get(screen.mode_status, "top-attach")
+        self.assertEqual(status_top[0], combo_top[0] + 1)
+        self.assertEqual(
+            screen.grid.child_get(screen.mode_status, "left-attach"), [1]
+        )
+
     def test_switching_sections_scrolls_to_top(self) -> None:
         from linfix.gtk.app import NetFixApp
         import time
