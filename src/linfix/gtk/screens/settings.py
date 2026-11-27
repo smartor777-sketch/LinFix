@@ -68,6 +68,9 @@ class SettingsScreen:
         self.grid.attach(self.youtube_button, 2, 9, 1, 1)
         self.grid.attach(self.youtube_status, 1, 10, 2, 1)
 
+        # Показываем последствия выбора сразу, не дожидаясь «Сохранить».
+        self.mode_combo.connect("changed", self._on_mode_changed)
+
         self.box.pack_start(self.grid, False, False, 0)
 
         # Кнопки управления службами (перенесены из «Статус»).
@@ -246,28 +249,51 @@ class SettingsScreen:
         self.mode_combo.set_active_id(str(mode))
         self._saved_mode = str(mode)
         # Конфиг может говорить одно, а работать — другое (старый процесс).
-        self._running_mode = tgws.running_mode()
         self._update_mode_status()
 
-    def _update_mode_status(self) -> None:
-        saved = self.mode_combo.get_active_id() or tgws.MODE_TRAY
-        running = tgws.running_mode()
-        self._running_mode = running
+    @staticmethod
+    def _mode_name(mode: str) -> str:
+        return _("трей") if mode == tgws.MODE_TRAY else _("CLI")
+
+    def _refresh_mode_status(self) -> None:
+        """Перерисовать статус по текущему выбору и последнему опросу службы."""
+
+        selected = self.mode_combo.get_active_id() or tgws.MODE_TRAY
+        running = getattr(self, "_running_mode", None)
         if running is None:
             self.mode_status.set_text(_("Служба не запущена"))
-        elif running == saved:
+        elif running == selected:
             self.mode_status.set_text(
-                _("Работает: {mode}").format(
-                    mode=_("трей") if running == tgws.MODE_TRAY else _("CLI")
+                _("Работает: {mode}").format(mode=self._mode_name(running))
+            )
+        elif selected != getattr(self, "_saved_mode", selected):
+            self.mode_status.set_text(
+                _(
+                    "Выбран {selected} (не сохранено), работает {running} — "
+                    "нажмите «Сохранить»"
+                ).format(
+                    selected=self._mode_name(selected),
+                    running=self._mode_name(running),
                 )
             )
         else:
             self.mode_status.set_text(
                 _("Выбран {saved}, но работает {running} — нужен перезапуск").format(
-                    saved=saved,
-                    running=_("трей") if running == tgws.MODE_TRAY else _("CLI"),
+                    saved=self._mode_name(selected),
+                    running=self._mode_name(running),
                 )
             )
+
+    def _on_mode_changed(self, _combo: Gtk.ComboBoxText | None = None) -> None:
+        if hasattr(self, "_running_mode"):
+            self._refresh_mode_status()
+
+    def _refresh_running_mode(self) -> None:
+        self._running_mode = tgws.running_mode()
+        self._refresh_mode_status()
+
+    def _update_mode_status(self) -> None:
+        self._refresh_running_mode()
         self.guard_switch.set_active(bool(self.app.cfg.guard.enabled))
         timer = util.run(["systemctl", "--user", "is-enabled", guard.timer_unit()], check=False, timeout=10)
         self._guard_timer_state = (timer.stdout or "").strip() or "disabled"
@@ -309,7 +335,7 @@ class SettingsScreen:
                 common.message(self.app, str(mode_payload.get("error", _("Ошибка"))))
                 return
             self._saved_mode = str(mode)
-            self._running_mode = tgws.running_mode()
+            self._refresh_running_mode()
             if not mode_payload.get("restarted"):
                 common.toast(
                     self.app,
@@ -347,3 +373,7 @@ class SettingsScreen:
             common.message(self.app, "\n\n".join(problems))
         else:
             common.toast(self.app, _("Настройки сохранены"))
+
+        # Служба могла перезапуститься (в том числе из-за смены режима) —
+        # переспрашиваем реальный режим, иначе надпись останется старой.
+        self._refresh_running_mode()

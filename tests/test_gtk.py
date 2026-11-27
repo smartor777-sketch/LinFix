@@ -455,6 +455,57 @@ class LayoutTests(unittest.TestCase):
         app.window.destroy()
 
 
+class ModeStatusTests(unittest.TestCase):
+    """Статус режима должен следовать за выбором и результатом сохранения."""
+
+    def test_combo_change_shows_pending_mode(self) -> None:
+        from linfix.gtk.app import NetFixApp
+        from linfix.gtk.screens.settings import SettingsScreen
+
+        app = NetFixApp()
+        with (
+            patch("linfix.gtk.screens.settings.tgws.detect_mode", return_value="tray"),
+            patch("linfix.gtk.screens.settings.tgws.running_mode", return_value="tray"),
+        ):
+            screen = SettingsScreen(app)
+            self.assertEqual(screen.mode_status.get_text(), _("Работает: трей"))
+            screen.mode_combo.set_active_id("cli")
+            text = screen.mode_status.get_text()
+            self.assertIn("CLI", text)
+            self.assertNotEqual(text, _("Работает: трей"))
+
+    def test_save_refreshes_status_to_new_running_mode(self) -> None:
+        from linfix.gtk.app import NetFixApp
+        from linfix.gtk.screens.settings import SettingsScreen
+
+        app = NetFixApp()
+        with (
+            patch("linfix.gtk.screens.settings.tgws.detect_mode", return_value="tray"),
+            patch(
+                "linfix.gtk.screens.settings.tgws.running_mode",
+                side_effect=["tray", "tray", "cli", "cli"],
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.set_tgws_config",
+                return_value=(0, {"ok": True}),
+            ),
+            patch(
+                "linfix.gtk.screens.settings.api.set_tgws_mode",
+                return_value=(0, {"ok": True, "restarted": True}),
+            ) as set_mode,
+            patch("linfix.gtk.screens.settings.api.toggle_guard", return_value=(0, "ok")),
+            patch("linfix.gtk.screens.settings.api.enable_autostart", return_value=(0, "ok")),
+            patch("linfix.gtk.screens.settings.api.set_zapret2_autostart", return_value=(0, "ok")),
+            patch("linfix.gtk.screens.settings.api.start_tgws", return_value=(0, "ok")),
+            patch("linfix.gtk.screens.settings.api.start_zapret", return_value=(0, "ok")),
+        ):
+            screen = SettingsScreen(app)
+            screen.mode_combo.set_active_id("cli")
+            screen.save()
+            self.assertEqual(set_mode.call_count, 1)
+            self.assertEqual(screen.mode_status.get_text(), _("Работает: CLI"))
+
+
 class LogsLayoutTests(unittest.TestCase):
     def test_search_bar_above_log_view(self) -> None:
         from linfix.gtk.app import NetFixApp
