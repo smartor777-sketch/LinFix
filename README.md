@@ -141,7 +141,8 @@ TLS-тест провален** — одного всплеска ошибок �
 С 0.5.11 Guard также ловит сломанный H2-путь к Cloudflare: если CF
 открывает H2-канал, но не отдаёт заголовки ответа (медиа в Telegram не
 грузится), Guard сам выключает H2 и перезапускает прокси на рабочий WS-CF
-путь. Подробности: [docs/GUARD.md](docs/GUARD.md).
+путь. Краткую справку можно открыть кнопкой «?» рядом с Guard в
+«Настройках». Подробности: [docs/GUARD.md](docs/GUARD.md).
 
 ## Медиа Telegram: профиль zapret для CF
 
@@ -345,7 +346,7 @@ linfix guard on|off   # переключить
 ### Из .deb
 
 ```bash
-sudo apt install ./linfix_0.6.24_all.deb
+sudo apt install ./linfix_0.6.25_all.deb
 ```
 
 Затем запустите **LinFix** из меню (или `linfix-gui`), откройте

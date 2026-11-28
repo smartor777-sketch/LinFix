@@ -47,7 +47,24 @@ class SettingsScreen:
         # Статус работающего режима — сразу под выбором режима.
         self.mode_status = common.label("", css_class="card-title")
         self.grid.attach(self.mode_status, 1, 5, 2, 1)
-        attach(6, self.guard_switch, _("Guard"))
+
+        # Guard: подсказка по кнопке «?» прямо рядом с подписью.
+        guard_label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        guard_label_box.pack_start(
+            Gtk.Label(label=_("Guard"), halign=Gtk.Align.START), False, False, 0
+        )
+        self.guard_info_button = Gtk.Button(label="?")
+        self.guard_info_button.set_tooltip_text(_("Что такое Guard?"))
+        self.guard_info_popover = Gtk.Popover()
+        self.guard_info_popover.set_relative_to(self.guard_info_button)
+        info_label = common.label(self._guard_info_text(), wrap=True)
+        info_label.set_max_width_chars(70)
+        self.guard_info_popover.add(info_label)
+        self.guard_info_button.connect("clicked", self._show_guard_info)
+        guard_label_box.pack_start(self.guard_info_button, False, False, 0)
+        self.grid.attach(guard_label_box, 0, 6, 1, 1)
+        self.grid.attach(self.guard_switch, 1, 6, 1, 1)
+
         attach(7, self.autostart_switch, _("Автозапуск TgWsProxy"))
         attach(8, self.zapret2_switch, _("Автозапуск Zapret2"))
 
@@ -250,6 +267,38 @@ class SettingsScreen:
         self._saved_mode = str(mode)
         # Конфиг может говорить одно, а работать — другое (старый процесс).
         self._update_mode_status()
+
+    @staticmethod
+    def _guard_info_text() -> str:
+        return "\n\n".join(
+            (
+                _(
+                    "Guard — предохранитель для TgWsProxy/Telegram, "
+                    "не для YouTube и не для zapret."
+                ),
+                _(
+                    "Раз в минуту читает новые строки proxy.log и считает "
+                    "«CF proxy failed» (порог 20 за 60 с). Если порог превышен, "
+                    "проверяет TLS к CF-доменам и останавливает прокси только "
+                    "при ошибках И провале TLS. Иначе — только предупреждение."
+                ),
+                _(
+                    "С 0.5.11 ловит сломанный H2: 5 зависаний плюс провал живого "
+                    "запроса выключают H2 и перезапускают прокси на WS-CF — "
+                    "Telegram остаётся включённым. Ещё следит за висячими "
+                    "IPv6-заглушками без VPN."
+                ),
+                _(
+                    "Зачем: при падении CF-пути клиент переподключается в цикле "
+                    "и забивает канал; Guard останавливает прокси, чтобы сеть "
+                    "не тормозила. Если выключить, автоматической защиты нет."
+                ),
+                _("CLI: linfix guard status|check|on|off. Подробности: docs/GUARD.md"),
+            )
+        )
+
+    def _show_guard_info(self, _button: Gtk.Button) -> None:
+        self.guard_info_popover.popup()
 
     @staticmethod
     def _mode_name(mode: str) -> str:

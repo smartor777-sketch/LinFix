@@ -506,6 +506,24 @@ class ModeStatusTests(unittest.TestCase):
             self.assertEqual(screen.mode_status.get_text(), _("Работает: CLI"))
 
 
+class GuardInfoTests(unittest.TestCase):
+    """Кнопка «?» рядом с Guard открывает popup с объяснением."""
+
+    def test_question_button_opens_guard_popover(self) -> None:
+        from linfix.gtk.app import NetFixApp
+        from linfix.gtk.screens.settings import SettingsScreen
+
+        screen = SettingsScreen(NetFixApp())
+        self.assertEqual(screen.guard_info_button.get_label(), "?")
+        self.assertFalse(screen.guard_info_popover.get_visible())
+        screen.guard_info_button.emit("clicked")
+        self.assertTrue(screen.guard_info_popover.get_visible())
+        text = screen.guard_info_popover.get_children()[0].get_text()
+        self.assertIn("Guard", text)
+        self.assertIn("CF proxy failed", text)
+        screen.guard_info_popover.popdown()
+
+
 class LogsLayoutTests(unittest.TestCase):
     def test_search_bar_above_log_view(self) -> None:
         from linfix.gtk.app import NetFixApp
