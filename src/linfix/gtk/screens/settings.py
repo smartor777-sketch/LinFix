@@ -48,18 +48,22 @@ class SettingsScreen:
         self.mode_status = common.label("", css_class="card-title")
         self.grid.attach(self.mode_status, 1, 5, 2, 1)
 
-        # Guard: подсказка по кнопке «?» прямо рядом с подписью.
+        # Guard: подсказка по кнопке «❓» прямо рядом с подписью.
         guard_label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         guard_label_box.pack_start(
             Gtk.Label(label=_("Guard"), halign=Gtk.Align.START), False, False, 0
         )
-        self.guard_info_button = Gtk.Button(label="?")
+        self.guard_info_button = Gtk.Button(label="❓")
         self.guard_info_button.set_tooltip_text(_("Что такое Guard?"))
         self.guard_info_popover = Gtk.Popover()
         self.guard_info_popover.set_relative_to(self.guard_info_button)
         info_label = common.label(self._guard_info_text(), wrap=True)
         info_label.set_max_width_chars(70)
         self.guard_info_popover.add(info_label)
+        # GTK3 не показывает детей Popover автоматически — без show()
+        # окно открывается, но остаётся пустым. Не вызываем show_all()
+        # на самом Popover, иначе он станет видимым до нажатия «❓».
+        info_label.show()
         self.guard_info_button.connect("clicked", self._show_guard_info)
         guard_label_box.pack_start(self.guard_info_button, False, False, 0)
         self.grid.attach(guard_label_box, 0, 6, 1, 1)
