@@ -518,9 +518,11 @@ class GuardInfoTests(unittest.TestCase):
         self.assertFalse(screen.guard_info_popover.get_visible())
         screen.guard_info_button.emit("clicked")
         self.assertTrue(screen.guard_info_popover.get_visible())
-        child = screen.guard_info_popover.get_children()[0]
-        self.assertTrue(child.get_visible())
-        text = child.get_text()
+        box = screen.guard_info_popover.get_children()[0]
+        self.assertTrue(box.get_visible())
+        self.assertEqual(box.get_margin_start(), 12)
+        self.assertEqual(box.get_margin_top(), 12)
+        text = box.get_children()[0].get_text()
         self.assertIn("Guard", text)
         self.assertIn("CF proxy failed", text)
         screen.guard_info_popover.popdown()

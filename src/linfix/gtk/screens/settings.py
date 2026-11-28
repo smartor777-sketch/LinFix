@@ -59,11 +59,18 @@ class SettingsScreen:
         self.guard_info_popover.set_relative_to(self.guard_info_button)
         info_label = common.label(self._guard_info_text(), wrap=True)
         info_label.set_max_width_chars(70)
-        self.guard_info_popover.add(info_label)
-        # GTK3 не показывает детей Popover автоматически — без show()
-        # окно открывается, но остаётся пустым. Не вызываем show_all()
-        # на самом Popover, иначе он станет видимым до нажатия «❓».
-        info_label.show()
+        # Отступы внутри popup: текст не должен прилипать к краям окна.
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        info_box.set_margin_start(12)
+        info_box.set_margin_end(12)
+        info_box.set_margin_top(12)
+        info_box.set_margin_bottom(12)
+        info_box.pack_start(info_label, False, False, 0)
+        self.guard_info_popover.add(info_box)
+        # GTK3 не показывает детей Popover автоматически — без show_all()
+        # на контейнере окно открывается, но остаётся пустым. Не вызываем
+        # show_all() на самом Popover: он станет виден ещё до нажатия «❓».
+        info_box.show_all()
         self.guard_info_button.connect("clicked", self._show_guard_info)
         guard_label_box.pack_start(self.guard_info_button, False, False, 0)
         self.grid.attach(guard_label_box, 0, 6, 1, 1)
